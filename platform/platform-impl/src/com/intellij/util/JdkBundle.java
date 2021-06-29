@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.execution.ExecutionException;
@@ -11,6 +11,7 @@ import com.intellij.openapi.projectRoots.JdkUtil;
 import com.intellij.openapi.util.Bitness;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.JdkVersionDetector;
@@ -18,6 +19,13 @@ import org.jetbrains.jps.model.java.JdkVersionDetector.JdkVersionInfo;
 
 import java.io.File;
 
+/**
+ * No longer used in the platform. Most of the functionality is covered by {@link SystemProperties#getJavaHome()},
+ * {@link PathManager#getBundledRuntimePath()}, and {@link JdkVersionDetector}.
+ */
+@Deprecated(forRemoval = true)
+@ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+@SuppressWarnings("ALL")
 public final class JdkBundle {
   private static final String BUNDLED_JDK_DIR_NAME = "jbr";
 
@@ -35,18 +43,15 @@ public final class JdkBundle {
     myJdk = jdk;
   }
 
-  @NotNull
-  public File getLocation() {
+  public @NotNull File getLocation() {
     return myLocation;
   }
 
-  @NotNull
-  public JavaVersion getBundleVersion() {
+  public @NotNull JavaVersion getBundleVersion() {
     return myVersionInfo.version;
   }
 
-  @NotNull
-  public Bitness getBitness() {
+  public @NotNull Bitness getBitness() {
     return myVersionInfo.bitness;
   }
 
@@ -62,13 +67,11 @@ public final class JdkBundle {
     return myJdk;
   }
 
-  @NotNull
-  public File getHome() {
+  public @NotNull File getHome() {
     return getVMExecutable().getParentFile().getParentFile();
   }
 
-  @NotNull
-  public File getVMExecutable() {
+  public @NotNull File getVMExecutable() {
     File home = myLocation;
     if (SystemInfo.isMac) {
       File contents = new File(home, "Contents/Home");
@@ -101,22 +104,18 @@ public final class JdkBundle {
     }
   }
 
-
-  @NotNull
-  public static JdkBundle createBoot() {
+  public static @NotNull JdkBundle createBoot() {
     File home = new File(SystemProperties.getJavaHome());
     JdkBundle bundle = createBundle(home, true);
     assert bundle != null : home;
     return bundle;
   }
 
-  @Nullable
-  public static JdkBundle createBundled() {
+  public static @Nullable JdkBundle createBundled() {
     return createBundle(new File(PathManager.getHomePath(), BUNDLED_JDK_DIR_NAME), false);
   }
 
-  @Nullable
-  public static JdkBundle createBundle(@NotNull File bundleHome) {
+  public static @Nullable JdkBundle createBundle(@NotNull File bundleHome) {
     return createBundle(bundleHome, false);
   }
 
@@ -143,14 +142,14 @@ public final class JdkBundle {
 
     JdkVersionInfo versionInfo;
     if (boot) {
-      versionInfo = new JdkVersionInfo(JavaVersion.current(), SystemInfo.is64Bit ? Bitness.x64 : Bitness.x32);
+      versionInfo = new JdkVersionInfo(JavaVersion.current(), SystemInfo.is64Bit ? Bitness.x64 : Bitness.x32, null);
     }
     else {
       versionInfo = JdkVersionDetector.getInstance().detectJdkVersionInfo(actualHome.getPath());
     }
     if (versionInfo != null) {
       boolean bundled = PathManager.isUnderHomeDirectory(bundleHome.getPath());
-      boolean jdk = JdkUtil.checkForJdk(actualHome);
+      boolean jdk = JdkUtil.checkForJdk(actualHome.toPath());
       return new JdkBundle(bundleHome, versionInfo, boot, bundled, jdk);
     }
 

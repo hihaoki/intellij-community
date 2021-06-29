@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.actions;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -7,8 +7,8 @@ import com.intellij.codeInsight.lookup.LookupEx;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.ide.IdeEventQueue;
-import com.intellij.internal.statistic.eventLog.FeatureUsageData;
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
+import com.intellij.internal.statistic.eventLog.events.EventFields;
+import com.intellij.internal.statistic.eventLog.events.EventPair;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.*;
@@ -27,6 +27,7 @@ import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.rename.inplace.InplaceRefactoring;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -105,7 +106,7 @@ public abstract class BaseRefactoringAction extends AnAction implements UpdateIn
     }
     IdeEventQueue.getInstance().setEventCount(eventCount);
 
-    performRefactoringAction(project, dataContext, handler);
+    SlowOperations.allowSlowOperations(() -> performRefactoringAction(project, dataContext, handler));
   }
 
   @ApiStatus.Internal
@@ -122,7 +123,7 @@ public abstract class BaseRefactoringAction extends AnAction implements UpdateIn
 
     final PsiElement[] elements = getPsiElementArray(dataContext);
     InplaceRefactoring activeInplaceRenamer = InplaceRefactoring.getActiveInplaceRenamer(editor);
-    if (!InplaceRefactoring.canStartAnotherRefactoring(editor, project, handler, elements) && activeInplaceRenamer != null) {
+    if (activeInplaceRenamer != null && !InplaceRefactoring.canStartAnotherRefactoring(editor, handler, elements)) {
       InplaceRefactoring.unableToStartWarning(project, editor);
       return;
     }
@@ -141,14 +142,14 @@ public abstract class BaseRefactoringAction extends AnAction implements UpdateIn
     final Language language = file != null
                               ? file.getLanguage()
                               : (elements.length > 0 ? elements[0].getLanguage() : null);
-    FeatureUsageData data = new FeatureUsageData()
-      .addData("handler", handler.getClass().getName())
-      .addLanguage(language);
+    ArrayList<EventPair<?>> data = new ArrayList<>();
+    data.add(RefactoringUsageCollector.HANDLER.with(handler.getClass()));
+    data.add(EventFields.Language.with(language));
     if (elements.length > 0) {
-      data.addData("element", elements[0].getClass().getName());
+      data.add(RefactoringUsageCollector.ELEMENT.with(elements[0].getClass()));
     }
 
-    FUCounterUsageLogger.getInstance().logEvent(project, "refactoring", "handler.invoked", data);
+    RefactoringUsageCollector.HANDLER_INVOKED.log(project, data);
 
     if (editor != null) {
       if (file == null) return;

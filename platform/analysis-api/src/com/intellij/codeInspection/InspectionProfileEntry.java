@@ -24,13 +24,10 @@ import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.SerializationFilter;
 import com.intellij.util.xmlb.annotations.Property;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jdom.Element;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.io.BufferedReader;
@@ -63,7 +60,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return !suppressors.isEmpty() && isSuppressedFor(element, suppressors);
   }
 
-  private boolean isSuppressedFor(@NotNull PsiElement element, Set<InspectionSuppressor> suppressors) {
+  private boolean isSuppressedFor(@NotNull PsiElement element, Set<? extends InspectionSuppressor> suppressors) {
     String toolId = getSuppressId();
     for (InspectionSuppressor suppressor : suppressors) {
       if (isSuppressed(toolId, suppressor, element)) {
@@ -75,7 +72,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return merger != null && isSuppressedForMerger(element, suppressors, merger);
   }
 
-  private static boolean isSuppressedForMerger(PsiElement element, Set<InspectionSuppressor> suppressors, InspectionElementsMerger merger) {
+  private static boolean isSuppressedForMerger(PsiElement element, Set<? extends InspectionSuppressor> suppressors, InspectionElementsMerger merger) {
     String[] suppressIds = merger.getSuppressIds();
     String[] sourceToolIds = suppressIds.length != 0 ? suppressIds : merger.getSourceToolNames();
     for (String sourceToolId : sourceToolIds) {
@@ -101,9 +98,12 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     if (element == null) {
       return SuppressQuickFix.EMPTY_ARRAY;
     }
-    Set<SuppressQuickFix> fixes = new THashSet<>(new TObjectHashingStrategy<SuppressQuickFix>() {
+    Set<SuppressQuickFix> fixes = new ObjectOpenCustomHashSet<>(new Hash.Strategy<>() {
       @Override
-      public int computeHashCode(SuppressQuickFix object) {
+      public int hashCode(@Nullable SuppressQuickFix object) {
+        if (object == null) {
+          return 0;
+        }
         int result = object instanceof InjectionAwareSuppressQuickFix
                      ? ((InjectionAwareSuppressQuickFix)object).isShouldBeAppliedToInjectionHost().hashCode()
                      : 0;
@@ -112,6 +112,13 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
 
       @Override
       public boolean equals(SuppressQuickFix o1, SuppressQuickFix o2) {
+        if (o1 == o2) {
+          return true;
+        }
+        if (o1 == null || o2 == null) {
+          return false;
+        }
+
         if (o1 instanceof InjectionAwareSuppressQuickFix && o2 instanceof InjectionAwareSuppressQuickFix) {
           if (((InjectionAwareSuppressQuickFix)o1).isShouldBeAppliedToInjectionHost() !=
               ((InjectionAwareSuppressQuickFix)o2).isShouldBeAppliedToInjectionHost()) {
@@ -318,6 +325,8 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
 
   /**
    * This method is called each time UI is shown.
+   * To get correct spacing, return a JComponent with empty insets using Kotlin UI DSL
+   * or {@link com.intellij.codeInspection.ui.InspectionOptionsPanel}.
    *
    * @return {@code null} if no UI options required.
    */
@@ -418,8 +427,9 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    *
    * @return serialization filter.
    */
-  @SuppressWarnings({"DeprecatedIsStillUsed"})
+  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected @Nullable SerializationFilter getSerializationFilter() {
     return XmlSerializer.getJdomSerializer().getDefaultSerializationFilter();
   }
@@ -429,7 +439,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    *
    * @return hard-coded inspection description.
    */
-  public @Nullable String getStaticDescription() {
+  public @Nullable @Nls String getStaticDescription() {
     return null;
   }
 
@@ -453,7 +463,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return null;
   }
 
-  public @Nullable String loadDescription() {
+  public @Nullable @Nls String loadDescription() {
     final String description = getStaticDescription();
     if (description != null) return description;
 
@@ -461,8 +471,10 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
       InputStream descriptionStream = null;
       final String fileName = getDescriptionFileName();
       if (fileName != null) {
-        descriptionStream = ResourceUtil.getResourceAsStream(getDescriptionContextClass(), "/inspectionDescriptions", fileName);
+        descriptionStream =
+          ResourceUtil.getResourceAsStream(getDescriptionContextClass().getClassLoader(), "inspectionDescriptions", fileName);
       }
+      //noinspection HardCodedStringLiteral(IDEA-249976)
       return descriptionStream != null ? ResourceUtil.loadText(descriptionStream) : null;
     }
     catch (IOException ignored) {

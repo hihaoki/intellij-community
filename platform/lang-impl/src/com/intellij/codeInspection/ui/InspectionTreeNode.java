@@ -1,16 +1,14 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ui;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.lang.annotation.HighlightSeverity;
-import com.intellij.util.containers.BidirectionalMap;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.Interner;
-import com.intellij.util.containers.WeakInterner;
-import gnu.trove.TObjectHashingStrategy;
-import gnu.trove.TObjectIntHashMap;
+import com.intellij.util.containers.*;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,9 +17,9 @@ import javax.swing.tree.TreeNode;
 import java.util.*;
 
 public abstract class InspectionTreeNode implements TreeNode {
-  private static final Interner<LevelAndCount[]> LEVEL_AND_COUNT_INTERNER = new WeakInterner<>(new TObjectHashingStrategy<LevelAndCount[]>() {
+  private static final Interner<LevelAndCount[]> LEVEL_AND_COUNT_INTERNER = new WeakInterner<>(new HashingStrategy<>() {
     @Override
-    public int computeHashCode(LevelAndCount[] object) {
+    public int hashCode(LevelAndCount[] object) {
       return Arrays.hashCode(object);
     }
 
@@ -68,12 +66,10 @@ public abstract class InspectionTreeNode implements TreeNode {
     return true;
   }
 
-  protected void visitProblemSeverities(@NotNull TObjectIntHashMap<HighlightDisplayLevel> counter) {
+  protected void visitProblemSeverities(@NotNull Object2IntMap<HighlightDisplayLevel> counter) {
     for (InspectionTreeNode child : getChildren()) {
       for (LevelAndCount levelAndCount : child.getProblemLevels()) {
-        if (!counter.adjustValue(levelAndCount.getLevel(), levelAndCount.getCount())) {
-          counter.put(levelAndCount.getLevel(), levelAndCount.getCount());
-        }
+        counter.mergeInt(levelAndCount.getLevel(), levelAndCount.getCount(), Math::addExact);
       }
     }
   }
@@ -98,7 +94,7 @@ public abstract class InspectionTreeNode implements TreeNode {
   }
 
   @Nullable
-  public String getTailText() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getTailText() {
     return null;
   }
 
@@ -133,7 +129,7 @@ public abstract class InspectionTreeNode implements TreeNode {
     return getChildren().isEmpty();
   }
 
-  public abstract String getPresentableText();
+  public abstract @Nls String getPresentableText();
 
   @NotNull
   public List<? extends InspectionTreeNode> getChildren() {
@@ -196,14 +192,13 @@ public abstract class InspectionTreeNode implements TreeNode {
     private volatile LevelAndCount[] myLevels;
 
     private LevelAndCount @NotNull [] compute() {
-      TObjectIntHashMap<HighlightDisplayLevel> counter = new TObjectIntHashMap<>();
+      Object2IntMap<HighlightDisplayLevel> counter=new Object2IntOpenHashMap<>();
       visitProblemSeverities(counter);
       LevelAndCount[] arr = new LevelAndCount[counter.size()];
       final int[] i = {0};
-      counter.forEachEntry((l, c) -> {
-        arr[i[0]++] = new LevelAndCount(l, c);
-        return true;
-      });
+      for (Object2IntMap.Entry<HighlightDisplayLevel> entry : counter.object2IntEntrySet()) {
+        arr[i[0]++] = new LevelAndCount(entry.getKey(), entry.getIntValue());
+      }
       Arrays.sort(arr, Comparator.<LevelAndCount, HighlightSeverity>comparing(levelAndCount -> levelAndCount.getLevel().getSeverity())
         .reversed());
       return doesNeedInternProblemLevels() ? LEVEL_AND_COUNT_INTERNER.intern(arr) : arr;

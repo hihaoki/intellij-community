@@ -1,8 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.eventLog;
 
 import com.intellij.concurrency.JobScheduler;
-import com.intellij.internal.statistic.eventLog.validator.persistence.BaseEventLogWhitelistPersistence;
+import com.intellij.internal.statistic.eventLog.validator.storage.persistence.BaseEventLogMetadataPersistence;
 import com.intellij.internal.statistic.service.fus.collectors.FUStatisticsPersistence;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.io.FileUtil;
@@ -26,14 +26,14 @@ public final class StatisticsEventLogMigration {
   }
 
   private static void clearDeprecatedMetadataFolder() {
-    Path deprecated = BaseEventLogWhitelistPersistence.getDeprecatedMetadataDir();
+    Path deprecated = BaseEventLogMetadataPersistence.getDeprecatedMetadataDir();
     if (Files.exists(deprecated)) {
       deleteDir(deprecated);
     }
   }
 
   private static void moveLogsToNewFolder() {
-    Path newEventLogDir = EventLogConfiguration.INSTANCE.getEventLogDataPath().resolve("logs");
+    Path newEventLogDir = EventLogConfiguration.getInstance().getEventLogDataPath().resolve("logs");
 
     Path systemPath = Paths.get(PathManager.getSystemPath());
     Path legacyDirectory = systemPath.resolve("event-log");

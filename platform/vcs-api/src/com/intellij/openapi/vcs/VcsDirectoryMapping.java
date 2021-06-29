@@ -1,36 +1,19 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 
 import java.util.Objects;
+import java.util.function.Supplier;
 
-/**
- * @author yole
- */
+
 public class VcsDirectoryMapping {
   public static final String DEFAULT_MAPPING_DIR = "";
 
-  public static final String PROJECT_CONSTANT = "<Project>";
+  public static final Supplier<@Nls String> PROJECT_CONSTANT = VcsBundle.messagePointer("label.project.vcs.root.mapping");
   public static final VcsDirectoryMapping[] EMPTY_ARRAY = new VcsDirectoryMapping[0];
 
   @NotNull private final String myDirectory;
@@ -63,15 +46,6 @@ public class VcsDirectoryMapping {
     return myDirectory;
   }
 
-  /**
-   * @deprecated Use {@link #getDirectory()}
-   */
-  @NotNull
-  @Deprecated
-  public String systemIndependentPath() {
-    return myDirectory;
-  }
-
   @NotNull
   public String getVcs() {
     return myVcs;
@@ -95,6 +69,7 @@ public class VcsDirectoryMapping {
    * @deprecated Use constructor parameter
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setRootSettings(final VcsRootSettings rootSettings) {
     myRootSettings = rootSettings;
   }
@@ -135,6 +110,6 @@ public class VcsDirectoryMapping {
 
   @Override
   public String toString() {
-    return isDefaultMapping() ? PROJECT_CONSTANT : myDirectory;
+    return isDefaultMapping() ? PROJECT_CONSTANT.get() : myDirectory;
   }
 }

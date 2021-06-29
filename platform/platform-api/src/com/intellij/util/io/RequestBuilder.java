@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URLConnection;
+import java.nio.file.Path;
 
 @SuppressWarnings("BoundedWildcard")
 public abstract class RequestBuilder {
@@ -41,8 +42,7 @@ public abstract class RequestBuilder {
    * Whether to analyze response status code and throw an exception if it's an "error" code.
    * Defaults to true.
    */
-  @NotNull
-  public abstract RequestBuilder throwStatusCodeException(boolean shouldThrow);
+  public abstract @NotNull RequestBuilder throwStatusCodeException(boolean shouldThrow);
 
   public abstract <T> T connect(@NotNull HttpRequests.RequestProcessor<T> processor) throws IOException;
 
@@ -69,27 +69,27 @@ public abstract class RequestBuilder {
     connect(request -> request.saveToFile(file, indicator));
   }
 
+  public void saveToFile(@NotNull Path file, @Nullable ProgressIndicator indicator) throws IOException {
+    connect(request -> request.saveToFile(file, indicator));
+  }
+
   public byte @NotNull [] readBytes(@Nullable ProgressIndicator indicator) throws IOException {
     return connect(request -> request.readBytes(indicator));
   }
 
-  @NotNull
-  public String readString(@Nullable ProgressIndicator indicator) throws IOException {
+  public @NotNull String readString(@Nullable ProgressIndicator indicator) throws IOException {
     return connect(request -> request.readString(indicator));
   }
 
-  @NotNull
-  public String readString() throws IOException {
+  public @NotNull String readString() throws IOException {
     return readString(null);
   }
 
-  @NotNull
-  public CharSequence readChars(@Nullable ProgressIndicator indicator) throws IOException {
+  public @NotNull CharSequence readChars(@Nullable ProgressIndicator indicator) throws IOException {
     return connect(request -> request.readChars(indicator));
   }
 
-  @NotNull
-  public CharSequence readChars() throws IOException {
+  public @NotNull CharSequence readChars() throws IOException {
     return readChars(null);
   }
 

@@ -13,6 +13,7 @@ import org.jetbrains.annotations.TestOnly;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public abstract class ProjectManagerEx extends ProjectManager {
   public static ProjectManagerEx getInstanceEx() {
@@ -33,6 +34,7 @@ public abstract class ProjectManagerEx extends ProjectManager {
    * @deprecated Pass {@code projectName} using {@link OpenProjectTask#projectName}.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public final @Nullable Project newProject(@NotNull Path file, @Nullable String projectName, @NotNull OpenProjectTask options) {
     return newProject(file, projectName == null ? options : options.withProjectName(projectName));
   }
@@ -46,11 +48,14 @@ public abstract class ProjectManagerEx extends ProjectManager {
    * @deprecated Use {@link #openProject(Path, OpenProjectTask)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public final @NotNull Project loadProject(@NotNull String filePath) {
     return loadProject(Paths.get(filePath).toAbsolutePath());
   }
 
   public abstract @Nullable Project openProject(@NotNull Path projectStoreBaseDir, @NotNull OpenProjectTask options);
+
+  public abstract @NotNull CompletableFuture<@Nullable Project> openProjectAsync(@NotNull Path projectStoreBaseDir, @NotNull OpenProjectTask options);
 
   public abstract @NotNull Project loadProject(@NotNull Path path);
 
@@ -70,8 +75,6 @@ public abstract class ProjectManagerEx extends ProjectManager {
 
   // return true if successful
   public abstract boolean closeAndDisposeAllProjects(boolean checkCanClose);
-
-  public abstract @Nullable Project findOpenProjectByHash(@Nullable String locationHash);
 
   @ApiStatus.Internal
   public abstract @NotNull List<String> getAllExcludedUrls();

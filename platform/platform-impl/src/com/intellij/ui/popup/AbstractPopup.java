@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup;
 
 import com.intellij.codeInsight.hint.HintUtil;
@@ -8,30 +8,34 @@ import com.intellij.ide.actions.WindowAction;
 import com.intellij.ide.ui.PopupLocationTracker;
 import com.intellij.ide.ui.ScreenAreaConsumer;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.MnemonicHelper;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
+import com.intellij.openapi.actionSystem.impl.AutoPopupSupportingListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.TransactionGuardImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorActivityManager;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.ui.popup.*;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.HtmlChunk;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
 import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.ui.mac.touchbar.TouchBarsManager;
+import com.intellij.ui.mac.touchbar.TouchbarSupport;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.speedSearch.ListWithFilter;
 import com.intellij.ui.speedSearch.SpeedSearch;
@@ -40,12 +44,10 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.WeakList;
 import com.intellij.util.ui.*;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
+import javax.swing.plaf.basic.BasicHTML;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
@@ -60,12 +62,12 @@ import static java.awt.event.WindowEvent.WINDOW_ACTIVATED;
 import static java.awt.event.WindowEvent.WINDOW_GAINED_FOCUS;
 
 public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
-  public static final String SHOW_HINTS = "ShowHints";
+  @NonNls public static final String SHOW_HINTS = "ShowHints";
 
   // Popup size stored with DimensionService is null first time
   // In this case you can put Dimension in content client properties to adjust size
   // Zero or negative values (with/height or both) would be ignored (actual values would be obtained from preferred size)
-  public static final String FIRST_TIME_SIZE = "FirstTimeSize";
+  @NonNls public static final String FIRST_TIME_SIZE = "FirstTimeSize";
 
   private static final Logger LOG = Logger.getInstance(AbstractPopup.class);
 
@@ -162,7 +164,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
   protected SearchTextField mySpeedSearchPatternField;
   private boolean myNativePopup;
   private boolean myMayBeParent;
-  private JLabel myAdComponent;
+  private JComponent myAdComponent;
   private boolean myDisposed;
   private boolean myNormalWindowLevel;
 
@@ -202,7 +204,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
                                         boolean movable,
                                         String dimensionServiceKey,
                                         boolean resizable,
-                                        @Nullable String caption,
+                                        @NlsContexts.PopupTitle @Nullable String caption,
                                         @Nullable Computable<Boolean> callback,
                                         boolean cancelOnClickOutside,
                                         @NotNull Set<? extends JBPopupListener> listeners,
@@ -319,6 +321,10 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     myCancelOnWindow = cancelOnWindow;
     myMinSize = minSize;
 
+    if (Registry.is("ide.popup.horizontal.scroll.bar.opaque")) {
+      forHorizontalScrollBar(bar -> bar.setOpaque(true));
+    }
+
     for (Pair<ActionListener, KeyStroke> pair : keyboardActions) {
       myContent.registerKeyboardAction(pair.getFirst(), pair.getSecond(), JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
@@ -375,19 +381,62 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
   }
 
   @Override
-  public void setAdText(final @NotNull String s, int alignment) {
-    if (myAdComponent == null) {
-      myAdComponent = HintUtil.createAdComponent(s, JBUI.CurrentTheme.Advertiser.border(), alignment);
-      JPanel wrapper = new JPanel(new BorderLayout());
-      wrapper.setOpaque(false);
-      wrapper.add(myAdComponent, BorderLayout.CENTER);
-      myContent.add(wrapper, BorderLayout.SOUTH);
-      pack(false, true);
+  public void setAdText(@NotNull @NlsContexts.PopupAdvertisement String s, int alignment) {
+    JLabel label;
+    if (myAdComponent == null || !(myAdComponent instanceof JLabel)) {
+      label = HintUtil.createAdComponent(s, JBUI.CurrentTheme.Advertiser.border(), alignment);
+      setFooterComponent(label);
+    } else {
+      label = (JLabel)myAdComponent;
     }
-    else {
-      myAdComponent.setText(s);
-      myAdComponent.setHorizontalAlignment(alignment);
+
+    Dimension prefSize = label.isVisible() ? myAdComponent.getPreferredSize() : JBUI.emptySize();
+    boolean keepSize = BasicHTML.isHTMLString(s);
+
+    label.setVisible(StringUtil.isNotEmpty(s));
+    label.setText(keepSize ? s : wrapToSize(s));
+    label.setHorizontalAlignment(alignment);
+
+    Dimension newPrefSize = label.isVisible() ? myAdComponent.getPreferredSize() : JBUI.emptySize();
+    int delta = newPrefSize.height - prefSize.height;
+
+    // Resize popup to match new advertiser size.
+    if (myPopup != null && !isBusy() && delta != 0 && !keepSize) {
+      Window popupWindow = getContentWindow(myContent);
+      if (popupWindow != null) {
+        Dimension size = popupWindow.getSize();
+        size.height += delta;
+        myContent.setPreferredSize(size);
+        popupWindow.pack();
+        updateMaskAndAlpha(popupWindow);
+      }
     }
+  }
+
+  protected void setFooterComponent(JComponent c) {
+    if (myAdComponent != null) {
+      myContent.remove(myAdComponent);
+    }
+
+    myContent.add(c, BorderLayout.SOUTH);
+    pack(false, true);
+    myAdComponent = c;
+  }
+
+  @NotNull
+  @Nls
+  private String wrapToSize(@NotNull @Nls String hint) {
+    if (StringUtil.isEmpty(hint)) return hint;
+
+    Dimension size = myContent.getSize();
+    if (size.width == 0 && size.height == 0)
+      size = myContent.computePreferredSize();
+
+    JBInsets.removeFrom(size, myContent.getInsets());
+    JBInsets.removeFrom(size, myAdComponent.getInsets());
+
+    int width = Math.max(JBUI.CurrentTheme.Popup.minimumHintWidth(), size.width);
+    return HtmlChunk.text(hint).wrapWith(HtmlChunk.div().attr("width", width)).wrapWith(HtmlChunk.html()).toString();
   }
 
   public static @NotNull Point getCenterOf(@NotNull Component aContainer, @NotNull JComponent content) {
@@ -529,13 +578,16 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     return location;
   }
 
-  private Dimension getSizeForPositioning() {
+  public Dimension getSizeForPositioning() {
     Dimension size = getSize();
     if (size == null) {
       size = getStoredSize();
     }
     if (size == null) {
-      size = myContent.getPreferredSize();
+      Dimension contentPreferredSize = myContent.getPreferredSize();
+      Dimension titlePreferredSize = getTitle().getPreferredSize();
+      size = new JBDimension(Math.max(contentPreferredSize.width, titlePreferredSize.width),
+                             contentPreferredSize.height + titlePreferredSize.height, true);
     }
     return size;
   }
@@ -544,25 +596,26 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
   public void showInBestPositionFor(@NotNull Editor editor) {
     // Intercept before the following assert; otherwise assertion may fail
     if (UiInterceptors.tryIntercept(this)) return;
-    assert EditorActivityManager.getInstance().isVisible(editor) : "Editor must be showing on the screen";
+    assert UIUtil.isShowing(editor.getContentComponent()) : "Editor must be showing on the screen";
 
     // Set the accessible parent so that screen readers don't announce
     // a window context change -- the tooltip is "logically" hosted
     // inside the component (e.g. editor) it appears on top of.
-    AccessibleContextUtil.setParent((Component)myComponent, editor.getContentComponent());
+    AccessibleContextUtil.setParent(myComponent, editor.getContentComponent());
     show(getBestPositionFor(editor));
   }
 
   private @NotNull RelativePoint getBestPositionFor(@NotNull Editor editor) {
-    DataContext context = ((EditorEx)editor).getDataContext();
-    Rectangle dominantArea = PlatformDataKeys.DOMINANT_HINT_AREA_RECTANGLE.getData(context);
-    if (dominantArea != null && !myRequestFocus) {
-      final JLayeredPane layeredPane = editor.getContentComponent().getRootPane().getLayeredPane();
-      return relativePointWithDominantRectangle(layeredPane, dominantArea);
+    if (editor instanceof EditorEx) {
+      DataContext context = ((EditorEx)editor).getDataContext();
+      Rectangle dominantArea = PlatformDataKeys.DOMINANT_HINT_AREA_RECTANGLE.getData(context);
+      if (dominantArea != null && !myRequestFocus) {
+        final JLayeredPane layeredPane = editor.getContentComponent().getRootPane().getLayeredPane();
+        return relativePointWithDominantRectangle(layeredPane, dominantArea);
+      }
     }
-    else {
-      return guessBestPopupLocation(editor);
-    }
+
+    return guessBestPopupLocation(editor);
   }
 
   private @NotNull RelativePoint guessBestPopupLocation(@NotNull Editor editor) {
@@ -601,16 +654,6 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
       return originalLocation;
     }
     return new Point(preferredBounds.x, adjustedY);
-  }
-
-  /**
-   * @see #addListener
-   * @deprecated use public API instead
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  protected void addPopupListener(@NotNull JBPopupListener listener) {
-    myListeners.add(listener);
   }
 
   private @NotNull RelativePoint relativePointWithDominantRectangle(@NotNull JLayeredPane layeredPane, @NotNull Rectangle bounds) {
@@ -654,7 +697,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     return rectangle.getLocation();
   }
 
-  private @NotNull Dimension getPreferredContentSize() {
+  public @NotNull Dimension getPreferredContentSize() {
     if (myForcedSize != null) {
       return myForcedSize;
     }
@@ -698,6 +741,8 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     myState = State.CANCEL;
 
     if (isDisposed()) return;
+
+    if (LOG.isTraceEnabled()) LOG.trace(new Exception("cancel popup stack trace"));
 
     if (myPopup != null) {
       if (!canClose()) {
@@ -874,6 +919,13 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
       myMouseOutCanceller.myEverEntered = targetBounds.equals(original);
     }
 
+    // prevent hiding of a floating toolbar
+    Point pointOnOwner = new Point(aScreenX, aScreenY);
+    SwingUtilities.convertPointFromScreen(pointOnOwner, owner);
+    if (ActionToolbarImpl.isInPopupToolbar(SwingUtilities.getDeepestComponentAt(owner, pointOnOwner.x, pointOnOwner.y))) {
+      AutoPopupSupportingListener.installOn(this);
+    }
+
     myOwner = getFrameOrDialog(owner); // use correct popup owner for non-modal dialogs too
     if (myOwner == null) {
       myOwner = owner;
@@ -1034,9 +1086,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     }
     setMinimumSize(myMinSize);
 
-    final Disposable tb = TouchBarsManager.showPopupBar(this, myContent);
-    if (tb != null)
-      Disposer.register(this, tb);
+    TouchbarSupport.showPopupItems(this, myContent);
 
     myPopup.show();
     Rectangle bounds = window.getBounds();
@@ -1115,8 +1165,10 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     Rectangle bottomRightScreen = ScreenUtil.getScreenRectangle(bottomRight);
     if (topLeft.x < topLeftScreen.x || topLeft.y < topLeftScreen.y
         || bottomRight.x > bottomRightScreen.getMaxX() || bottomRight.y > bottomRightScreen.getMaxY()) {
-      Rectangle centerScreen = ScreenUtil.getScreenRectangle(new Point((int)targetBounds.getCenterX(), (int)targetBounds.getCenterY()));
-      ScreenUtil.moveToFit(targetBounds, centerScreen, null);
+      GraphicsDevice device = ScreenUtil.getScreenDevice(targetBounds);
+      Rectangle mostAppropriateScreenRectangle = device != null ? ScreenUtil.getScreenRectangle(device.getDefaultConfiguration())
+                                                                : ScreenUtil.getMainScreenBounds();
+      ScreenUtil.moveToFit(targetBounds, mostAppropriateScreenRectangle, null);
     }
   }
 
@@ -1355,21 +1407,17 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
         int delta = screen.width + screen.x - location.x;
         if (size.width > delta) {
           size.width = delta;
-          if (!SystemInfo.isMac || Registry.is("mac.scroll.horizontal.gap")) {
-            // we shrank horizontally - need to increase height to fit the horizontal scrollbar
-            JScrollPane scrollPane = ScrollUtil.findScrollPane(myContent);
-            if (scrollPane != null && scrollPane.getHorizontalScrollBarPolicy() != ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER) {
-              JScrollBar scrollBar = scrollPane.getHorizontalScrollBar();
-              if (scrollBar != null) {
-                prefSize.height += scrollBar.getPreferredSize().height;
-              }
-            }
-          }
         }
       }
     }
 
     if (height) {
+      if (size.width < prefSize.width) {
+        if (!SystemInfo.isMac || Registry.is("mac.scroll.horizontal.gap")) {
+          // we shrank horizontally - need to increase height to fit the horizontal scrollbar
+          forHorizontalScrollBar(bar -> prefSize.height += bar.getPreferredSize().height);
+        }
+      }
       size.height = prefSize.height;
       if (screen != null) {
         int delta = screen.height + screen.y - location.y;
@@ -1378,9 +1426,6 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
         }
       }
     }
-
-    size.height += getAdComponentHeight();
-
     final Window window = getContentWindow(myContent);
     if (window != null) {
       window.setSize(size);
@@ -1397,6 +1442,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
 
   @Override
   public void dispose() {
+    ApplicationManager.getApplication().assertIsDispatchThread();
     if (myState == State.SHOWN) {
       LOG.debug("shown popup must be cancelled");
       cancel();
@@ -1418,8 +1464,6 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     }
 
     Disposer.dispose(this, false);
-
-    ApplicationManager.getApplication().assertIsDispatchThread();
 
     if (myPopup != null) {
       cancel(myDisposeEvent);
@@ -1449,19 +1493,14 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     myMouseOutCanceller = null;
 
     if (myFinalRunnable != null) {
-      final ActionCallback typeAheadDone = new ActionCallback();
-      IdeFocusManager.getInstance(myProject).typeAheadUntil(typeAheadDone, "Abstract Popup Disposal");
-
       ModalityState modalityState = ModalityState.current();
       Runnable finalRunnable = myFinalRunnable;
 
       getFocusManager().doWhenFocusSettlesDown(() -> {
 
         if (ModalityState.current().equals(modalityState)) {
-          typeAheadDone.setDone();
           ((TransactionGuardImpl)TransactionGuard.getInstance()).performUserActivity(finalRunnable);
         } else {
-          typeAheadDone.setRejected();
           LOG.debug("Final runnable of popup is skipped");
         }
         // Otherwise the UI has changed unexpectedly and the action is likely not applicable.
@@ -1502,34 +1541,30 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
     }
   }
 
+  private @Nullable Project getProjectDependingOnKey(String key) {
+    return !key.startsWith(WindowStateService.USE_APPLICATION_WIDE_STORE_KEY_PREFIX) ? myProject : null;
+  }
+
   public void storeDimensionSize() {
     if (myDimensionServiceKey != null) {
       Dimension size = myContent.getSize();
       JBInsets.removeFrom(size, myContent.getInsets());
-      getWindowStateService(myProject).putSize(myDimensionServiceKey, size);
+      getWindowStateService(getProjectDependingOnKey(myDimensionServiceKey)).putSize(myDimensionServiceKey, size);
     }
   }
 
   private void storeLocation(final Point xy) {
     if (myDimensionServiceKey != null) {
-      getWindowStateService(myProject).putLocation(myDimensionServiceKey, xy);
+      getWindowStateService(getProjectDependingOnKey(myDimensionServiceKey)).putLocation(myDimensionServiceKey, xy);
     }
   }
 
   public static class MyContentPanel extends JPanel implements DataProvider {
     private @Nullable DataProvider myDataProvider;
 
-    /**
-     * @deprecated use {@link MyContentPanel#MyContentPanel(PopupBorder)}
-     */
-    @Deprecated
-    public MyContentPanel(final boolean resizable, final PopupBorder border, boolean drawMacCorner) {
-      this(border);
-      DeprecatedMethodException.report("Use com.intellij.ui.popup.AbstractPopup.MyContentPanel.MyContentPanel(com.intellij.ui.PopupBorder) instead");
-    }
-
     public MyContentPanel(@NotNull PopupBorder border) {
       super(new BorderLayout());
+      MnemonicHelper.init(this);
       putClientProperty(UIUtil.TEXT_COPY_ROOT, Boolean.TRUE);
       setBorder(border);
     }
@@ -1662,6 +1697,10 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
 
   private int getAdComponentHeight() {
     return myAdComponent != null ? myAdComponent.getPreferredSize().height + JBUIScale.scale(1) : 0;
+  }
+
+  protected boolean isAdVisible() {
+    return myAdComponent != null && myAdComponent.isVisible();
   }
 
   @Override
@@ -2042,19 +2081,19 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
 
   private @Nullable Point getStoredLocation() {
     if (myDimensionServiceKey == null) return null;
-    return getWindowStateService(myProject).getLocation(myDimensionServiceKey);
+    return getWindowStateService(getProjectDependingOnKey(myDimensionServiceKey)).getLocation(myDimensionServiceKey);
   }
 
   private @Nullable Dimension getStoredSize() {
     if (myDimensionServiceKey == null) return null;
-    return getWindowStateService(myProject).getSize(myDimensionServiceKey);
+    return getWindowStateService(getProjectDependingOnKey(myDimensionServiceKey)).getSize(myDimensionServiceKey);
   }
 
   private static @NotNull WindowStateService getWindowStateService(@Nullable Project project) {
     return project == null ? WindowStateService.getInstance() : WindowStateService.getInstance(project);
   }
 
-  private static <T> T findInComponentHierarchy(@NotNull Component component, Function<@NotNull Component, @Nullable T> mapper) {
+  private static <T> T findInComponentHierarchy(@NotNull Component component, Function<? super @NotNull Component, ? extends @Nullable T> mapper) {
     T found = mapper.fun(component);
     if (found != null) {
       return found;
@@ -2068,5 +2107,16 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer {
       }
     }
     return null;
+  }
+
+  private @Nullable JScrollBar findHorizontalScrollBar() {
+    JScrollPane pane = ScrollUtil.findScrollPane(myContent);
+    if (pane == null || ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER == pane.getHorizontalScrollBarPolicy()) return null;
+    return pane.getHorizontalScrollBar();
+  }
+
+  private void forHorizontalScrollBar(@NotNull Consumer<JScrollBar> consumer) {
+    JScrollBar bar = findHorizontalScrollBar();
+    if (bar != null) consumer.consume(bar);
   }
 }

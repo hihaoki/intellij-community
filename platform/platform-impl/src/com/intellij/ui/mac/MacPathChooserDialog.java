@@ -11,6 +11,8 @@ import com.intellij.openapi.fileChooser.FileChooserDialog;
 import com.intellij.openapi.fileChooser.PathChooserDialog;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.PathChooserDialogHelper;
@@ -36,7 +38,7 @@ public class MacPathChooserDialog implements PathChooserDialog, FileChooserDialo
   private final FileChooserDescriptor myFileChooserDescriptor;
   private final WeakReference<Component> myParent;
   private final Project myProject;
-  private final String myTitle;
+  private final @NlsContexts.DialogTitle String myTitle;
   private VirtualFile [] virtualFiles;
   private final PathChooserDialogHelper myHelper;
 
@@ -46,6 +48,9 @@ public class MacPathChooserDialog implements PathChooserDialog, FileChooserDialo
     myProject = project;
     myTitle = getChooserTitle(descriptor);
     myHelper = new PathChooserDialogHelper(descriptor);
+
+    String key = "awt.file.dialog.enable.filter";
+    System.setProperty(key, Boolean.toString(Registry.is(key, true)));
 
     Consumer<Dialog> dialogConsumer = owner -> myFileDialog = new FileDialog(owner, myTitle, FileDialog.LOAD);
     Consumer<Frame> frameConsumer = owner -> myFileDialog = new FileDialog(owner, myTitle, FileDialog.LOAD);
@@ -57,7 +62,7 @@ public class MacPathChooserDialog implements PathChooserDialog, FileChooserDialo
       .ifNull(frameConsumer);
   }
 
-  private static String getChooserTitle(final FileChooserDescriptor descriptor) {
+  private static @NlsContexts.DialogTitle String getChooserTitle(final FileChooserDescriptor descriptor) {
     final String title = descriptor.getTitle();
     return title != null ? title : UIBundle.message("file.chooser.default.title");
   }

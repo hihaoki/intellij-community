@@ -5,6 +5,9 @@ package com.intellij.psi.impl.source.tree.injected;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.CustomFoldRegion;
+import com.intellij.openapi.editor.CustomFoldRegionRenderer;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.FoldingGroup;
 import com.intellij.openapi.editor.ex.FoldingListener;
@@ -18,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
@@ -66,13 +70,7 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
   @Override
   public FoldRegion @NotNull [] getAllFoldRegions() {
     FoldRegion[] all = myDelegate.getAllFoldRegions();
-    List<FoldRegion> result = new ArrayList<>();
-    for (FoldRegion region : all) {
-      FoldingRegionWindow window = getWindowRegion(region);
-      if (window != null) {
-        result.add(window);
-      }
-    }
+    List<FoldRegion> result = getWindowRegions(Arrays.asList(all));
     return result.toArray(FoldRegion.EMPTY_ARRAY);
   }
 
@@ -105,6 +103,12 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
   @Override
   public void runBatchFoldingOperation(@NotNull Runnable operation, boolean allowMovingCaret, boolean keepRelativeCaretPosition) {
     myDelegate.runBatchFoldingOperation(operation, allowMovingCaret, keepRelativeCaretPosition);
+  }
+
+  @Override
+  public @Nullable CustomFoldRegion addCustomLinesFolding(int startLine, int endLine, @NotNull CustomFoldRegionRenderer renderer) {
+    Logger.getInstance(FoldingModelWindow.class).error("Custom fold regions aren't supported for injected editors");
+    return null;
   }
 
   @Override
@@ -156,12 +160,7 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
   @Override
   public List<FoldRegion> getGroupedRegions(FoldingGroup group) {
     List<FoldRegion> hostRegions = myDelegate.getGroupedRegions(group);
-    List<FoldRegion> result = new ArrayList<>();
-    for (FoldRegion hostRegion : hostRegions) {
-      FoldingRegionWindow window = getWindowRegion(hostRegion);
-      if (window != null) result.add(window);
-    }
-    return result;
+    return getWindowRegions(hostRegions);
   }
 
   @Override
@@ -180,5 +179,24 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
   @Override
   public long getModificationCount() {
     return myDelegate instanceof ModificationTracker ? ((ModificationTracker)myDelegate).getModificationCount() : 0;
+  }
+
+  @Override
+  public @NotNull List<FoldRegion> getRegionsOverlappingWith(int startOffset, int endOffset) {
+    int hostStart = myDocumentWindow.injectedToHost(startOffset);
+    int hostEnd = myDocumentWindow.injectedToHost(endOffset);
+    List<FoldRegion> hostRegions = myDelegate.getRegionsOverlappingWith(hostStart, hostEnd);
+    return getWindowRegions(hostRegions);
+  }
+
+  private @NotNull List<FoldRegion> getWindowRegions(@NotNull List<FoldRegion> hostRegions) {
+    List<FoldRegion> result = new ArrayList<>();
+    hostRegions.forEach(hr -> {
+      FoldingRegionWindow wr = getWindowRegion(hr);
+      if (wr != null) {
+        result.add(wr);
+      }
+    });
+    return result;
   }
 }

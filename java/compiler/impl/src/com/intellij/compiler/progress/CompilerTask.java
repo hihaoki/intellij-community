@@ -20,6 +20,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -28,7 +29,7 @@ import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
 import com.intellij.pom.Navigatable;
 import com.intellij.problems.WolfTheProblemSolver;
 import com.intellij.ui.AppIcon;
-import com.intellij.ui.GuiUtils;
+import com.intellij.util.ModalityUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -57,12 +58,12 @@ public final class CompilerTask extends Task.Backgroundable {
   private long myEndCompilationStamp;
   private ExitStatus myExitStatus;
 
-  public CompilerTask(@NotNull Project project, String contentName, final boolean headlessMode, boolean forceAsync,
+  public CompilerTask(@NotNull Project project, @NlsContexts.TabTitle String contentName, final boolean headlessMode, boolean forceAsync,
                       boolean waitForPreviousSession, boolean compilationStartedAutomatically) {
     this(project, contentName, headlessMode, forceAsync, waitForPreviousSession, compilationStartedAutomatically, false);
   }
 
-  public CompilerTask(@NotNull Project project, String contentName, final boolean headlessMode, boolean forceAsync,
+  public CompilerTask(@NotNull Project project, @NlsContexts.TabTitle String contentName, final boolean headlessMode, boolean forceAsync,
                       boolean waitForPreviousSession, boolean compilationStartedAutomatically, boolean modal) {
     super(project, contentName);
     myHeadlessMode = headlessMode;
@@ -215,7 +216,7 @@ public final class CompilerTask extends Task.Backgroundable {
       @Override
       public void setFraction(final double fraction) {
         super.setFraction(fraction);
-        GuiUtils.invokeLaterIfNeeded(
+        ModalityUiUtil.invokeLaterIfNeeded(
           () -> AppIcon.getInstance().setProgress(myProject, APP_ICON_ID, AppIconScheme.Progress.BUILD, fraction, true),
           ModalityState.any()
         );

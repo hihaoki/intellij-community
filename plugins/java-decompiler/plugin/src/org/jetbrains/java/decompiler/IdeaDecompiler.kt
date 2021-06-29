@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler
 
 import com.intellij.application.options.CodeStyle
@@ -7,7 +7,6 @@ import com.intellij.ide.highlighter.JavaClassFileType
 import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.ide.plugins.DynamicPlugins
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
-import com.intellij.ide.plugins.PluginDescriptorLoader
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
@@ -24,8 +23,6 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.util.text.Strings
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiJavaModule
-import com.intellij.psi.PsiPackage
 import com.intellij.psi.compiled.ClassFileDecompilers
 import com.intellij.psi.impl.compiled.ClsFileImpl
 import com.intellij.ui.components.LegalNoticeDialog
@@ -36,7 +33,6 @@ import org.jetbrains.java.decompiler.main.extern.IFernflowerPreferences
 import org.jetbrains.java.decompiler.main.extern.IResultSaver
 import java.io.File
 import java.io.IOException
-import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.jar.Manifest
@@ -79,7 +75,7 @@ class IdeaDecompiler : ClassFileDecompilers.Light() {
 
     override fun beforeFileOpened(source: FileEditorManager, file: VirtualFile) {
       if (myShowNotice && file.fileType === JavaClassFileType.INSTANCE) {
-        val decompiler = ClassFileDecompilers.getInstance().find(file)
+        val decompiler = ClassFileDecompilers.getInstance().find(file, ClassFileDecompilers.Light::class.java)
         if (decompiler is IdeaDecompiler) {
           TASK_KEY.set(file, ApplicationManager.getApplication().executeOnPooledThread(Callable { decompiler.decompile(file) }))
 
@@ -105,9 +101,8 @@ class IdeaDecompiler : ClassFileDecompilers.Light() {
 
               val plugin = PluginManagerCore.getPlugin(id)
               if (plugin is IdeaPluginDescriptorImpl) {
-                val descriptor = PluginDescriptorLoader.loadFullDescriptor(plugin)
-                if (DynamicPlugins.allowLoadUnloadWithoutRestart(descriptor)) {
-                  val task = DynamicPlugins.getPluginUnloadingTask(descriptor, DynamicPlugins.UnloadPluginOptions(disable = true, save = false))
+                if (DynamicPlugins.allowLoadUnloadWithoutRestart(plugin)) {
+                  val task = DynamicPlugins.getPluginUnloadingTask(plugin, DynamicPlugins.UnloadPluginOptions(disable = true, save = false))
                   ApplicationManager.getApplication().invokeLater(task)
                 }
               }
@@ -128,14 +123,10 @@ class IdeaDecompiler : ClassFileDecompilers.Light() {
   override fun accepts(file: VirtualFile): Boolean = true
 
   override fun getText(file: VirtualFile): CharSequence =
-      if (canWork()) TASK_KEY.pop(file)?.get() ?: decompile(file)
-      else ClsFileImpl.decompile(file)
+    if (canWork()) TASK_KEY.pop(file)?.get() ?: decompile(file)
+    else ClsFileImpl.decompile(file)
 
   private fun decompile(file: VirtualFile): CharSequence {
-    if (PsiPackage.PACKAGE_INFO_CLS_FILE == file.name || PsiJavaModule.MODULE_INFO_CLS_FILE == file.name) {
-      return ClsFileImpl.decompile(file)
-    }
-
     val indicator = ProgressManager.getInstance().progressIndicator
     if (indicator != null) {
       indicator.text = IdeaDecompilerBundle.message("decompiling.progress", file.name)
@@ -170,21 +161,19 @@ class IdeaDecompiler : ClassFileDecompilers.Light() {
       throw e
     }
     catch (e: Exception) {
-      if (e is IdeaLogger.InternalException && e.cause is IOException) {
-        Logger.getInstance(IdeaDecompiler::class.java).warn(file.url, e)
-        return Strings.EMPTY_CHAR_SEQUENCE
-      }
-      if (ApplicationManager.getApplication().isUnitTestMode) {
-        throw AssertionError(file.url, e)
-      }
-      else {
-        throw CannotDecompileException(e)
+      when {
+        e is IdeaLogger.InternalException && e.cause is IOException -> {
+          Logger.getInstance(IdeaDecompiler::class.java).warn(file.url, e)
+          return Strings.EMPTY_CHAR_SEQUENCE
+        }
+        ApplicationManager.getApplication().isUnitTestMode -> throw AssertionError(file.url, e)
+        else -> throw CannotDecompileException(file.url, e)
       }
     }
   }
 
   private class MyBytecodeProvider(files: List<VirtualFile>) : IBytecodeProvider {
-    private val pathMap = files.map { File(it.path).absolutePath to it }.toMap()
+    private val pathMap = files.associateBy { File(it.path).absolutePath }
 
     override fun getBytecode(externalPath: String, internalPath: String?): ByteArray =
       pathMap[externalPath]?.contentsToByteArray(false) ?: throw AssertionError(externalPath + " not in " + pathMap.keys)

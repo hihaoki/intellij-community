@@ -2,46 +2,45 @@
 package com.intellij.internal.statistic.service.fus.collectors;
 
 import com.intellij.internal.statistic.beans.MetricEvent;
-import com.intellij.internal.statistic.eventLog.FeatureUsageData;
-import com.intellij.internal.statistic.eventLog.validator.SensitiveDataValidator;
+import com.intellij.internal.statistic.eventLog.validator.IntellijSensitiveDataValidator;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Set;
 
 /**
  * <p>Use it to create a collector which records IDE state.</p>
- *
+ * <br/>
  * To implement a new collector:
  * <ol>
- *   <li>Inherit the class, implement {@link ApplicationUsagesCollector#getMetrics()} and register collector in plugin.xml;</li>
- *   <li>Specify collectors data scheme and implement custom validation rules if necessary.<br/>
- *   For more information see {@link SensitiveDataValidator};</li>
- *   <li>Create an <a href="https://youtrack.jetbrains.com/issues/FUS">issue</a> with group data scheme and descriptions
- *   to register it on the server in statistic metadata repository</li>
+ *   <li>Inherit the class, implement {@link ApplicationUsagesCollector#getGroup()} and {@link ApplicationUsagesCollector#getMetrics()} and register collector in plugin.xml.
+ *   See <i>fus-collectors.md</i> for more details.</li>
+ *   <li>Implement custom validation rules if necessary. For more information see {@link IntellijSensitiveDataValidator}.</li>
+ *   <li>If new group is implemented in a platform or a plugin built with IntelliJ Ultimate, YT issue will be created automatically</li>
+ *   <li>Otherwise, create a YT issue in FUS project with group data scheme and descriptions to register it on the statistics metadata server</li>
  * </ol>
- *
+ * <br/>
  * To test collector:
  * <ol>
  *  <li>
- *    If group is not registered on the server, add it to events test scheme with "Add Group to Events Test Scheme" action.<br/>
- *    {@link com.intellij.internal.statistic.actions.scheme.AddGroupToTestSchemeAction}
+ *    Open "Statistics Event Log" toolwindow.
  *  </li>
  *  <li>
- *    Open toolwindow with event logs with "Show Statistics Event Log" action.<br/>
- *    {@link com.intellij.internal.statistic.actions.OpenEventLogFileAction}
+ *    Add group to events test scheme with "Add Group to Events Test Scheme" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.scheme.AddGroupToTestSchemeAction}
  *  </li>
  *  <li>
  *    Record all state collectors with "Record State Collectors to Event Log" action.<br/>
  *    {@link com.intellij.internal.statistic.actions.RecordStateStatisticsEventLogAction}
  *  </li>
  * </ol>
+ * <br/>
+ * For more information see <i>fus-collectors.md</i>
  *
  * @see ProjectUsagesCollector
- * @see FUCounterUsageLogger
+ * @see CounterUsagesCollector
  */
 @ApiStatus.Internal
 public abstract class ApplicationUsagesCollector extends FeatureUsagesCollector {
@@ -64,15 +63,5 @@ public abstract class ApplicationUsagesCollector extends FeatureUsagesCollector 
   @NotNull
   public Set<MetricEvent> getMetrics() {
     return Collections.emptySet();
-  }
-
-  /**
-   * @deprecated Add {@link FeatureUsageData} directly to {@link MetricEvent} in {@link #getMetrics()}
-   */
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  @Deprecated
-  @Nullable
-  public FeatureUsageData getData() {
-    return null;
   }
 }

@@ -2,11 +2,11 @@
 package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.ide.DataManager;
-import com.intellij.ide.impl.DataManagerImpl;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ModalityState;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -15,8 +15,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 
+import static com.intellij.util.IJSwingUtilities.getFocusedComponentInWindowOrSelf;
+
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 class ButtonToolbarImpl extends JPanel {
-  private final DataManager myDataManager;
   private final String myPlace;
   private final PresentationFactory myPresentationFactory;
   private final ArrayList<ActionJButton> myActions = new ArrayList<>();
@@ -25,7 +28,6 @@ class ButtonToolbarImpl extends JPanel {
     super(new GridBagLayout());
     myPlace = place;
     myPresentationFactory = new PresentationFactory();
-    myDataManager = DataManager.getInstance();
 
     initButtons(actionGroup);
 
@@ -67,11 +69,17 @@ class ButtonToolbarImpl extends JPanel {
     return this;
   }
 
+  @NotNull
+  private DataContext getDataContext() {
+    Component target = getFocusedComponentInWindowOrSelf(this);
+    return DataManager.getInstance().getDataContext(target);
+  }
+
   private class ActionJButton extends JButton {
     private final AnAction myAction;
 
     ActionJButton(final AnAction action) {
-      super(action.getTemplatePresentation().getText());
+      super(action.getTemplatePresentation().getText(true));
       myAction = action;
       setMnemonic(action.getTemplatePresentation().getMnemonic());
       setDisplayedMnemonicIndex(action.getTemplatePresentation().getDisplayedMnemonicIndex());
@@ -81,14 +89,14 @@ class ButtonToolbarImpl extends JPanel {
         public void actionPerformed(ActionEvent e) {
           AnActionEvent event = new AnActionEvent(
             null,
-            ((DataManagerImpl)DataManager.getInstance()).getDataContextTest(ButtonToolbarImpl.this),
+            getDataContext(),
             myPlace,
             myPresentationFactory.getPresentation(action),
             ActionManager.getInstance(),
             e.getModifiers()
           );
           if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
-            ActionUtil.performActionDumbAware(action, event);
+            ActionUtil.performActionDumbAwareWithCallbacks(action, event);
           }
         }
       });
@@ -148,7 +156,7 @@ class ButtonToolbarImpl extends JPanel {
   }
 
   private void updateActions() {
-    final DataContext dataContext = ((DataManagerImpl)myDataManager).getDataContextTest(this);
+    DataContext dataContext = getDataContext();
     for (ActionJButton action : myActions) {
       action.updateAction(dataContext);
     }

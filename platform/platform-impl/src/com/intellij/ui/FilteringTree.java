@@ -19,7 +19,8 @@ import com.intellij.util.containers.JBIterator;
 import com.intellij.util.containers.JBTreeTraverser;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
-import gnu.trove.TIntArrayList;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -165,7 +166,7 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
     SpeedSearchSupply supply = new TreeSpeedSearch(myTree, p -> StringUtil.notNullize(getText(p == null ? null : getUserObject((TreeNode)p.getLastPathComponent()))), true) {
       @Override
       protected void onSearchFieldUpdated(String pattern) {
-        if (StringUtil.isEmpty(pattern)) hidePopup();
+        super.onSearchFieldUpdated(pattern);
         //constructor of popup
         if (StringUtil.isNotEmpty(pattern) && !isPopupActive()) SwingUtilities.invokeLater(() -> {
           getSearchModel().refilter();
@@ -239,10 +240,10 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
       void beforeNodeChanged(U x);
       void nodeChanged(U x);
     }
-    private final Function<U, String> myNamer;
-    private final Function<U, N> myFactory;
+    private final @NotNull Function<? super U, String> myNamer;
+    private final @NotNull Function<? super U, ? extends N> myFactory;
     private final U myRootObject;
-    private final Function<U, Iterable<U>> myStructure;
+    private final Function<? super U, ? extends Iterable<? extends U>> myStructure;
     private final boolean myUseIdentityHashing;
     private SpeedSearchSupply mySpeedSearch;
     private Map<U, N> myNodeCache;
@@ -250,8 +251,8 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
     private final EventDispatcher<Listener<U>> myNodeChanged = (EventDispatcher)EventDispatcher.create(Listener.class);
 
     public SearchTreeModel(@NotNull N root, @NotNull SpeedSearchSupply speedSearch,
-                           @NotNull Function<U, String> namer, @NotNull Function<U, N> nodeFactory,
-                           @NotNull Function<U, Iterable<U>> structure, boolean useIdentityHashing) {
+                           @NotNull Function<? super U, String> namer, @NotNull Function<? super U, ? extends N> nodeFactory,
+                           @NotNull Function<? super U, ? extends Iterable<? extends U>> structure, boolean useIdentityHashing) {
       super(root);
       myRootObject = Objects.requireNonNull(getUserObject(root));
       mySpeedSearch = speedSearch;
@@ -366,9 +367,9 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
       return myUseIdentityHashing ? new IdentityHashMap<>() : new HashMap<>();
     }
 
-    private boolean computeAcceptCache(@NotNull U object, @NotNull Set<U> cache) {
+    private boolean computeAcceptCache(@NotNull U object, @NotNull Set<? super U> cache) {
       boolean isAccepted = false;
-      Iterable<U> children = getChildren(object);
+      Iterable<? extends U> children = getChildren(object);
       for (U child : children) {
         isAccepted |= computeAcceptCache(child, cache);
       }
@@ -384,12 +385,12 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
     }
 
     @NotNull
-    public Iterable<U> getChildren(@Nullable U object) {
+    public Iterable<? extends U> getChildren(@Nullable U object) {
       return object == null ? JBIterable.empty() : myStructure.fun(object);
     }
 
     @NotNull
-    public Function<U, Iterable<U>> getStructure() {
+    public Function<? super U, ? extends Iterable<? extends U>> getStructure() {
       return myStructure;
     }
 
@@ -403,7 +404,7 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
       return (N)node.getChildAt(i);
     }
 
-    private void filterChildren(@Nullable U object, @NotNull Condition<U> filter) {
+    private void filterChildren(@Nullable U object, @NotNull Condition<? super U> filter) {
       if (object == null) return;
       N node = getNode(object);
       filterDirectChildren(node, filter);
@@ -413,7 +414,7 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
       }
     }
 
-    private void filterDirectChildren(@NotNull N node, @NotNull Condition<U> filter) {
+    private void filterDirectChildren(@NotNull N node, @NotNull Condition<? super U> filter) {
       Set<U> accepted = new LinkedHashSet<>();
 
       for (U child : getChildren(getUserObject(node))) {
@@ -424,10 +425,10 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
       mergeAcceptedNodes(node, accepted);
     }
 
-    private void mergeAcceptedNodes(@NotNull N node, Set<U> accepted) {
+    private void mergeAcceptedNodes(@NotNull N node, Set<? extends U> accepted) {
       int k = 0;
       N cur = getChildSafe(node, 0);
-      TIntArrayList newIds = new TIntArrayList();
+      IntList newIds = new IntArrayList();
       for (U child : accepted) {
         U curUsrObject = getUserObject(cur);
         boolean isCur = cur != null && myUseIdentityHashing ? curUsrObject == child : (curUsrObject != null && curUsrObject.equals(child));
@@ -441,26 +442,31 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
         ++k;
       }
       if (newIds.size() > 0) {
-        nodesWereInserted(node, newIds.toNativeArray());
+        nodesWereInserted(node, newIds.toIntArray());
       }
       if (node.getChildCount() > k) {
-        TIntArrayList leftIds = new TIntArrayList();
+        IntList leftIds = new IntArrayList();
         List<N> leftNodes = new ArrayList<>();
         for (int i = node.getChildCount() - 1; i >= k; --i) {
           leftNodes.add(getChild(node, i));
           node.remove(i);
           leftIds.add(i);
         }
-        leftIds.reverse();
-        Collections.reverse(leftNodes);
         if (leftIds.size() > 0) {
-          nodesWereRemoved(node, leftIds.toNativeArray(), leftNodes.toArray());
+          int[] ints = leftIds.toIntArray();
+          for (int i = 0; i < ints.length; i++) {
+            int temp = ints[i];
+            ints[i] = ints[ints.length - i - 1];
+            ints[ints.length - i - 1] = temp;
+          }
+          Collections.reverse(leftNodes);
+          nodesWereRemoved(node, ints, leftNodes.toArray());
         }
       }
     }
 
     private void removeNotAccepted(@NotNull N node, Set<U> accepted) {
-      TIntArrayList removedIds = new TIntArrayList();
+      IntList removedIds = new IntArrayList();
       List<N> removedNodes = new ArrayList<>();
       for (int i = node.getChildCount() - 1; i >= 0; --i) {
         N child = getChild(node, i);
@@ -470,10 +476,15 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
           node.remove(i);
         }
       }
-      removedIds.reverse();
-      Collections.reverse(removedNodes);
-      if (removedIds.size() > 0) {
-        nodesWereRemoved(node, removedIds.toNativeArray(), removedNodes.toArray());
+      if (!removedIds.isEmpty()) {
+        Collections.reverse(removedNodes);
+        int[] ints = removedIds.toIntArray();
+        for (int i = 0; i < ints.length / 2; i++) {
+          int temp = ints[i];
+          ints[i] = ints[ints.length - i - 1];
+          ints[ints.length - i - 1] = temp;
+        }
+        nodesWereRemoved(node, ints, removedNodes.toArray());
       }
     }
 
@@ -579,7 +590,7 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
 
     @NotNull
     public Iterator<Item> iterate(@Nullable Item start, boolean fwd) {
-      return new JBIterator<Item>() {
+      return new JBIterator<>() {
         @Override
         protected Item nextImpl() {
           return stop();
@@ -590,7 +601,7 @@ public abstract class FilteringTree<T extends DefaultMutableTreeNode, U> {
     @NotNull
     public Iterator<Item> iterate(@Nullable Item start, boolean fwd, boolean wrap) {
       if (!wrap || start == null) return iterate(start, fwd);
-      return new JBIterator<Item>() {
+      return new JBIterator<>() {
         boolean wrapped = false;
         Iterator<Item> it = iterate(start, fwd);
 

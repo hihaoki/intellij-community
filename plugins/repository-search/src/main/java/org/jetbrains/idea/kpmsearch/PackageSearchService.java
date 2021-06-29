@@ -14,22 +14,25 @@ import org.jetbrains.idea.reposearch.DependencySearchProvider;
 import org.jetbrains.idea.reposearch.RepositoryArtifactData;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Consumer;
 
 public class PackageSearchService implements DependencySearchProvider {
-  private static final MyErrorHandler<Throwable> myErrorHandler = new MyErrorHandler<>();
 
   private final Gson myGson;
-  private final PackageServiceConfig myPackageServiceConfig;
+  private final PackageSearchEndpointConfig myPackageServiceConfig;
 
   public PackageSearchService() {
+    this(new DefaultPackageServiceConfig());
+  }
+
+  public PackageSearchService(PackageSearchEndpointConfig config) {
     myGson = new Gson();
-    myPackageServiceConfig = new PackageServiceConfig();
+    myPackageServiceConfig = config;
   }
 
 
@@ -41,21 +44,22 @@ public class PackageSearchService implements DependencySearchProvider {
     doRequest(consumer, url);
   }
 
-  private String normalize(String string) {
-    if (string == null) return null;
+  private static String normalize(@Nullable String string) {
+    if (StringUtil.isEmpty(string)) return null;
     StringBuilder builder = new StringBuilder();
-    boolean isOK = true;
     for (char c : string.toCharArray()) {
-      if ((c >= 'a' && c <= 'z') ||
-          (c >= 'A' && c <= 'Z') ||
-          c == ':' || c == '-') {
+      if (isAcceptable(c)) {
         builder.append(c);
       }
-      else {
-        isOK = false;
-      }
     }
-    return isOK ? string : builder.toString();
+    return builder.toString();
+  }
+
+  private static boolean isAcceptable(char c) {
+    return (c >= 'a' && c <= 'z') ||
+           (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') ||
+           c == ':' || c == '-' || c == '.' || c == '_';
   }
 
   @Override
@@ -74,18 +78,18 @@ public class PackageSearchService implements DependencySearchProvider {
 
 
   private void doRequest(@NotNull Consumer<RepositoryArtifactData> consumer,
-                         String url) {
+                         @Nullable String url) {
 
-    if (url == null) {
+    if (StringUtil.isEmpty(url)) {
       return;
     }
 
     try {
       HttpRequests.request(url)
         .userAgent(myPackageServiceConfig.getUserAgent())
-        .forceHttps(true)
-        .connectTimeout((int)PackageServiceConfig.MAX_TIMEOUT)
-        .readTimeout((int)PackageServiceConfig.MAX_TIMEOUT)
+        .forceHttps(myPackageServiceConfig.forceHttps())
+        .connectTimeout(myPackageServiceConfig.getReadTimeout())
+        .readTimeout(myPackageServiceConfig.getConnectTimeout())
         .connect(request -> process(consumer, request));
     }
     catch (IOException ignore) {
@@ -115,8 +119,11 @@ public class PackageSearchService implements DependencySearchProvider {
 
   private String createUrlFullTextSearch(@NotNull String coord) {
     String url = myPackageServiceConfig.getFullTextUrl();
-    if (url == null) {
+    if (StringUtil.isEmpty(url)) {
       return null;
+    }
+    if (StringUtil.isEmpty(coord)) {
+      return url;
     }
 
     return url + "?query=" + encode(coord.trim());
@@ -124,12 +131,26 @@ public class PackageSearchService implements DependencySearchProvider {
 
   private String createUrlSuggestPrefix(@Nullable String groupId, @Nullable String artifactId) {
     String url = myPackageServiceConfig.getSuggestUrl();
-    if (url == null) {
+    if (StringUtil.isEmpty(url)) {
       return null;
     }
+
     String groupParam = StringUtil.isEmpty(groupId) ? "" : "groupId=" + encode(groupId.trim());
     String artifactParam = StringUtil.isEmpty(artifactId) ? "" : "artifactId=" + encode(artifactId.trim());
-    return url + "?" + groupParam + "&" + artifactParam;
+
+    final StringBuilder sb = new StringBuilder(url);
+    if (StringUtil.isNotEmpty(groupParam)) {
+      sb.append('?');
+      sb.append(groupParam);
+      if (StringUtil.isNotEmpty(artifactParam)) sb.append('&');
+    }
+
+    if (StringUtil.isNotEmpty(artifactParam)) {
+      if (StringUtil.isEmpty(groupParam)) sb.append('?');
+      sb.append(artifactParam);
+    }
+
+    return sb.toString();
   }
 
   private void readVariants(JsonReader reader,
@@ -146,26 +167,26 @@ public class PackageSearchService implements DependencySearchProvider {
         continue;
       }
 
-      Set<String> versions = new HashSet<>();
-      ArrayList<MavenDependencyCompletionItem> itemList = new ArrayList<>();
+      final Set<String> versions = new HashSet<>();
+      final ArrayList<MavenDependencyCompletionItem> itemList = new ArrayList<>();
       for (int i = 0; i < resultModel.versions.length; i++) {
         if (versions.add(resultModel.versions[i])) {
           itemList.add(new MavenDependencyCompletionItem(resultModel.groupId, resultModel.artifactId, resultModel.versions[i],
                                                          MavenDependencyCompletionItem.Type.REMOTE));
         }
       }
+
       MavenDependencyCompletionItem[] items = itemList.toArray(new MavenDependencyCompletionItem[0]);
-      consumer.accept(new MavenRepositoryArtifactInfo(items[0].getGroupId(), items[0].getArtifactId(), items));
+      final String groupId = items[0].getGroupId();
+      final String artifactId = items[0].getArtifactId();
+      if (groupId != null && artifactId != null) {
+        consumer.accept(new MavenRepositoryArtifactInfo(groupId, artifactId, items));
+      }
     }
   }
 
   @NotNull
   private static String encode(@NotNull String s) {
-    try {
-      return URLEncoder.encode(s.trim(), "UTF-8");
-    }
-    catch (UnsupportedEncodingException e) {
-      throw new RuntimeException(e);
-    }
+    return URLEncoder.encode(s.trim(), StandardCharsets.UTF_8);
   }
 }

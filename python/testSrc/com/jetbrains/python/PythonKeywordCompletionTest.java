@@ -2,15 +2,17 @@
 package com.jetbrains.python;
 
 import com.intellij.codeInsight.completion.impl.CamelHumpMatcher;
+import com.jetbrains.python.codeInsight.completion.PyModuleNameCompletionContributor;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 
 import java.util.List;
 
 public class PythonKeywordCompletionTest extends PyTestCase {
-
-  private void doTest3K() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
+    PyModuleNameCompletionContributor.ENABLED = false;
   }
 
   private void doTest() {
@@ -47,7 +49,7 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   }
 
   public void testNonlocal() {  // PY-2289
-    doTest3K();
+    doTest();
   }
 
   public void testYield() {
@@ -91,12 +93,14 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   }
 
   public void testNoContinueInFinally() {
-    final String testName = "keywordCompletion/" + getTestName(true);
-    myFixture.configureByFile(testName + ".py");
-    myFixture.completeBasic();
-    final List<String> lookupElementStrings = myFixture.getLookupElementStrings();
-    assertNotNull(lookupElementStrings);
-    assertDoesntContain(lookupElementStrings, "continue");
+    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> {
+      final String testName = "keywordCompletion/" + getTestName(true);
+      myFixture.configureByFile(testName + ".py");
+      myFixture.completeBasic();
+      final List<String> lookupElementStrings = myFixture.getLookupElementStrings();
+      assertNotNull(lookupElementStrings);
+      assertDoesntContain(lookupElementStrings, "continue");
+    });
   }
 
   public void testNoElifBeforeElse() {
@@ -121,7 +125,7 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   }
 
   public void testFromDotImport() {  // PY-2772
-    doTest3K();
+    doTest();
   }
 
   public void testLambdaInExpression() {  // PY-3150
@@ -129,7 +133,7 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   }
 
   public void testNoneInArgList() {  // PY-3464
-    doTest3K();
+    doTest();
   }
 
   // PY-5144
@@ -138,16 +142,13 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   }
 
   public void testAsInWith() {  // PY-3701
-    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> assertTrue(doTestByText("with open(foo) <caret>").contains("as")));
+    assertTrue(doTestByText("with open(foo) <caret>").contains("as"));
   }
 
   public void testAsInExcept() {  // PY-1846
-    runWithLanguageLevel(
-      LanguageLevel.PYTHON27,
-      () -> assertTrue(doTestByText("try:\n" +
-                                    "    pass\n" +
-                                    "except IOError <caret>").contains("as"))
-    );
+    assertTrue(doTestByText("try:\n" +
+                            "    pass\n" +
+                            "except IOError <caret>").contains("as"));
   }
 
   // PY-13323
@@ -220,20 +221,22 @@ public class PythonKeywordCompletionTest extends PyTestCase {
 
   public void testExceptAfterFinally() {
     assertDoesntContain(doTestByText("try:\n" +
-                                        "    pass\n" +
-                                        "except ArithmeticError:\n" +
-                                        "    pass\n" +
-                                        "finally:\n" +
-                                        "    pass\n<caret>"), "except");
+                                     "    pass\n" +
+                                     "except ArithmeticError:\n" +
+                                     "    pass\n" +
+                                     "finally:\n" +
+                                     "    pass\n<caret>"), "except");
   }
 
   // PY-15075
   public void testImportAfterWhitespaceInRelativeImport() {
-    List<String> variants = doTestByText("from ...<caret>");
-    assertDoesntContain(variants, "import");
+    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> {
+      List<String> variants = doTestByText("from ...<caret>");
+      assertDoesntContain(variants, "import");
 
-    assertNull(doTestByText("from ... <caret>"));
-    myFixture.checkResult("from ... import ");
+      assertNull(doTestByText("from ... <caret>"));
+      myFixture.checkResult("from ... import ");
+    });
   }
 
   // PY-7018
@@ -244,5 +247,60 @@ public class PythonKeywordCompletionTest extends PyTestCase {
   // PY-13111
   public void testNoForAndYieldInCommentContext() {
     assertDoesntContain(doTestByTestName(), "for", "yield");
+  }
+
+  // PY-45368
+  public void testNoneInParameterAnnotation() {
+    doTest();
+  }
+
+  // PY-45368
+  public void testNoneInReturnAnnotation() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testMatchInsideFunction() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testMatchOnTopLevel() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testNoMatchInsideArgumentList() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testNoMatchInCondition() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testNoMatchAfterQualifier() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testNoMatchBefore310() {
+    runWithLanguageLevel(LanguageLevel.PYTHON39, this::doTest);
+  }
+
+  // PY-48039
+  public void testCaseInsideMatchStatement() {
+    doTest();
+  }
+
+  // PY-48039
+  public void testNoCaseBefore310() {
+    runWithLanguageLevel(LanguageLevel.PYTHON39, this::doTest);
+  }
+
+  // PY-48039
+  public void testNoCaseOutsideMatchStatement() {
+    doTest();
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.project.Project;
@@ -15,15 +15,11 @@ import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.GenericDomValue;
 import com.intellij.util.xml.reflect.*;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author peter
@@ -48,7 +44,7 @@ public final class DynamicGenericInfo extends DomGenericInfoEx {
   }
 
   @Override
-  public final boolean checkInitialized() {
+  public boolean checkInitialized() {
     if (myInitialized) return true;
     myStaticGenericInfo.buildMethodMaps();
 
@@ -165,7 +161,7 @@ public final class DynamicGenericInfo extends DomGenericInfoEx {
   @NotNull
   public List<AbstractDomChildDescriptionImpl> getChildrenDescriptions() {
     checkInitialized();
-    final ArrayList<AbstractDomChildDescriptionImpl> list = new ArrayList<>();
+    final List<AbstractDomChildDescriptionImpl> list = new ArrayList<>();
     myAttributes.dumpDescriptions(list);
     myFixeds.dumpDescriptions(list);
     myCollections.dumpDescriptions(list);
@@ -175,14 +171,14 @@ public final class DynamicGenericInfo extends DomGenericInfoEx {
 
   @Override
   @NotNull
-  public final List<FixedChildDescriptionImpl> getFixedChildrenDescriptions() {
+  public List<FixedChildDescriptionImpl> getFixedChildrenDescriptions() {
     checkInitialized();
     return myFixeds.getDescriptions();
   }
 
   @Override
   @NotNull
-  public final List<CollectionChildDescriptionImpl> getCollectionChildrenDescriptions() {
+  public List<CollectionChildDescriptionImpl> getCollectionChildrenDescriptions() {
     checkInitialized();
     return myCollections.getDescriptions();
   }
@@ -238,7 +234,7 @@ public final class DynamicGenericInfo extends DomGenericInfoEx {
 
   @Override
   public boolean processAttributeChildrenDescriptions(final Processor<? super AttributeChildDescriptionImpl> processor) {
-    final Set<AttributeChildDescriptionImpl> visited = new THashSet<>();
+    final Set<AttributeChildDescriptionImpl> visited = new HashSet<>();
     if (!myStaticGenericInfo.processAttributeChildrenDescriptions(attributeChildDescription -> {
       visited.add(attributeChildDescription);
       return processor.process(attributeChildDescription);

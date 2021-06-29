@@ -29,6 +29,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -41,6 +42,7 @@ import com.intellij.util.Alarm;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -344,9 +346,11 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     rightActionGroup.add(myTreeView.createToggleAutoscrollAction());
 
     myLeftToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.ANT_MESSAGES_TOOLBAR, leftActionGroup, false);
+    myLeftToolbar.setTargetComponent(this);
     JPanel toolbarPanel = new JPanel(new GridLayout(1, 2, 2, 0));
     toolbarPanel.add(myLeftToolbar.getComponent());
     myRightToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.ANT_MESSAGES_TOOLBAR, rightActionGroup, false);
+    myRightToolbar.setTargetComponent(this);
     toolbarPanel.add(myRightToolbar.getComponent());
 
     return toolbarPanel;
@@ -368,23 +372,23 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     }
   }
 
-  void startBuild(String buildName) {
+  void startBuild(@Nls String buildName) {
     addCommand(new StartBuildCommand(buildName));
   }
 
-  void buildFailed(String buildName) {
+  void buildFailed(@Nls String buildName) {
     addCommand(new BuildFailedCommand(buildName));
   }
 
-  void startTarget(String targetName) {
+  void startTarget(@Nls String targetName) {
     addCommand(new StartTargetCommand(targetName));
   }
 
-  void startTask(String taskName) {
+  void startTask(@Nls String taskName) {
     addCommand(new StartTaskCommand(taskName));
   }
 
-  void outputMessage(final String text, @AntMessage.Priority int priority) {
+  void outputMessage(final @Nls String text, @AntMessage.Priority int priority) {
     final AntMessage customizedMessage = getCustomizedMessage(text, priority);
     final AntMessage message = customizedMessage != null
                                ? customizedMessage
@@ -394,7 +398,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
   }
 
   @Nullable
-  private AntMessage getCustomizedMessage(final String text, @AntMessage.Priority int priority) {
+  private AntMessage getCustomizedMessage(final @Nls String text, @AntMessage.Priority int priority) {
     AntMessage customizedMessage = null;
 
     for (AntMessageCustomizer customizer : AntMessageCustomizer.EP_NAME.getExtensionList()) {
@@ -407,7 +411,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     return customizedMessage;
   }
 
-  void outputError(String error, @AntMessage.Priority int priority) {
+  void outputError(@Nls String error, @AntMessage.Priority int priority) {
     updateErrorAndWarningCounters(priority);
     final AntMessage message = createErrorMessage(priority, error);
     addCommand(new AddMessageCommand(message));
@@ -462,7 +466,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     return null;
   }
 
-  private static AntMessage createErrorMessage(@AntMessage.Priority int priority, String text) {
+  private static AntMessage createErrorMessage(@AntMessage.Priority int priority, @NlsSafe String text) {
     text = StringUtil.trimStart(text, FILE_PREFIX);
 
     int afterLineNumberIndex = text.indexOf(": "); // end of file_name_and_line_number sequence
@@ -650,7 +654,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
   }
 
   private static final class StartBuildCommand extends MessageCommand {
-    StartBuildCommand(String buildName) {
+    StartBuildCommand(@Nls String buildName) {
       super(new AntMessage(MessageType.BUILD, PRIORITY_ERR, buildName, null, 0, 0));
     }
 
@@ -672,9 +676,9 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
   }
 
   private static final class FinishBuildCommand extends LogCommand {
-    private final String myFinishStatusText;
+    private final @Nls String myFinishStatusText;
 
-    FinishBuildCommand(String finishStatusText) {
+    FinishBuildCommand(@Nls String finishStatusText) {
       super(PRIORITY_ERR);
       myFinishStatusText = finishStatusText;
     }
@@ -686,7 +690,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
   }
 
   private static final class StartTargetCommand extends MessageCommand {
-    StartTargetCommand(String targetName) {
+    StartTargetCommand(@Nls String targetName) {
       super(new AntMessage(MessageType.TARGET, PRIORITY_ERR, targetName, null, 0, 0));
     }
 
@@ -708,7 +712,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
   }
 
   private static final class StartTaskCommand extends MessageCommand {
-    StartTaskCommand(String taskName) {
+    StartTaskCommand(@Nls String taskName) {
       super(new AntMessage(MessageType.TASK, PRIORITY_ERR, taskName, null, 0, 0));
     }
 
@@ -849,7 +853,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     });
   }
 
-  private String getFinishStatusText(boolean isAborted, long buildTimeInMilliseconds) {
+  private @Nls String getFinishStatusText(boolean isAborted, long buildTimeInMilliseconds) {
     final String theDateAsString = DateFormatUtil.formatDateTime(Clock.getTime());
     final String formattedBuildTime = formatBuildTime(buildTimeInMilliseconds / 1000);
     if (isAborted) {
@@ -974,7 +978,7 @@ public final class AntBuildMessageView extends JPanel implements DataProvider, O
     myPlainTextView.setBuildCommandLine(commandLine);
   }
 
-  static String getBuildContentName() {
+  static @Nls String getBuildContentName() {
     return AntBundle.message("ant.build.tab.content.title");
   }
 }

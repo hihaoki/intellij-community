@@ -1,10 +1,9 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.jcef;
 
-import com.intellij.application.options.RegistryManager;
 import com.intellij.testFramework.ApplicationRule;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.util.ui.TestScaleHelper;
+import com.intellij.ui.scale.TestScaleHelper;
 import junit.framework.TestCase;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -12,16 +11,19 @@ import org.cef.handler.CefLoadHandler;
 import org.cef.network.CefRequest;
 import org.jetbrains.annotations.NotNull;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 
 import javax.swing.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+
+import static com.intellij.ui.jcef.JBCefTestHelper.invokeAndWaitForLatch;
 
 /**
  * Tests that {@link JBCefBrowser#loadHTML(String, String)} can load html that references JS via "file://"
@@ -50,17 +52,18 @@ public class JBCefLoadHtmlTest {
   static final CountDownLatch LATCH = new CountDownLatch(1);
   static volatile boolean testPassed;
 
+  @Before
+  public void before() {
+    TestScaleHelper.assumeStandalone();
+  }
+
   @After
   public void after() {
-    TestScaleHelper.restoreSystemProperties();
+    TestScaleHelper.restoreProperties();
   }
 
   @Test
   public void test() {
-    TestScaleHelper.assumeStandalone();
-
-    RegistryManager.getInstance().get("ide.browser.jcef.headless.enabled").setValue("true");
-
     JBCefBrowser browser = new JBCefBrowser();
 
     browser.getJBCefClient().addLoadHandler(new CefLoadHandler() {
@@ -93,7 +96,7 @@ public class JBCefLoadHtmlTest {
 
     writeJS(jsQuery.inject("'hello'"));
 
-    SwingUtilities.invokeLater(() -> {
+    invokeAndWaitForLatch(LATCH, () -> {
       JFrame frame = new JFrame(JBCefLoadHtmlTest.class.getName());
       frame.setSize(640, 480);
       frame.setLocationRelativeTo(null);
@@ -101,18 +104,13 @@ public class JBCefLoadHtmlTest {
       frame.addWindowListener(new WindowAdapter() {
         @Override
         public void windowOpened(WindowEvent e) {
-          browser.loadHTML(HTML, "file://" + JS_FILE_PATH);
+          // on MS Windows the path should start with a slash, like "/c:/path"
+          browser.loadHTML(HTML, "file://" + new File(JS_FILE_PATH).toURI().getPath());
         }
       });
       frame.setVisible(true);
     });
 
-    try {
-      LATCH.await(5, TimeUnit.SECONDS);
-    }
-    catch (InterruptedException e) {
-      e.printStackTrace();
-    }
     TestCase.assertTrue(testPassed);
   }
 

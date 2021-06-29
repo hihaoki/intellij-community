@@ -1,5 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.history.core;
 
 import com.intellij.history.core.changes.Change;
@@ -8,7 +7,8 @@ import com.intellij.history.core.changes.ChangeVisitor;
 import com.intellij.history.utils.LocalHistoryLog;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Clock;
-import gnu.trove.TIntHashSet;
+import com.intellij.openapi.util.NlsContexts;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jetbrains.annotations.TestOnly;
 
 import java.util.ArrayList;
@@ -64,7 +64,7 @@ public class ChangeList {
     return split;
   }
 
-  public synchronized boolean endChangeSet(String name) {
+  public synchronized boolean endChangeSet(@NlsContexts.Label String name) {
     LocalHistoryLog.LOG.assertTrue(myChangeSetDepth > 0, "not balanced 'begin/end-change set' calls");
 
     myChangeSetDepth--;
@@ -73,7 +73,7 @@ public class ChangeList {
     return doEndChangeSet(name);
   }
 
-  private boolean doEndChangeSet(String name) {
+  private boolean doEndChangeSet(@NlsContexts.Label String name) {
     if (myCurrentChangeSet.isEmpty()) {
       myCurrentChangeSet = null;
       return false;
@@ -99,11 +99,11 @@ public class ChangeList {
 
   // todo synchronization issue: changeset may me modified while being iterated
   public synchronized Iterable<ChangeSet> iterChanges() {
-    return new Iterable<ChangeSet>() {
+    return new Iterable<>() {
       @Override
       public Iterator<ChangeSet> iterator() {
-        return new Iterator<ChangeSet>() {
-          private final TIntHashSet recursionGuard = new TIntHashSet(1000);
+        return new Iterator<>() {
+          private final IntOpenHashSet recursionGuard = new IntOpenHashSet(1000);
 
           private ChangeSetHolder currentBlock;
           private ChangeSet next = fetchNext();

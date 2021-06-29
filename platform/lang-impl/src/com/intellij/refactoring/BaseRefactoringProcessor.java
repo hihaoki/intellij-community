@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring;
 
 import com.intellij.codeInsight.actions.VcsFacade;
@@ -27,11 +27,13 @@ import com.intellij.openapi.module.UnloadedModuleDescription;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogBuilder;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Factory;
+import com.intellij.openapi.util.NlsContexts.Command;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.registry.Registry;
@@ -52,6 +54,7 @@ import com.intellij.refactoring.suggested.SuggestedRefactoringProvider;
 import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.usageView.UsageInfo;
+import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.usages.*;
@@ -59,6 +62,7 @@ import com.intellij.usages.impl.UnknownUsagesInUnloadedModules;
 import com.intellij.usages.impl.UsageViewImpl;
 import com.intellij.usages.rules.PsiElementUsage;
 import com.intellij.util.Processor;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.containers.MultiMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
@@ -177,8 +181,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     throw new UnsupportedOperationException();
   }
 
-  @NotNull
-  protected abstract String getCommandName();
+  protected abstract @NotNull @Command String getCommandName();
 
   protected void doRun() {
     if (!PsiDocumentManager.getInstance(myProject).commitAllDocumentsUnderProgress()) {
@@ -188,6 +191,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     final Ref<Language> refErrorLanguage = new Ref<>();
     final Ref<Boolean> refProcessCanceled = new Ref<>();
     final Ref<Boolean> anyException = new Ref<>();
+    final Ref<Boolean> indexNotReadyException = new Ref<>();
 
     DumbService.getInstance(myProject).completeJustSubmittedTasks();
 
@@ -200,6 +204,9 @@ public abstract class BaseRefactoringProcessor implements Runnable {
       }
       catch (ProcessCanceledException e) {
         refProcessCanceled.set(Boolean.TRUE);
+      }
+      catch (IndexNotReadyException e) {
+        indexNotReadyException.set(Boolean.TRUE);
       }
       catch (Throwable e) {
         anyException.set(Boolean.TRUE);
@@ -216,7 +223,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
       Messages.showErrorDialog(myProject, RefactoringBundle.message("unsupported.refs.found", refErrorLanguage.get().getDisplayName()), RefactoringBundle.message("error.title"));
       return;
     }
-    if (DumbService.isDumb(myProject)) {
+    if (!indexNotReadyException.isNull() || DumbService.isDumb(myProject)) {
       DumbService.getInstance(myProject).showDumbModeNotification(RefactoringBundle.message("refactoring.dumb.mode.notification"));
       return;
     }
@@ -320,6 +327,10 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     return CommonRefactoringUtil.checkReadOnlyStatus(project, psiElements);
   }
 
+  public void executeEx(final UsageInfo @NotNull [] usages) {
+    execute(usages);
+  }
+
   protected void execute(final UsageInfo @NotNull [] usages) {
     CommandProcessor.getInstance().executeCommand(myProject, () -> {
       Collection<UsageInfo> usageInfos = new LinkedHashSet<>(Arrays.asList(usages));
@@ -377,21 +388,21 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     nonCodeFiles.remove(null);
     dynamicUsagesCodeFiles.remove(null);
 
-    String codeReferencesText = descriptor.getCodeReferencesText(codeUsageCount, codeFiles.size());
-    presentation.setCodeUsagesString(codeReferencesText);
-    final String commentReferencesText = descriptor.getCommentReferencesText(nonCodeUsageCount, nonCodeFiles.size());
-    if (commentReferencesText != null) {
-      presentation.setNonCodeUsagesString(commentReferencesText);
-    }
-    presentation.setDynamicUsagesString("Dynamic " + StringUtil.decapitalize(descriptor.getCodeReferencesText(dynamicUsagesCount, dynamicUsagesCodeFiles.size())));
-    String generatedCodeString;
-    if (codeReferencesText.contains("in code")) {
-      generatedCodeString = StringUtil.replace(codeReferencesText, "in code", "in generated code");
-    }
-    else {
-      generatedCodeString = codeReferencesText + " in generated code";
-    }
-    presentation.setUsagesInGeneratedCodeString(generatedCodeString);
+    presentation.setCodeUsagesString(UsageViewBundle.message(
+      "usage.view.results.node.prefix",
+      UsageViewBundle.message("usage.view.results.node.code"),
+      descriptor.getCodeReferencesText(codeUsageCount, codeFiles.size())
+    ));
+    presentation.setNonCodeUsagesString(UsageViewBundle.message(
+      "usage.view.results.node.prefix",
+      UsageViewBundle.message("usage.view.results.node.non.code"),
+      descriptor.getCodeReferencesText(nonCodeUsageCount, nonCodeFiles.size())
+    ));
+    presentation.setDynamicUsagesString(UsageViewBundle.message(
+      "usage.view.results.node.prefix",
+      UsageViewBundle.message("usage.view.results.node.dynamic"),
+      descriptor.getCodeReferencesText(dynamicUsagesCount, dynamicUsagesCodeFiles.size())
+    ));
     return presentation;
   }
 
@@ -417,7 +428,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
   }
 
   private void showUsageView(@NotNull UsageViewDescriptor viewDescriptor,
-                             @NotNull Factory<UsageSearcher> factory,
+                             @NotNull Factory<? extends UsageSearcher> factory,
                              UsageInfo @NotNull [] usageInfos) {
     UsageViewManager viewManager = UsageViewManager.getInstance(myProject);
 
@@ -462,7 +473,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     usageView.setRerunAction(new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        doRun();
+        run();
       }
     });
   }
@@ -501,7 +512,8 @@ public abstract class BaseRefactoringProcessor implements Runnable {
                                                                         RefactoringBundle.message("refactoring.prepare.progress"), false, myProject);
 
       ApplicationEx app = ApplicationManagerEx.getApplicationEx();
-      if (Registry.is("run.refactorings.in.model.branch") && canPerformRefactoringInBranch()) {
+      boolean inBranch = Registry.is("run.refactorings.in.model.branch") && canPerformRefactoringInBranch();
+      if (inBranch) {
         callPerformRefactoring(writableUsageInfos, () -> performInBranch(writableUsageInfos));
       }
       else if (Registry.is("run.refactorings.under.progress")) {
@@ -520,11 +532,13 @@ public abstract class BaseRefactoringProcessor implements Runnable {
         e.getKey().performOperation(myProject, e.getValue());
       }
       myTransaction.commit();
-      if (Registry.is("run.refactorings.under.progress")) {
-        app.runWriteActionWithNonCancellableProgressInDispatchThread(commandName, myProject, null, indicator -> performPsiSpoilingRefactoring());
-      }
-      else {
-        app.runWriteAction(this::performPsiSpoilingRefactoring);
+      if (!inBranch) {
+        if (Registry.is("run.refactorings.under.progress")) {
+          app.runWriteActionWithNonCancellableProgressInDispatchThread(commandName, myProject, null, indicator -> performPsiSpoilingRefactoring());
+        }
+        else {
+          app.runWriteAction(this::performPsiSpoilingRefactoring);
+        }
       }
     }
     finally {
@@ -596,10 +610,11 @@ public abstract class BaseRefactoringProcessor implements Runnable {
   }
 
   /**
-   * Refactorings that spoil PSI (write something directly to documents etc.) should
+   * Non-ModelBranch refactorings that spoil PSI (write something directly to documents etc.) should
    * do that in this method.<br>
    * This method is called immediately after
    * <code>{@link #performRefactoring(UsageInfo[])}</code>.
+   * For branch-aware refactorings, please do this work inside {@link #performRefactoringInBranch}.
    */
   protected void performPsiSpoilingRefactoring() {
   }
@@ -618,10 +633,10 @@ public abstract class BaseRefactoringProcessor implements Runnable {
 
   @Override
   public final void run() {
-    Runnable runnable = this::doRun;
-    if (shouldDisableAccessChecks()) {
-      runnable = () -> NonProjectFileWritingAccessProvider.disableChecksDuring(this::doRun);
-    }
+    Runnable baseRunnable = () -> SlowOperations.allowSlowOperations(this::doRun);
+    Runnable runnable = shouldDisableAccessChecks() ?
+                        () -> NonProjectFileWritingAccessProvider.disableChecksDuring(baseRunnable) :
+                        baseRunnable;
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       ApplicationManager.getApplication().assertIsWriteThread();
       runnable.run();
@@ -679,14 +694,6 @@ public abstract class BaseRefactoringProcessor implements Runnable {
       Collections.sort(result);
       return StringUtil.join(result, "\n");
     }
-  }
-
-  /**
-   * @deprecated use {@link #showConflicts(MultiMap, UsageInfo[])}
-   */
-  @Deprecated
-  protected boolean showConflicts(@NotNull MultiMap<PsiElement, String> conflicts) {
-    return showConflicts(conflicts, null);
   }
 
   protected boolean showConflicts(@NotNull MultiMap<PsiElement, String> conflicts, final UsageInfo @Nullable [] usages) {

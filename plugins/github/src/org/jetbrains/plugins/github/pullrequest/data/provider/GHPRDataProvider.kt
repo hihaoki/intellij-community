@@ -2,9 +2,9 @@
 package org.jetbrains.plugins.github.pullrequest.data.provider
 
 import com.intellij.openapi.Disposable
-import org.jetbrains.annotations.CalledInAwt
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem
-import org.jetbrains.plugins.github.pullrequest.GHPRDiffController
+import org.jetbrains.plugins.github.pullrequest.GHPRDiffRequestModel
 import org.jetbrains.plugins.github.pullrequest.data.GHListLoader
 import org.jetbrains.plugins.github.pullrequest.data.GHPRIdentifier
 
@@ -16,8 +16,8 @@ interface GHPRDataProvider {
   val commentsData: GHPRCommentsDataProvider
   val reviewData: GHPRReviewDataProvider
   val timelineLoader: GHListLoader<GHPRTimelineItem>?
-  val diffController: GHPRDiffController
+  val diffRequestModel: GHPRDiffRequestModel
 
-  @CalledInAwt
+  @RequiresEdt
   fun acquireTimelineLoader(disposable: Disposable): GHListLoader<GHPRTimelineItem>
 }

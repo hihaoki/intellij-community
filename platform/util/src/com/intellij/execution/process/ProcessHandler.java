@@ -9,6 +9,7 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -64,7 +65,7 @@ public abstract class ProcessHandler extends UserDataHolderBase {
   /**
    * Performs process destruction.
    *
-   * <p>This is an internal implementation of {@link #destroyProcess}. All sub-classes must implement this method and perform the
+   * <p>This is an internal implementation of {@link #destroyProcess}. All subclasses must implement this method and perform the
    * destruction in this method. This method is called from {@link #destroyProcess} and it can be in any thread including the
    * event dispatcher thread. You should avoid doing any expensive operation directly in this method. Instead, you may post the work to
    * background thread and return without waiting for it. If the performed destruction led to process termination,
@@ -75,11 +76,11 @@ public abstract class ProcessHandler extends UserDataHolderBase {
   /**
    * Performs detaching process.
    *
-   * <p>This is an internal implementation of {@link #detachProcess}. All sub-classes must implement this method and perform the
+   * <p>This is an internal implementation of {@link #detachProcess}. All subclasses must implement this method and perform the
    * detaching in this method. This method is called from {@link #detachProcess} and it can be in any thread including the
    * event dispatcher thread. You should avoid doing any expensive operation directly in this method. Instead, you may post the work to
    * background thread and return without waiting for it. If the performed detaching is completed,
-   * {@link #notifyProcessTerminated(int)} must be called in any thread (not necessary from this method).
+   * {@link #notifyProcessDetached()} must be called in any thread (not necessary from this method).
    */
   protected abstract void detachProcessImpl();
 
@@ -291,7 +292,7 @@ public abstract class ProcessHandler extends UserDataHolderBase {
     private void runPendingTasks() {
       final Runnable[] tasks;
       synchronized (myPendingTasks) {
-        tasks = myPendingTasks.toArray(new Runnable[0]);
+        tasks = myPendingTasks.toArray(ArrayUtil.EMPTY_RUNNABLE_ARRAY);
         myPendingTasks.clear();
       }
       for (Runnable task : tasks) {

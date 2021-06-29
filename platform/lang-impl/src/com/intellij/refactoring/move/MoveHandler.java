@@ -1,9 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.move;
 
-import com.intellij.internal.statistic.eventLog.FeatureUsageData;
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -11,6 +9,7 @@ import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
@@ -20,7 +19,9 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.actions.BaseRefactoringAction;
 import com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectoriesUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,11 +30,6 @@ import java.util.List;
 import java.util.Set;
 
 public class MoveHandler implements RefactoringActionHandler {
-  /**
-   * @deprecated Use {@link #getRefactoringName()} instead
-   */
-  @Deprecated
-  public static final String REFACTORING_NAME = "Move";
 
   /**
    * called by an Action in AtomicAction when refactoring is invoked from Editor
@@ -78,10 +74,7 @@ public class MoveHandler implements RefactoringActionHandler {
   }
 
   private static void logDelegate(@NotNull Project project, @NotNull MoveHandlerDelegate delegate, @Nullable Language language) {
-    FeatureUsageData data = new FeatureUsageData()
-      .addLanguage(language)
-      .addData("handler", delegate.getClass().getName());
-    FUCounterUsageLogger.getInstance().logEvent(project, "move.refactoring", "handler.invoked", data);
+    MoveUsagesCollector.HANDLER_INVOKED.log(project, language, delegate.getClass());
   }
 
   private static PsiReference findReferenceAtCaret(PsiElement element, int caretOffset) {
@@ -117,7 +110,7 @@ public class MoveHandler implements RefactoringActionHandler {
           }
         }
       }
-      FUCounterUsageLogger.getInstance().logEvent(project, "move.refactoring", "move.files.or.directories");
+      MoveUsagesCollector.MOVE_FILES_OR_DIRECTORIES.log(project);
       MoveFilesOrDirectoriesUtil
         .doMove(project, PsiUtilCore.toPsiElementArray(filesOrDirs), new PsiElement[]{targetContainer}, null);
       return;
@@ -131,13 +124,15 @@ public class MoveHandler implements RefactoringActionHandler {
   public static void doMove(Project project, PsiElement @NotNull [] elements, PsiElement targetContainer, DataContext dataContext, MoveCallback callback) {
     if (elements.length == 0) return;
 
-    for (MoveHandlerDelegate delegate: MoveHandlerDelegate.EP_NAME.getExtensionList()) {
-      if (delegate.canMove(elements, targetContainer, null)) {
-        logDelegate(project, delegate, elements[0].getLanguage());
-        delegate.doMove(project, elements, delegate.adjustTargetForMove(dataContext, targetContainer), callback);
-        break;
+    SlowOperations.allowSlowOperations(() -> {
+      for (MoveHandlerDelegate delegate : MoveHandlerDelegate.EP_NAME.getExtensionList()) {
+        if (delegate.canMove(elements, targetContainer, null)) {
+          logDelegate(project, delegate, elements[0].getLanguage());
+          delegate.doMove(project, elements, delegate.adjustTargetForMove(dataContext, targetContainer), callback);
+          break;
+        }
       }
-    }
+    });
   }
 
   /**
@@ -173,7 +168,7 @@ public class MoveHandler implements RefactoringActionHandler {
   }
 
   @Nullable
-  public static String getActionName(@NotNull DataContext dataContext) {
+  public static @NlsActions.ActionText String getActionName(@NotNull DataContext dataContext) {
     Editor editor = dataContext.getData(CommonDataKeys.EDITOR);
     if (editor != null) {
       Project project = dataContext.getData(CommonDataKeys.PROJECT);

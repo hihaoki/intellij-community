@@ -44,6 +44,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 
@@ -54,7 +55,7 @@ public class FilePathCompletionContributor extends CompletionContributor {
   private static final Logger LOG = Logger.getInstance(FilePathCompletionContributor.class);
 
   public FilePathCompletionContributor() {
-    extend(CompletionType.BASIC, psiElement(), new CompletionProvider<CompletionParameters>() {
+    extend(CompletionType.BASIC, psiElement(), new CompletionProvider<>() {
       @Override
       protected void addCompletions(@NotNull CompletionParameters parameters,
                                     @NotNull ProcessingContext context,
@@ -67,7 +68,7 @@ public class FilePathCompletionContributor extends CompletionContributor {
       }
     });
 
-    CompletionProvider<CompletionParameters> provider = new CompletionProvider<CompletionParameters>() {
+    CompletionProvider<CompletionParameters> provider = new CompletionProvider<>() {
       @Override
       protected void addCompletions(@NotNull final CompletionParameters parameters,
                                     @NotNull ProcessingContext context,
@@ -86,6 +87,10 @@ public class FilePathCompletionContributor extends CompletionContributor {
         if (fileReferencePair != null) {
           final FileReference first = fileReferencePair.getFirst();
           if (first == null) return;
+          Boolean stopHere = fileReferencePair.getSecond();
+          Set<PsiFile> variants = stopHere 
+                                  ? Collections.emptySet() 
+                                  : Arrays.stream(first.getVariants()).map(v -> v instanceof LookupElement ? ((LookupElement)v).getObject() : null).filter(o -> o instanceof PsiFile).map(o -> (PsiFile)o).collect(Collectors.toSet());
 
           final FileReferenceSet set = first.getFileReferenceSet();
           int end = parameters.getOffset() - set.getElement().getTextRange().getStartOffset() - set.getStartInElement();
@@ -116,7 +121,7 @@ public class FilePathCompletionContributor extends CompletionContributor {
 
           final CompletionResultSet __result = result.withPrefixMatcher(prefix).caseInsensitive();
 
-          
+
           if (contextFile != null) {
             Set<String> resultNames = new TreeSet<>();
             String finalPrefix = prefix;
@@ -145,11 +150,14 @@ public class FilePathCompletionContributor extends CompletionContributor {
                 }
                 for (final PsiFile file : files) {
                   ProgressManager.checkCanceled();
+                  if (variants.contains(file) && file.getName().startsWith(finalPrefix)) {
+                    continue;
+                  }
 
                   final VirtualFile virtualFile = file.getVirtualFile();
-                  if (virtualFile == null || 
-                      !virtualFile.isValid() || 
-                      Comparing.equal(virtualFile, contextFile) || 
+                  if (virtualFile == null ||
+                      !virtualFile.isValid() ||
+                      Comparing.equal(virtualFile, contextFile) ||
                       parent != null && !VfsUtilCore.isAncestor(parent, virtualFile, true)) {
                     continue;
                   }
@@ -177,7 +185,7 @@ public class FilePathCompletionContributor extends CompletionContributor {
             result.addLookupAdvertisement(CodeInsightBundle.message("class.completion.file.path.all.variants", shortcut));
           }
 
-          if (fileReferencePair.getSecond()) result.stopHere();
+          if (stopHere) result.stopHere();
         }
       }
     };

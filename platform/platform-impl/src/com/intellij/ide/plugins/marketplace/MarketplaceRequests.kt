@@ -1,53 +1,65 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins.marketplace
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.ide.IdeBundle
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginInfoProvider
 import com.intellij.ide.plugins.PluginNode
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
-import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.updateSettings.impl.PluginDownloader
 import com.intellij.openapi.util.BuildNumber
-import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.util.PathUtil
 import com.intellij.util.Url
 import com.intellij.util.Urls
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresNoReadLock
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.URLUtil
+import com.intellij.util.io.exists
+import com.intellij.util.io.write
+import com.intellij.util.ui.IoErrorText
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.VisibleForTesting
 import org.xml.sax.InputSource
 import org.xml.sax.SAXException
-import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.Reader
 import java.net.HttpURLConnection
 import java.net.URLConnection
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.concurrent.Callable
+import java.util.concurrent.Future
 import javax.xml.parsers.ParserConfigurationException
 import javax.xml.parsers.SAXParserFactory
 
+private val LOG = logger<MarketplaceRequests>()
+private const val FULL_PLUGINS_XML_IDS_FILENAME = "pluginsXMLIds.json"
+
 @ApiStatus.Internal
-open class MarketplaceRequests {
-
-  private val LOG = Logger.getInstance(MarketplaceRequests::class.java)
-
+class MarketplaceRequests : PluginInfoProvider {
   companion object {
-    private const val TAG_EXT = ".etag"
 
-    private const val FULL_PLUGINS_XML_IDS_FILENAME = "pluginsXMLIds.json"
+    private val objectMapper by lazy { ObjectMapper() }
 
-    private const val FILENAME = "filename="
+    private val applicationInfo
+      get() = ApplicationInfoImpl.getShadowInstanceImpl()
 
-    private val INSTANCE = MarketplaceRequests()
+    private val PLUGIN_MANAGER_URL = applicationInfo.pluginManagerUrl.trimEnd('/')
+
+    private val COMPATIBLE_UPDATE_URL = "${PLUGIN_MANAGER_URL}/api/search/compatibleUpdates"
 
     @JvmStatic
-    fun getInstance(): MarketplaceRequests {
-      return INSTANCE
-    }
+    val Instance
+      get() = PluginInfoProvider.getInstance() as MarketplaceRequests
 
     @JvmStatic
     fun parsePluginList(reader: Reader): List<PluginNode> {
@@ -64,54 +76,152 @@ open class MarketplaceRequests {
         }
       }
     }
+
+    @RequiresBackgroundThread
+    @RequiresNoReadLock
+    @JvmStatic
+    @JvmOverloads
+    fun loadLastCompatiblePluginDescriptors(
+      pluginIds: Set<PluginId>,
+      buildNumber: BuildNumber? = null,
+    ): List<PluginNode> {
+      return getLastCompatiblePluginUpdate(pluginIds, buildNumber)
+        .map { loadPluginDescriptor(it.pluginId, it, null) }
+    }
+
+    @RequiresBackgroundThread
+    @RequiresNoReadLock
+    @JvmStatic
+    @JvmOverloads
+    fun getLastCompatiblePluginUpdate(
+      ids: Set<PluginId>,
+      buildNumber: BuildNumber? = null,
+    ): List<IdeCompatibleUpdate> {
+      try {
+        if (ids.isEmpty()) {
+          return emptyList()
+        }
+
+        val data = objectMapper.writeValueAsString(CompatibleUpdateRequest(ids, buildNumber))
+        return HttpRequests
+          .post(Urls.newFromEncoded(COMPATIBLE_UPDATE_URL).toExternalForm(), HttpRequests.JSON_CONTENT_TYPE)
+          .productNameAsUserAgent()
+          .throwStatusCodeException(false)
+          .connect {
+            it.write(data)
+            objectMapper.readValue(it.inputStream, object : TypeReference<List<IdeCompatibleUpdate>>() {})
+          }
+      }
+      catch (e: Exception) {
+        logWarnOrPrintIfDebug("Can not get compatible updates from Marketplace", e)
+        return emptyList()
+      }
+    }
+
+    @RequiresBackgroundThread
+    @RequiresNoReadLock
+    @JvmStatic
+    @JvmOverloads
+    @Throws(IOException::class)
+    internal fun loadPluginDescriptor(
+      xmlId: String,
+      ideCompatibleUpdate: IdeCompatibleUpdate,
+      indicator: ProgressIndicator? = null,
+    ): PluginNode {
+      val updateMetadataFile = Paths.get(PathManager.getPluginTempPath(), "meta")
+      return readOrUpdateFile(
+        updateMetadataFile.resolve(ideCompatibleUpdate.externalUpdateId + ".json"),
+        "$PLUGIN_MANAGER_URL/files/${ideCompatibleUpdate.externalPluginId}/${ideCompatibleUpdate.externalUpdateId}/meta.json",
+        indicator,
+        IdeBundle.message("progress.downloading.plugins.meta", xmlId)
+      ) {
+        objectMapper.readValue(it, IntellijUpdateMetadata::class.java)
+      }.toPluginNode()
+    }
+
+    @JvmStatic
+    @JvmName("readOrUpdateFile")
+    @Throws(IOException::class)
+    internal fun <T> readOrUpdateFile(
+      file: Path?,
+      url: String,
+      indicator: ProgressIndicator?,
+      @Nls indicatorMessage: String,
+      parser: (Reader) -> T
+    ): T {
+      val eTag = if (file == null) null else loadETagForFile(file)
+      return HttpRequests
+        .request(url)
+        .tuner { connection ->
+          if (eTag != null) {
+            connection.setRequestProperty("If-None-Match", eTag)
+          }
+        }
+        .productNameAsUserAgent()
+        .connect { request ->
+          try {
+            indicator?.checkCanceled()
+            val connection = request.connection
+            if (file != null && isNotModified(connection, file)) {
+              return@connect Files.newBufferedReader(file).use(parser)
+            }
+
+            if (indicator != null) {
+              indicator.checkCanceled()
+              indicator.text2 = indicatorMessage
+            }
+            if (file == null) {
+              return@connect request.reader.use(parser)
+            }
+
+            synchronized(this) {
+              request.saveToFile(file, indicator)
+              connection.getHeaderField("ETag")?.let { saveETagForFile(file, it) }
+            }
+            return@connect Files.newBufferedReader(file).use(parser)
+          }
+          catch (e: HttpRequests.HttpStatusException) {
+            LOG.warnWithDebug("Cannot load data from ${url} (statusCode=${e.statusCode})", e)
+            throw e
+          }
+          catch (e: Exception) {
+            LOG.warnWithDebug("Error reading Marketplace file: ${e} (file=${file} URL=${url})", e)
+            if (file != null && LOG.isDebugEnabled) {
+              LOG.debug("File content:\n${runCatching { Files.readString(file) }.getOrElse { IoErrorText.message(e) }}")
+            }
+            throw e
+          }
+        }
+    }
   }
 
-  private val PLUGIN_MANAGER_URL = ApplicationInfoImpl.getShadowInstance().pluginManagerUrl.trimEnd('/')
+  private val IDE_BUILD_FOR_REQUEST = URLUtil.encodeURIComponent(applicationInfo.pluginsCompatibleBuild)
 
-  private val AVAILABLE_PLUGINS_XML_IDS_URL = "${PLUGIN_MANAGER_URL}/files/$FULL_PLUGINS_XML_IDS_FILENAME"
-
-  private val IDE_BUILD_FOR_REQUEST = URLUtil.encodeURIComponent(getBuildForPluginRepositoryRequests())
-
-  private val MARKETPLACE_ORGANIZATIONS_URL = Urls.newFromEncoded(
-    "${PLUGIN_MANAGER_URL}/api/search/aggregation/organizations"
-  ).addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST))
-
-  private val MARKETPLACE_TAGS_URL = Urls.newFromEncoded(
-    "${PLUGIN_MANAGER_URL}/api/search/aggregation/tags"
-  ).addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST))
+  private val MARKETPLACE_ORGANIZATIONS_URL = Urls.newFromEncoded("${PLUGIN_MANAGER_URL}/api/search/aggregation/organizations")
+    .addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST))
 
   private val JETBRAINS_PLUGINS_URL = Urls.newFromEncoded(
     "${PLUGIN_MANAGER_URL}/api/search/plugins?organization=JetBrains&max=1000"
   ).addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST))
 
-  private val COMPATIBLE_UPDATE_URL = "${PLUGIN_MANAGER_URL}/api/search/compatibleUpdates"
+  private val IDE_EXTENSIONS_URL = Urls.newFromEncoded("${PLUGIN_MANAGER_URL}/files/IDE/extensions.json")
+    .addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST))
 
-  private val objectMapper by lazy { ObjectMapper() }
+  private fun createSearchUrl(query: String, count: Int): Url {
+    return Urls.newFromEncoded("$PLUGIN_MANAGER_URL/api/search/plugins?$query&build=$IDE_BUILD_FOR_REQUEST&max=$count")
+  }
 
-  private fun getUpdatesMetadataFilesDirectory() = File(PathManager.getPluginsPath()).resolve("meta")
+  private fun createFeatureUrl(param: Map<String, String>): Url {
+    return Urls.newFromEncoded("${PLUGIN_MANAGER_URL}/feature/getImplementations").addParameters(param)
+  }
 
-  internal fun getBrokenPluginsFile() = File(PathManager.getPluginsPath()).resolve("brokenPlugins.json")
+  fun getFeatures(param: Map<String, String>): List<FeatureImpl> {
+    if (param.isEmpty()) {
+      return emptyList()
+    }
 
-  private fun getUpdateMetadataFile(update: IdeCompatibleUpdate) = getUpdatesMetadataFilesDirectory().resolve(
-    update.externalUpdateId + ".json")
-
-  private fun getUpdateMetadataUrl(update: IdeCompatibleUpdate) =
-    "${PLUGIN_MANAGER_URL}/files/${update.externalPluginId}/${update.externalUpdateId}/meta.json"
-
-  private fun createSearchUrl(query: String, count: Int): Url = Urls.newFromEncoded(
-    "$PLUGIN_MANAGER_URL/api/search/plugins?$query&build=$IDE_BUILD_FOR_REQUEST&max=$count"
-  )
-
-  private fun createFeatureUrl(param: Map<String, String>) = Urls.newFromEncoded(
-    "${PLUGIN_MANAGER_URL}/feature/getImplementations"
-  ).addParameters(param)
-
-  private val BROKEN_PLUGIN_PATH = "${PLUGIN_MANAGER_URL}/files/brokenPlugins.json"
-
-  fun getFeatures(param: Map<String, String>): List<FeatureImpl> = try {
-    if (param.isEmpty()) emptyList()
-    else {
-      HttpRequests
+    try {
+      return HttpRequests
         .request(createFeatureUrl(param))
         .throwStatusCodeException(false)
         .productNameAsUserAgent()
@@ -122,40 +232,59 @@ open class MarketplaceRequests {
           )
         }
     }
-  }
-  catch (e: Exception) {
-    logWarnOrPrintIfDebug("Can not get features from Marketplace", e)
-    emptyList()
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get features from Marketplace", e)
+      return emptyList()
+    }
   }
 
+  internal fun getFeatures(
+    featureType: String,
+    implementationName: String,
+  ): List<FeatureImpl> {
+    val param = mapOf(
+      "featureType" to featureType,
+      "implementationName" to implementationName,
+      "build" to applicationInfo.pluginsCompatibleBuild,
+    )
+    return getFeatures(param)
+  }
+
+  @RequiresBackgroundThread
+  @JvmOverloads
   @Throws(IOException::class)
-  fun getMarketplacePlugins(indicator: ProgressIndicator?): List<String> {
-    val pluginXmlIdsFile = File(PathManager.getPluginsPath(), FULL_PLUGINS_XML_IDS_FILENAME)
+  fun getMarketplacePlugins(indicator: ProgressIndicator? = null): Set<PluginId> {
     return readOrUpdateFile(
-      pluginXmlIdsFile,
-      AVAILABLE_PLUGINS_XML_IDS_URL,
+      Paths.get(PathManager.getPluginTempPath(), FULL_PLUGINS_XML_IDS_FILENAME),
+      "${PLUGIN_MANAGER_URL}/files/$FULL_PLUGINS_XML_IDS_FILENAME",
       indicator,
       IdeBundle.message("progress.downloading.available.plugins"),
-      ::parseXmlIds
+      ::parseXmlIds,
     )
   }
 
-  @Throws(IOException::class)
-  fun getMarketplaceCachedPlugins(): List<String>? {
-    val pluginXmlIdsFile = File(PathManager.getPluginsPath(), FULL_PLUGINS_XML_IDS_FILENAME)
-    return if (pluginXmlIdsFile.length() > 0) pluginXmlIdsFile.bufferedReader().use(::parseXmlIds) else null
+  override fun loadPlugins(indicator: ProgressIndicator?): Future<Set<PluginId>> {
+    return ApplicationManager.getApplication().executeOnPooledThread(Callable {
+      try {
+        getMarketplacePlugins(indicator)
+      }
+      catch (e: IOException) {
+        logWarnOrPrintIfDebug("Cannot get plugins from Marketplace", e)
+        emptySet()
+      }
+    })
   }
 
-  fun getBuildForPluginRepositoryRequests(): String {
-    val instance = ApplicationInfoImpl.getShadowInstance()
-    val compatibleBuild = PluginManagerCore.getPluginsCompatibleBuild()
-    return if (compatibleBuild != null) {
-      BuildNumber.fromStringWithProductCode(
-        compatibleBuild,
-        instance.build.productCode
-      )!!.asString()
+  override fun loadCachedPlugins(): Set<PluginId>? {
+    val pluginXmlIdsFile = Paths.get(PathManager.getPluginTempPath(), FULL_PLUGINS_XML_IDS_FILENAME)
+    try {
+      if (Files.size(pluginXmlIdsFile) > 0) {
+        return Files.newBufferedReader(pluginXmlIdsFile).use(::parseXmlIds)
+      }
     }
-    else instance.apiVersion
+    catch (ignore: IOException) {
+    }
+    return null
   }
 
   @Throws(IOException::class)
@@ -172,307 +301,283 @@ open class MarketplaceRequests {
     return marketplaceSearchPluginData.filter { it.externalUpdateId != null }.map { it.toPluginNode() }
   }
 
-  fun getAllPluginsVendors(): List<String> = try {
-    HttpRequests
-      .request(MARKETPLACE_ORGANIZATIONS_URL)
-      .productNameAsUserAgent()
-      .throwStatusCodeException(false)
-      .connect {
-        objectMapper.readValue(it.inputStream, AggregationSearchResponse::class.java).aggregations.keys.toList()
-      }
-  }
-  catch (e: Exception) {
-    logWarnOrPrintIfDebug("Can not get organizations from Marketplace", e)
-    emptyList()
-  }
-
-  fun getBrokenPlugins(): List<MarketplaceBrokenPlugin> {
-    return try {
-      readOrUpdateFile(
-        getBrokenPluginsFile(),
-        BROKEN_PLUGIN_PATH,
-        null,
-        "",
-        ::parseBrokenPlugins
-      )
-    }
-    catch (e: Exception) {
-      logWarnOrPrintIfDebug("Can not get broken plugins file from Marketplace", e)
-      emptyList()
-    }
-  }
-
-
-  fun getAllPluginsTags(): List<String> = try {
-    HttpRequests
-      .request(MARKETPLACE_TAGS_URL)
-      .productNameAsUserAgent()
-      .throwStatusCodeException(false)
-      .connect {
-        objectMapper.readValue(it.inputStream, AggregationSearchResponse::class.java).aggregations.keys.toList()
-      }
-  }
-  catch (e: Exception) {
-    logWarnOrPrintIfDebug("Can not get tags from Marketplace", e)
-    emptyList()
-  }
-
-  @Throws(IOException::class)
-  fun loadPluginDescriptor(xmlId: String, ideCompatibleUpdate: IdeCompatibleUpdate, indicator: ProgressIndicator? = null): PluginNode {
-    return readOrUpdateFile(
-      getUpdateMetadataFile(ideCompatibleUpdate),
-      getUpdateMetadataUrl(ideCompatibleUpdate),
-      indicator,
-      IdeBundle.message("progress.downloading.plugins.meta", xmlId),
-      ::parseJsonPluginMeta
-    ).toPluginNode()
-  }
-
-  @JvmOverloads
-  fun loadLastCompatiblePluginDescriptors(ids: List<String>, buildNumber: BuildNumber? = null): List<PluginNode> {
-    if (ids.isEmpty()) return emptyList()
-    val data: List<IdeCompatibleUpdate> = getLastCompatiblePluginUpdate(ids, buildNumber)
-    return data.map { loadPluginDescriptor(it.pluginId, it, null) }
-  }
-
-
-  fun loadPluginDetails(pluginNode: PluginNode): PluginNode {
-    val externalPluginId = pluginNode.externalPluginId
-    val externalUpdateId = pluginNode.externalUpdateId
-    if (externalPluginId == null || externalUpdateId == null) return pluginNode
-    val ideCompatibleUpdate = IdeCompatibleUpdate(externalUpdateId = externalUpdateId, externalPluginId = externalPluginId)
-    return loadPluginDescriptor(pluginNode.pluginId.idString, ideCompatibleUpdate).apply {
-      // These three fields are not present in `IntellijUpdateMetadata`, but present in `MarketplaceSearchPluginData`
-      rating = pluginNode.rating
-      downloads = pluginNode.downloads
-      date = pluginNode.date
-    }
-  }
-
-  @Throws(IOException::class)
-  fun <T> readOrUpdateFile(
-    file: File?,
-    url: String,
-    indicator: ProgressIndicator?,
-    indicatorMessage: String,
-    parser: (Reader) -> T
-  ): T {
-    val eTag = if (file != null) loadEtagForFile(file) else null
-    return HttpRequests
-      .request(url)
-      .tuner { connection -> connection.setUpETag(eTag) }
-      .productNameAsUserAgent()
-      .connect { request ->
-        try {
-          indicator?.checkCanceled()
-          val connection = request.connection
-          if (file != null && connection.isNotModified(file)) {
-            return@connect file.bufferedReader().use(parser)
-          }
-          if (indicator != null) {
-            indicator.checkCanceled()
-            indicator.text2 = indicatorMessage
-          }
-          if (file != null) {
-            synchronized(INSTANCE) {
-              request.saveToFile(file, indicator)
-              connection.getHeaderField("ETag")?.let { saveETagForFile(file, it) }
-            }
-            return@connect file.bufferedReader().use(parser)
-          }
-          else {
-            return@connect request.reader.use(parser)
-          }
-        } catch (e: Exception) {
-          val fileText = file?.readText()
-          LOG.error("Error reading Marketplace file: url=$url file=${file?.name}. File content:\n$fileText")
-          throw e
-        }
-      }
-  }
-
-  fun getLastCompatiblePluginUpdate(ids: List<String>, buildNumber: BuildNumber? = null): List<IdeCompatibleUpdate> = try {
-    if (ids.isEmpty()) emptyList()
-    else {
-      val data = objectMapper.writeValueAsString(CompatibleUpdateRequest(PluginDownloader.getBuildNumberForDownload(buildNumber), ids))
-      val url = Urls.newFromEncoded(COMPATIBLE_UPDATE_URL).toExternalForm()
-      HttpRequests
-        .post(url, HttpRequests.JSON_CONTENT_TYPE)
+  fun getAllPluginsVendors(): List<String> {
+    try {
+      return HttpRequests
+        .request(MARKETPLACE_ORGANIZATIONS_URL)
         .productNameAsUserAgent()
         .throwStatusCodeException(false)
         .connect {
-          it.write(data)
-          objectMapper
-            .readValue(
-              it.inputStream,
-              object : TypeReference<List<IdeCompatibleUpdate>>() {}
-            )
+          objectMapper.readValue(it.inputStream, AggregationSearchResponse::class.java).aggregations.keys.toList()
         }
     }
-  }
-  catch (e: Exception) {
-    logWarnOrPrintIfDebug("Can not get compatible updates from Marketplace", e)
-    emptyList()
-  }
-
-  @JvmOverloads
-  fun getLastCompatiblePluginUpdate(id: String, buildNumber: BuildNumber? = null, indicator: ProgressIndicator? = null): PluginNode? {
-    val data = getLastCompatiblePluginUpdate(listOf(id), buildNumber).firstOrNull()
-    return data?.let { loadPluginDescriptor(id, it, indicator) }
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get organizations from Marketplace", e)
+      return emptyList()
+    }
   }
 
-  @JvmOverloads
-  fun getCompatibleUpdatesByModule(module: String, buildNumber: BuildNumber? = null): List<IdeCompatibleUpdate> = try {
-    val data = objectMapper.writeValueAsString(
-      CompatibleUpdateForModuleRequest(PluginDownloader.getBuildNumberForDownload(buildNumber), module)
-    )
-    val url = Urls.newFromEncoded(COMPATIBLE_UPDATE_URL).toExternalForm()
-    HttpRequests
-      .post(url, HttpRequests.JSON_CONTENT_TYPE)
-      .productNameAsUserAgent()
-      .throwStatusCodeException(false)
-      .connect {
-        it.write(data)
-        objectMapper
-          .readValue(
-            it.inputStream,
-            object : TypeReference<List<IdeCompatibleUpdate>>() {}
-          )
+  fun getBrokenPlugins(currentBuild: BuildNumber): Map<PluginId, Set<String>> {
+    val brokenPlugins = try {
+      readOrUpdateFile(
+        Paths.get(PathManager.getPluginTempPath(), "brokenPlugins.json"),
+        "${PLUGIN_MANAGER_URL}/files/brokenPlugins.json",
+        null,
+        ""
+      ) { objectMapper.readValue(it, object : TypeReference<List<MarketplaceBrokenPlugin>>() {}) }
+    }
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get broken plugins file from Marketplace", e)
+      return emptyMap()
+    }
+
+    val brokenPluginsMap = HashMap<PluginId, MutableSet<String>>()
+    brokenPlugins.forEach { record ->
+      try {
+        val parsedOriginalUntil = record.originalUntil?.trim()
+        val parsedOriginalSince = record.originalSince?.trim()
+        if (!parsedOriginalUntil.isNullOrEmpty() && !parsedOriginalSince.isNullOrEmpty()) {
+          val originalUntil = BuildNumber.fromString(parsedOriginalUntil, record.id, null) ?: currentBuild
+          val originalSince = BuildNumber.fromString(parsedOriginalSince, record.id, null) ?: currentBuild
+          val until = BuildNumber.fromString(record.until) ?: currentBuild
+          val since = BuildNumber.fromString(record.since) ?: currentBuild
+          if (currentBuild in originalSince..originalUntil && currentBuild !in since..until) {
+            brokenPluginsMap.computeIfAbsent(PluginId.getId(record.id)) { HashSet() }.add(record.version)
+          }
+        }
       }
+      catch (e: Exception) {
+        LOG.error("cannot parse ${record}", e)
+      }
+    }
+    return brokenPluginsMap
   }
-  catch (e: Exception) {
-    logWarnOrPrintIfDebug("Can not get compatible update by module from Marketplace", e)
-    emptyList()
+
+  fun getAllPluginsTags(): List<String> {
+    try {
+      return HttpRequests
+        .request(Urls.newFromEncoded(
+          "${PLUGIN_MANAGER_URL}/api/search/aggregation/tags"
+        ).addParameters(mapOf("build" to IDE_BUILD_FOR_REQUEST)))
+        .productNameAsUserAgent()
+        .throwStatusCodeException(false)
+        .connect {
+          objectMapper.readValue(it.inputStream, AggregationSearchResponse::class.java).aggregations.keys.toList()
+        }
+    }
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get tags from Marketplace", e)
+      return emptyList()
+    }
+  }
+
+  @RequiresBackgroundThread
+  @RequiresNoReadLock
+  @JvmOverloads
+  fun loadPluginDetails(
+    pluginNode: PluginNode,
+    indicator: ProgressIndicator? = null,
+  ): PluginNode? {
+    val externalPluginId = pluginNode.externalPluginId ?: return pluginNode
+    val externalUpdateId = pluginNode.externalUpdateId ?: return pluginNode
+
+    try {
+      return loadPluginDescriptor(
+        pluginNode.pluginId.idString,
+        IdeCompatibleUpdate(externalUpdateId = externalUpdateId, externalPluginId = externalPluginId),
+        indicator,
+      ).apply {
+        // these three fields are not present in `IntellijUpdateMetadata`, but present in `MarketplaceSearchPluginData`
+        rating = pluginNode.rating
+        downloads = pluginNode.downloads
+        date = pluginNode.date
+      }
+    }
+    catch (e: IOException) {
+      LOG.error(e)
+      return null
+    }
+  }
+
+  @Deprecated("Please use `PluginId`", replaceWith = ReplaceWith("getLastCompatiblePluginUpdate(PluginId.get(id), buildNumber, indicator)"))
+  @RequiresBackgroundThread
+  @RequiresNoReadLock
+  @JvmOverloads
+  fun getLastCompatiblePluginUpdate(
+    id: String,
+    buildNumber: BuildNumber? = null,
+    indicator: ProgressIndicator? = null,
+  ): PluginNode? = getLastCompatiblePluginUpdate(PluginId.getId(id), buildNumber, indicator)
+
+  @RequiresBackgroundThread
+  @RequiresNoReadLock
+  @JvmOverloads
+  fun getLastCompatiblePluginUpdate(
+    pluginId: PluginId,
+    buildNumber: BuildNumber? = null,
+    indicator: ProgressIndicator? = null,
+  ): PluginNode? {
+    return getLastCompatiblePluginUpdate(setOf(pluginId), buildNumber).firstOrNull()
+      ?.let { loadPluginDescriptor(pluginId.idString, it, indicator) }
+  }
+
+  fun getCompatibleUpdateByModule(module: String): PluginId? {
+    try {
+      val data = objectMapper.writeValueAsString(CompatibleUpdateForModuleRequest(module))
+
+      return HttpRequests.post(
+        Urls.newFromEncoded(COMPATIBLE_UPDATE_URL).toExternalForm(),
+        HttpRequests.JSON_CONTENT_TYPE,
+      ).productNameAsUserAgent()
+        .throwStatusCodeException(false)
+        .connect {
+          it.write(data)
+          objectMapper.readValue(it.inputStream, object : TypeReference<List<IdeCompatibleUpdate>>() {})
+        }.firstOrNull()
+        ?.pluginId
+        ?.let { PluginId.getId(it) }
+    }
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get compatible update by module from Marketplace", e)
+      return null
+    }
   }
 
   var jetBrainsPluginsIds: Set<String>? = null
     private set
 
-  fun loadJetBrainsPluginsIds() =
-    if (jetBrainsPluginsIds == null) {
-      jetBrainsPluginsIds = try {
-        HttpRequests
-          .request(JETBRAINS_PLUGINS_URL)
-          .productNameAsUserAgent()
-          .throwStatusCodeException(false)
-          .connect {
-            objectMapper.readValue(
-              it.inputStream,
-              object : TypeReference<List<MarketplaceSearchPluginData>>() {}
-            ).map { searchPluginData -> searchPluginData.id }.toSet()
-          }
-      }
-      catch (e: Exception) {
-        logWarnOrPrintIfDebug("Can not get JetBrains plugins' IDs from Marketplace", e)
-        null
-      }
-    } else {}
-
-  private fun parseBrokenPlugins(reader: Reader) = objectMapper.readValue(
-    reader,
-    object : TypeReference<List<MarketplaceBrokenPlugin>>() {}
-  )
-
-  private fun parseXmlIds(reader: Reader) = objectMapper.readValue(reader, object : TypeReference<List<String>>() {})
-
-  private fun parseJsonPluginMeta(reader: Reader) = objectMapper.readValue(reader, IntellijUpdateMetadata::class.java)
-
-  private fun getETagFile(file: File): File = file.resolveSibling(file.name + TAG_EXT)
-
-  private fun loadEtagForFile(file: File): String? {
-    val eTagFile = getETagFile(file)
-    if (eTagFile.exists()) {
-      try {
-        val lines = eTagFile.readLines()
-        if (lines.size != 1) {
-          LOG.warn("Can't load ETag from '" + eTagFile.absolutePath + "'. Unexpected number of lines: " + lines.size)
-          FileUtil.delete(eTagFile)
-        }
-        else {
-          return lines[0]
-        }
-      }
-      catch (e: IOException) {
-        LOG.warn("Can't load ETag from '" + eTagFile.absolutePath + "'", e)
-      }
+  fun loadJetBrainsPluginsIds() {
+    if (jetBrainsPluginsIds != null) {
+      return
     }
-    return ""
-  }
 
-  private fun saveETagForFile(file: File, eTag: String) {
-    val eTagFile = getETagFile(file)
     try {
-      eTagFile.writeText(eTag)
+      HttpRequests
+        .request(JETBRAINS_PLUGINS_URL)
+        .productNameAsUserAgent()
+        .throwStatusCodeException(false)
+        .connect {
+          deserializeJetBrainsPluginsIds(it.inputStream)
+        }
     }
-    catch (e: IOException) {
-      LOG.warn("Can't save ETag to '" + eTagFile.absolutePath + "'", e)
-    }
-  }
-
-  @Throws(IOException::class)
-  open fun download(pluginUrl: String, indicator: ProgressIndicator): File {
-    val pluginsTemp = File(PathManager.getPluginTempPath())
-    if (!pluginsTemp.exists() && !pluginsTemp.mkdirs()) {
-      throw IOException(IdeBundle.message("error.cannot.create.temp.dir", pluginsTemp))
-    }
-    val file = FileUtil.createTempFile(pluginsTemp, "plugin_", "_download", true, false)
-    return HttpRequests.request(pluginUrl).gzip(false).productNameAsUserAgent().connect(
-      HttpRequests.RequestProcessor { request: HttpRequests.Request ->
-        request.saveToFile(file, indicator)
-        val fileName: String = guessFileName(request.connection, file, pluginUrl)
-        val newFile = File(file.parentFile, fileName)
-        FileUtil.rename(file, newFile)
-        newFile
-      })
-  }
-
-  @Throws(IOException::class)
-  private fun guessFileName(connection: URLConnection, file: File, pluginUrl: String): String {
-    var fileName: String? = null
-    val contentDisposition = connection.getHeaderField("Content-Disposition")
-    LOG.debug("header: $contentDisposition")
-    if (contentDisposition != null && contentDisposition.contains(FILENAME)) {
-      val startIdx = contentDisposition.indexOf(FILENAME)
-      val endIdx = contentDisposition.indexOf(';', startIdx)
-      fileName = contentDisposition.substring(startIdx + FILENAME.length, if (endIdx > 0) endIdx else contentDisposition.length)
-      if (StringUtil.startsWithChar(fileName, '\"') && StringUtil.endsWithChar(fileName, '\"')) {
-        fileName = fileName.substring(1, fileName.length - 1)
-      }
-    }
-    if (fileName == null) {
-      // try to find a filename in an URL
-      val usedURL = connection.url.toString()
-      LOG.debug("url: $usedURL")
-      fileName = usedURL.substring(usedURL.lastIndexOf('/') + 1)
-      if (fileName.isEmpty() || fileName.contains("?")) {
-        fileName = pluginUrl.substring(pluginUrl.lastIndexOf('/') + 1)
-      }
-    }
-    if (!PathUtil.isValidFileName(fileName)) {
-      LOG.debug("fileName: $fileName")
-      FileUtil.delete(file)
-      throw IOException("Invalid filename returned by a server")
-    }
-    return fileName
-  }
-
-  private fun URLConnection.setUpETag(eTag: String?) {
-    eTag?.also { this.setRequestProperty("If-None-Match", it) }
-  }
-
-  private fun URLConnection.isNotModified(file: File?): Boolean =
-    file != null && file.length() > 0 && this is HttpURLConnection && this.responseCode == HttpURLConnection.HTTP_NOT_MODIFIED
-
-  private data class CompatibleUpdateRequest(val build: String, val pluginXMLIds: List<String>)
-  private data class CompatibleUpdateForModuleRequest(val build: String, val module: String)
-
-  private fun logWarnOrPrintIfDebug(message: String, throwable: Throwable) {
-    if (LOG.isDebugEnabled) {
-      LOG.debug(message, throwable)
-    }
-    else {
-      LOG.warn("$message:${throwable.message}")
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get JetBrains plugins' IDs from Marketplace", e)
+      jetBrainsPluginsIds = null
     }
   }
 
+  @VisibleForTesting
+  fun deserializeJetBrainsPluginsIds(stream: InputStream) {
+    jetBrainsPluginsIds = objectMapper.readValue(stream, object : TypeReference<List<MarketplaceSearchPluginData>>() {})
+      .asSequence()
+      .map(MarketplaceSearchPluginData::id)
+      .toCollection(HashSet())
+  }
+
+  var extensionsForIdes: Map<String, List<String>>? = null
+    private set
+
+  fun loadExtensionsForIdes() {
+    if (extensionsForIdes != null) {
+      return
+    }
+
+    try {
+      HttpRequests
+        .request(IDE_EXTENSIONS_URL)
+        .productNameAsUserAgent()
+        .throwStatusCodeException(false)
+        .connect {
+          deserializeExtensionsForIdes(it.inputStream)
+        }
+    }
+    catch (e: Exception) {
+      logWarnOrPrintIfDebug("Can not get supported extensions from Marketplace", e)
+      extensionsForIdes = null
+    }
+  }
+
+  @VisibleForTesting
+  fun deserializeExtensionsForIdes(stream: InputStream) {
+    extensionsForIdes = objectMapper.readValue(stream, object : TypeReference<Map<String, List<String>>>() {})
+  }
+
+  private fun parseXmlIds(reader: Reader) = objectMapper.readValue(reader, object : TypeReference<Set<PluginId>>() {})
+
+}
+
+private fun loadETagForFile(file: Path): String {
+  val eTagFile = getETagFile(file)
+  try {
+    val lines = Files.readAllLines(eTagFile)
+    if (lines.size == 1) {
+      return lines[0]
+    }
+
+    LOG.warn("Can't load ETag from '" + eTagFile + "'. Unexpected number of lines: " + lines.size)
+    Files.deleteIfExists(eTagFile)
+  }
+  catch (ignore: NoSuchFileException) {
+  }
+  catch (e: IOException) {
+    LOG.warn("Can't load ETag from '$eTagFile'", e)
+  }
+  return ""
+}
+
+@Suppress("SpellCheckingInspection")
+private fun getETagFile(file: Path): Path = file.parent.resolve("${file.fileName}.etag")
+
+private fun saveETagForFile(file: Path, eTag: String) {
+  val eTagFile = getETagFile(file)
+  try {
+    eTagFile.write(eTag)
+  }
+  catch (e: IOException) {
+    LOG.warn("Can't save ETag to '$eTagFile'", e)
+  }
+}
+
+private fun isNotModified(urlConnection: URLConnection, file: Path?): Boolean {
+  return file != null && file.exists() && Files.size(file) > 0 &&
+         urlConnection is HttpURLConnection && urlConnection.responseCode == HttpURLConnection.HTTP_NOT_MODIFIED
+}
+
+private data class CompatibleUpdateRequest(
+  val build: String,
+  val pluginXMLIds: List<String>,
+) {
+
+  @JvmOverloads
+  constructor(
+    pluginIds: Set<PluginId>,
+    buildNumber: BuildNumber? = null,
+  ) : this(
+    ApplicationInfoImpl.orFromPluginsCompatibleBuild(buildNumber),
+    pluginIds.map { it.idString },
+  )
+}
+
+private data class CompatibleUpdateForModuleRequest(
+  val module: String,
+  val build: String,
+) {
+
+  @JvmOverloads
+  constructor(
+    module: String,
+    buildNumber: BuildNumber? = null,
+  ) : this(
+    module,
+    ApplicationInfoImpl.orFromPluginsCompatibleBuild(buildNumber),
+  )
+}
+
+private fun logWarnOrPrintIfDebug(message: String, throwable: Throwable) {
+  if (LOG.isDebugEnabled) {
+    LOG.debug(message, throwable)
+  }
+  else {
+    LOG.warn("${message}: ${throwable.message}")
+  }
 }

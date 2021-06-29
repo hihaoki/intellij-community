@@ -1,16 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.scale;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.ui.JreHiDpiUtil;
-import com.intellij.util.LazyInitializer.MutableNotNullValue;
-import com.intellij.util.LazyInitializer.NullableValue;
-import com.intellij.util.SystemProperties;
-import com.intellij.util.ui.DetectRetinaKit;
+import com.intellij.util.LazyInitializer;
+import com.intellij.util.LazyInitializer.LazyValue;
 import com.intellij.util.ui.JBScalableIcon;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -21,6 +17,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * @author tav
@@ -29,6 +27,10 @@ import java.beans.PropertyChangeSupport;
 public final class JBUIScale {
   public static final boolean SCALE_VERBOSE = Boolean.getBoolean("ide.ui.scale.verbose");
   public static final String USER_SCALE_FACTOR_PROPERTY = "JBUIScale.userScaleFactor";
+
+  private static final Object lock = new Object();
+  private static volatile float userScaleFactor = Float.NaN;
+  private static volatile float systemScaleFactor = Float.NaN;
 
   @SuppressWarnings("InstantiationOfUtilityClass")
   private static final PropertyChangeSupport PROPERTY_CHANGE_SUPPORT = new PropertyChangeSupport(new JBUIScale());
@@ -47,13 +49,24 @@ public final class JBUIScale {
 
   private JBUIScale() {}
 
-  private static final AtomicNotNullLazyValue<Pair<String, Integer>> systemFontData = AtomicNotNullLazyValue.createValue(() -> {
+  private static volatile Map.Entry<String, Integer> systemFontData;
+
+  private synchronized static @NotNull Map.Entry<String, Integer> computeSystemFontData(@Nullable Supplier<UIDefaults> uiDefaults) {
+    Map.Entry<String, Integer > result = systemFontData;
+    if (result != null) {
+      return result;
+    }
+
     // with JB Linux JDK the label font comes properly scaled based on Xft.dpi settings.
-    Font font = UIManager.getFont("Label.font");
+    Font font;
     if (SystemInfoRt.isMac) {
+      // see AquaFonts.getControlTextFont() - lucida13Pt is hardcoded
       // text family should be used for relatively small sizes (<20pt), don't change to Display
       // see more about SF https://medium.com/@mach/the-secret-of-san-francisco-fonts-4b5295d9a745#.2ndr50z2v
-      font = new Font(".SF NS Text", font.getStyle(), font.getSize());
+      font = new Font(".SF NS Text", Font.PLAIN, 13);
+    }
+    else {
+      font = uiDefaults == null ? UIManager.getFont("Label.font") : uiDefaults.get().getFont("Label.font");
     }
 
     Logger log = getLogger();
@@ -62,7 +75,7 @@ public final class JBUIScale {
       log.info(String.format("Label font: %s, %d", font.getFontName(), font.getSize()));
     }
 
-    if (SystemInfo.isLinux) {
+    if (SystemInfoRt.isLinux) {
       Object value = Toolkit.getDefaultToolkit().getDesktopProperty("gnome.Xft/DPI");
       if (isScaleVerbose) {
         log.info(String.format("gnome.Xft/DPI: %s", value));
@@ -74,7 +87,8 @@ public final class JBUIScale {
         int dpi = ((Integer)value).intValue() / 1024;
         if (dpi < 50) dpi = 50;
         float scale = JreHiDpiUtil.isJreHiDPIEnabled() ? 1f : discreteScale(dpi / 96f); // no scaling in JRE-HiDPI mode
-        DEF_SYSTEM_FONT_SIZE = font.getSize() / scale; // derive actual system base font size
+        // derive actual system base font size
+        DEF_SYSTEM_FONT_SIZE = font.getSize() / scale;
         if (isScaleVerbose) {
           log.info(String.format("DEF_SYSTEM_FONT_SIZE: %.2f", DEF_SYSTEM_FONT_SIZE));
         }
@@ -88,8 +102,7 @@ public final class JBUIScale {
         }
       }
     }
-    else if (SystemInfo.isWindows) {
-      @SuppressWarnings("SpellCheckingInspection")
+    else if (SystemInfoRt.isWindows) {
       Font winFont = (Font)Toolkit.getDefaultToolkit().getDesktopProperty("win.messagebox.font");
       if (winFont != null) {
         font = winFont; // comes scaled
@@ -98,46 +111,40 @@ public final class JBUIScale {
         }
       }
     }
-    Pair<String, Integer> result = Pair.create(font.getName(), font.getSize());
+
+    result = Map.entry(font.getName(), font.getSize());
+    systemFontData = result;
     if (isScaleVerbose) {
-      log.info(String.format("ourSystemFontData: %s, %d", result.first, result.second));
+      log.info(String.format("ourSystemFontData: %s, %d", result.getKey(), result.getValue()));
     }
     return result;
-  });
+  }
 
   @ApiStatus.Internal
-  public static final NullableValue<Float> DEBUG_USER_SCALE_FACTOR = new NullableValue<Float>() {
-    @Nullable
-    @Override
-    public Float initialize() {
-      String prop = System.getProperty("ide.ui.scale");
-      if (prop != null) {
-        try {
-          return Float.parseFloat(prop);
-        }
-        catch (NumberFormatException e) {
-          getLogger().error("ide.ui.scale system property is not a float value: " + prop);
-        }
+  public static final LazyValue<@Nullable Float> DEBUG_USER_SCALE_FACTOR = LazyInitializer.create(() -> {
+    String prop = System.getProperty("ide.ui.scale");
+    if (prop != null) {
+      try {
+        return Float.parseFloat(prop);
       }
-      else if (Boolean.getBoolean("ide.ui.scale.override")) {
-        return 1f;
+      catch (NumberFormatException e) {
+        getLogger().error("ide.ui.scale system property is not a float value: " + prop);
       }
-      return null;
     }
-  };
+    else if (Boolean.getBoolean("ide.ui.scale.override")) {
+      return 1f;
+    }
+    return null;
+  });
 
-  @NotNull
   // cannot be static because logging maybe not configured yet
-  private static Logger getLogger() {
+  private static @NotNull Logger getLogger() {
     return Logger.getInstance(JBUIScale.class);
   }
 
-  /**
-   * The system scale factor, corresponding to the default monitor device.
-   */
-  private static final MutableNotNullValue<Float> SYSTEM_SCALE_FACTOR = new MutableNotNullValue<>(() -> {
-    if (!SystemProperties.getBooleanProperty("hidpi", true)) {
-      return 1f;
+  private static float computeSystemScaleFactor() {
+    if (!Boolean.parseBoolean(System.getProperty("hidpi", "true"))) {
+      return 1;
     }
 
     if (JreHiDpiUtil.isJreHiDPIEnabled()) {
@@ -150,29 +157,42 @@ public final class JBUIScale {
       if (gd != null && gd.getDefaultConfiguration() != null) {
         return sysScale(gd.getDefaultConfiguration());
       }
-      return 1f;
+      return 1;
     }
 
-    float result = getFontScale(systemFontData.getValue().getSecond());
+    float result = getFontScale(getSystemFontData(null).getValue());
     getLogger().info("System scale factor: " + result + " (" + (JreHiDpiUtil.isJreHiDPIEnabled() ? "JRE" : "IDE") + "-managed HiDPI)");
     return result;
-  });
+  }
 
   @TestOnly
   public static void setSystemScaleFactor(float sysScale) {
-    SYSTEM_SCALE_FACTOR.set(sysScale);
+    systemScaleFactor = sysScale;
   }
 
   /**
    * The user scale factor, see {@link ScaleType#USR_SCALE}.
    */
-  private static final MutableNotNullValue<Float> userScaleFactor = new MutableNotNullValue<>(() -> {
-    Float factor = DEBUG_USER_SCALE_FACTOR.get();
-    if (factor != null) {
-      return factor;
+  private static float getOrComputeUserScaleFactor() {
+    float result = userScaleFactor;
+    if (!Float.isNaN(result)) {
+      return result;
     }
-    return computeUserScaleFactor(JreHiDpiUtil.isJreHiDPIEnabled() ? 1f : SYSTEM_SCALE_FACTOR.get());
-  });
+
+    Float debug = DEBUG_USER_SCALE_FACTOR.get();
+    if (debug != null) {
+      return result;
+    }
+
+    synchronized (lock) {
+      result = userScaleFactor;
+      if (Float.isNaN(result)) {
+        result = computeUserScaleFactor(JreHiDpiUtil.isJreHiDPIEnabled() ? 1f : sysScale());
+        userScaleFactor = result;
+      }
+    }
+    return result;
+  }
 
   @TestOnly
   public static void setUserScaleFactorForTest(float value) {
@@ -180,12 +200,12 @@ public final class JBUIScale {
   }
 
   private static void setUserScaleFactorProperty(float value) {
-    Float oldValue = userScaleFactor.get();
+    float oldValue = userScaleFactor;
     if (oldValue == value) {
       return;
     }
 
-    userScaleFactor.set(value);
+    userScaleFactor = value;
     getLogger().info("User scale factor: " + value);
     PROPERTY_CHANGE_SUPPORT.firePropertyChange(USER_SCALE_FACTOR_PROPERTY, oldValue, value);
   }
@@ -226,7 +246,7 @@ public final class JBUIScale {
   }
 
   private static float computeUserScaleFactor(float scale) {
-    if (!SystemProperties.getBooleanProperty("hidpi", true)) {
+    if (!Boolean.parseBoolean(System.getProperty("hidpi", "true"))) {
       return 1f;
     }
 
@@ -239,10 +259,11 @@ public final class JBUIScale {
     }
 
     // Ignore the correction when UIUtil.DEF_SYSTEM_FONT_SIZE is overridden, see UIUtil.initSystemFontData.
-    if (SystemInfo.isLinux && scale == 1.25f && DEF_SYSTEM_FONT_SIZE == 12) {
+    if (SystemInfoRt.isLinux && scale == 1.25f && DEF_SYSTEM_FONT_SIZE == 12) {
       // Default UI font size for Unity and Gnome is 15. Scaling factor 1.25f works badly on Linux
       scale = 1f;
     }
+
     return scale;
   }
 
@@ -251,21 +272,28 @@ public final class JBUIScale {
   }
 
   /**
-   * Returns the system scale factor, corresponding to the default monitor device.
+   * The system scale factor, corresponding to the default monitor device.
    */
   public static float sysScale() {
-    return SYSTEM_SCALE_FACTOR.get();
+    float result = systemScaleFactor;
+    if (Float.isNaN(result)) {
+      synchronized (lock) {
+        result = systemScaleFactor;
+        if (Float.isNaN(result)) {
+          result = computeSystemScaleFactor();
+          systemScaleFactor = result;
+        }
+      }
+    }
+    return result;
   }
 
   /**
    * Returns the system scale factor, corresponding to the device the component is tied to.
    * In the IDE-managed HiDPI mode defaults to {@link #sysScale()}
    */
-  public static float sysScale(@Nullable Component comp) {
-    if (comp != null) {
-      return sysScale(comp.getGraphicsConfiguration());
-    }
-    return sysScale();
+  public static float sysScale(@Nullable Component component) {
+    return component == null ? sysScale() : sysScale(component.getGraphicsConfiguration());
   }
 
   /**
@@ -273,13 +301,8 @@ public final class JBUIScale {
    * In the IDE-managed HiDPI mode defaults to {@link #sysScale()}
    */
   public static float sysScale(@Nullable GraphicsConfiguration gc) {
-    if (JreHiDpiUtil.isJreHiDPIEnabled() && gc != null) {
-      if (gc.getDevice().getType() != GraphicsDevice.TYPE_PRINTER) {
-        if (SystemInfoRt.isMac && JreHiDpiUtil.isJreHiDPI_earlierVersion()) {
-          return DetectRetinaKit.isOracleMacRetinaDevice(gc.getDevice()) ? 2f : 1f;
-        }
-        return (float)gc.getDefaultTransform().getScaleX();
-      }
+    if (JreHiDpiUtil.isJreHiDPIEnabled() && gc != null && gc.getDevice().getType() != GraphicsDevice.TYPE_PRINTER) {
+      return (float)gc.getDefaultTransform().getScaleX();
     }
     return sysScale();
   }
@@ -288,14 +311,14 @@ public final class JBUIScale {
    * @return 'f' scaled by the user scale factor
    */
   public static float scale(float f) {
-    return f * userScaleFactor.get();
+    return f * getOrComputeUserScaleFactor();
   }
 
   /**
    * @return 'i' scaled by the user scale factor
    */
   public static int scale(int i) {
-    return Math.round(userScaleFactor.get() * i);
+    return Math.round(getOrComputeUserScaleFactor() * i);
   }
 
   /**
@@ -310,9 +333,16 @@ public final class JBUIScale {
   }
 
   public static int scaleFontSize(float fontSize) {
-    if (userScaleFactor.get() == 1.25f) return (int)(fontSize * 1.34f);
-    if (userScaleFactor.get() == 1.75f) return (int)(fontSize * 1.67f);
-    return (int)scale(fontSize);
+    float userScaleFactor = getOrComputeUserScaleFactor();
+    if (userScaleFactor == 1.25f) {
+      return (int)(fontSize * 1.34f);
+    }
+    else if (userScaleFactor == 1.75f) {
+      return (int)(fontSize * 1.67f);
+    }
+    else {
+      return (int)scale(fontSize);
+    }
   }
 
   private static float getScreenScale() {
@@ -325,9 +355,9 @@ public final class JBUIScale {
     return discreteScale(dpi / 96f);
   }
 
-  @NotNull
-  public static Pair<String, Integer> getSystemFontData() {
-    return systemFontData.getValue();
+  public static @NotNull Map.Entry<String, Integer> getSystemFontData(@Nullable Supplier<UIDefaults> uiDefaults) {
+    Map.Entry<String, Integer> result = systemFontData;
+    return result == null ? computeSystemFontData(uiDefaults) : result;
   }
 
   /**
@@ -340,8 +370,7 @@ public final class JBUIScale {
       GraphicsConfiguration gc = g.getDeviceConfiguration();
       if (gc == null ||
           gc.getDevice().getType() == GraphicsDevice.TYPE_IMAGE_BUFFER ||
-          gc.getDevice().getType() == GraphicsDevice.TYPE_PRINTER)
-      {
+          gc.getDevice().getType() == GraphicsDevice.TYPE_PRINTER) {
         // in this case gc doesn't provide a valid scale
         return Math.abs((float)g.getTransform().getScaleX());
       }

@@ -1,6 +1,7 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.layout
 
+import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.testFramework.ProjectRule
 import org.junit.*
@@ -9,7 +10,7 @@ import javax.swing.JPanel
 import javax.swing.JTable
 
 /**
- * Set `test.update.snapshots=true` to automatically update snapshots if need.
+ * Set `test.update.snapshots=true` to automatically update snapshots if needed.
  */
 abstract class UiDslTest {
   companion object {
@@ -25,6 +26,11 @@ abstract class UiDslTest {
   @Rule
   @JvmField
   val testName = TestName()
+
+  @Before
+  fun initializeLAF() {
+    LafManager.getInstance()
+  }
 
   @After
   fun afterMethod() {
@@ -127,8 +133,7 @@ abstract class UiDslTest {
 
   @Test
   fun `checkbox rows with big components`() {
-    // ComboBoxes in MacOs LaF have different border insets, that are used to build layout constraints
-    Assume.assumeTrue(!SystemInfo.isMac)
+    Assume.assumeFalse("ComboBoxes in MacOs LaF have different border insets, that are used to build layout constraints", SystemInfo.isMac)
     doTest { checkboxRowsWithBigComponents() }
   }
 

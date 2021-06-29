@@ -29,8 +29,10 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.UIBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -47,7 +49,7 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
   @NotNull private final List<byte[]> myByteContents;
   private final byte @NotNull [] myOriginalContent;
 
-  @Nullable private final String myTitle;
+  @Nullable private final @NlsContexts.DialogTitle String myTitle;
   @NotNull private final List<String> myTitles;
 
   public BinaryMergeRequestImpl(@Nullable Project project,
@@ -55,8 +57,8 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
                                 byte @NotNull [] originalContent,
                                 @NotNull List<DiffContent> contents,
                                 @NotNull List<byte[]> byteContents,
-                                @Nullable String title,
-                                @NotNull List<String> contentTitles) {
+                                @Nullable @NlsContexts.DialogTitle String title,
+                                @NotNull List<@Nls String> contentTitles) {
     assert byteContents.size() == 3;
     assert contents.size() == 3;
     assert contentTitles.size() == 3;
@@ -69,8 +71,6 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
     myContents = contents;
     myTitle = title;
     myTitles = contentTitles;
-
-    onAssigned(true);
   }
 
   @NotNull
@@ -105,58 +105,49 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
 
   @Override
   public void applyResult(@NotNull MergeResult result) {
-    try {
-      final byte[] applyContent;
-      switch (result) {
-        case CANCEL:
-          applyContent = MergeUtil.shouldRestoreOriginalContentOnCancel(this) ? myOriginalContent : null;
-          break;
-        case LEFT:
-          applyContent = ThreeSide.LEFT.select(myByteContents);
-          break;
-        case RIGHT:
-          applyContent = ThreeSide.RIGHT.select(myByteContents);
-          break;
-        case RESOLVED:
-          applyContent = null;
-          break;
-        default:
-          throw new IllegalArgumentException(result.toString());
-      }
-
-      if (applyContent != null) {
-        try {
-          VirtualFile file = myFile.getFile();
-          if (!file.isValid()) {
-            throw new IOException(IdeBundle.message("error.file.not.found.message", file.getPresentableUrl()));
-          }
-          if (!DiffUtil.makeWritable(myProject, file)) {
-            throw new IOException(UIBundle.message("file.is.read.only.message.text", file.getPresentableUrl()));
-          }
-
-          WriteCommandAction.writeCommandAction(null).run(() -> {
-            file.setBinaryContent(applyContent);
-          });
-        }
-        catch (IOException e) {
-          LOG.warn(e);
-          Messages.showErrorDialog(myProject, e.getMessage(), DiffBundle.message("can.t.finish.merge.resolve"));
-        }
-      }
-
-      MergeCallback.getCallback(this).applyResult(result);
+    final byte[] applyContent;
+    switch (result) {
+      case CANCEL:
+        applyContent = MergeUtil.shouldRestoreOriginalContentOnCancel(this) ? myOriginalContent : null;
+        break;
+      case LEFT:
+        applyContent = ThreeSide.LEFT.select(myByteContents);
+        break;
+      case RIGHT:
+        applyContent = ThreeSide.RIGHT.select(myByteContents);
+        break;
+      case RESOLVED:
+        applyContent = null;
+        break;
+      default:
+        throw new IllegalArgumentException(result.toString());
     }
-    finally {
-      onAssigned(false);
+
+    if (applyContent != null) {
+      try {
+        VirtualFile file = myFile.getFile();
+        if (!file.isValid()) {
+          throw new IOException(IdeBundle.message("error.file.not.found.message", file.getPresentableUrl()));
+        }
+        if (!DiffUtil.makeWritable(myProject, file)) {
+          throw new IOException(UIBundle.message("file.is.read.only.message.text", file.getPresentableUrl()));
+        }
+
+        WriteCommandAction.writeCommandAction(null).run(() -> {
+          file.setBinaryContent(applyContent);
+        });
+      }
+      catch (IOException e) {
+        LOG.warn(e);
+        Messages.showErrorDialog(myProject, e.getMessage(), DiffBundle.message("can.t.finish.merge.resolve"));
+      }
     }
+
+    MergeCallback.getCallback(this).applyResult(result);
   }
 
   @Override
-  public void resultRetargeted() {
-    onAssigned(false);
-  }
-
-  private void onAssigned(boolean assigned) {
+  public void onAssigned(boolean assigned) {
     myFile.onAssigned(assigned);
     for (DiffContent content : myContents) {
       content.onAssigned(assigned);

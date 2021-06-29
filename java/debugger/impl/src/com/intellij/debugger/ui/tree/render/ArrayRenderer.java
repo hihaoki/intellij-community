@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
 import com.intellij.debugger.DebuggerContext;
@@ -6,6 +6,7 @@ import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.actions.ArrayAction;
 import com.intellij.debugger.engine.ContextUtil;
+import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.JavaValue;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
@@ -19,6 +20,7 @@ import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.settings.ViewsGeneralSettings;
 import com.intellij.debugger.ui.impl.watch.ArrayElementDescriptorImpl;
 import com.intellij.debugger.ui.impl.watch.NodeManagerImpl;
+import com.intellij.debugger.ui.impl.watch.ValueDescriptorImpl;
 import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.NodeDescriptorFactory;
@@ -29,11 +31,11 @@ import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
-import com.intellij.psi.JavaPsiFacade;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiElementFactory;
-import com.intellij.psi.PsiExpression;
+import com.intellij.psi.*;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xdebugger.XExpression;
@@ -43,6 +45,7 @@ import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import com.sun.jdi.*;
+import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 
@@ -91,8 +94,71 @@ public class ArrayRenderer extends NodeRendererImpl{
   }
 
   @Override
-  public String calcLabel(ValueDescriptor descriptor, EvaluationContext evaluationContext, DescriptorLabelListener listener) throws EvaluateException {
-    return ClassRenderer.calcLabel(descriptor, evaluationContext);
+  public String calcLabel(ValueDescriptor descriptor, EvaluationContext evaluationContext, DescriptorLabelListener listener)
+    throws EvaluateException {
+    if (!Registry.is("debugger.renderers.arrays") ||
+        OnDemandRenderer.isOnDemandForced((DebugProcessImpl)evaluationContext.getDebugProcess())) {
+      return ClassRenderer.calcLabel(descriptor, evaluationContext);
+    }
+
+    Value value = descriptor.getValue();
+    if (value == null) {
+      return "null";
+    }
+    else if (value instanceof ArrayReference) {
+      ArrayReference arrValue = (ArrayReference)value;
+      String componentTypeName = ((ArrayType)arrValue.type()).componentTypeName();
+      boolean isString = CommonClassNames.JAVA_LANG_STRING.equals(componentTypeName);
+      if (TypeConversionUtil.isPrimitive(componentTypeName) || isString) {
+        CompletableFuture<String> asyncLabel = DebuggerUtilsAsync.length(arrValue)
+          .thenCompose(length -> {
+            if (length > 0) {
+              int shownLength = Math.min(length, Registry.intValue(
+                isString ? "debugger.renderers.arrays.max.strings" : "debugger.renderers.arrays.max.primitives"));
+              return DebuggerUtilsAsync.getValues(arrValue, 0, shownLength).thenCompose(values -> {
+                CompletableFuture<String>[] futures = StreamEx.of(values).map(ArrayRenderer::getElementAsString).toArray(CompletableFuture[]::new);
+                return CompletableFuture.allOf(futures).thenApply(__ -> {
+                  List<String> elements = StreamEx.of(futures).map(CompletableFuture::join).toList();
+                  if (descriptor instanceof ValueDescriptorImpl) {
+                    int compactLength = Math.min(shownLength, isString ? 5 : 10);
+                    String compact =
+                      createLabel(elements.subList(0, compactLength), length - values.size() + (shownLength - compactLength));
+                    ((ValueDescriptorImpl)descriptor).setCompactValueLabel(compact);
+                  }
+                  return createLabel(elements, length - values.size());
+                });
+              });
+            }
+            return CompletableFuture.completedFuture("[]");
+          });
+        if (asyncLabel.isDone()) {
+          return asyncLabel.join();
+        }
+        else {
+          asyncLabel.thenAccept(res -> {
+            descriptor.setValueLabel(res);
+            listener.labelChanged();
+          });
+        }
+      }
+      return "";
+    }
+    return JavaDebuggerBundle.message("label.undefined");
+  }
+
+  private static String createLabel(List<String> elements, int remaining) {
+    StreamEx<String> strings = StreamEx.of(elements);
+    if (remaining > 0) {
+      strings = strings.append(JavaDebuggerBundle.message("message.node.array.elements.more", remaining));
+    }
+    return strings.joining(", ", "[", "]");
+  }
+
+  private static CompletableFuture<String> getElementAsString(Value value) {
+    if (value instanceof StringReference) {
+      return DebuggerUtilsAsync.getStringValue((StringReference)value).thenApply(e -> "\"" + StringUtil.first(e, 15, true) + "\"");
+    }
+    return CompletableFuture.completedFuture(value != null ? value.toString() : "null");
   }
 
   public void setForced(boolean forced) {
@@ -337,7 +403,8 @@ public class ArrayRenderer extends NodeRendererImpl{
       }
     }
 
-    public static final XDebuggerTreeNodeHyperlink FILTER_HYPERLINK = new XDebuggerTreeNodeHyperlink(" clear") {
+    public static final XDebuggerTreeNodeHyperlink FILTER_HYPERLINK = new XDebuggerTreeNodeHyperlink(
+      JavaDebuggerBundle.message("array.filter.node.clear.link")) {
       @Override
       public void onClick(MouseEvent e) {
         XDebuggerTree tree = (XDebuggerTree)e.getSource();

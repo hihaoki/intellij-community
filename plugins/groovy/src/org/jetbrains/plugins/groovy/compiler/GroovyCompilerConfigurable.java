@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.compiler;
 
@@ -20,6 +20,7 @@ import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.TextWithMnemonic;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.IdeBorderFactory;
@@ -119,7 +120,9 @@ public class GroovyCompilerConfigurable implements SearchableConfigurable, Confi
     myExcludes.apply();
     myConfig.setInvokeDynamic(myInvokeDynamicSupportCB.isSelected());
     myConfig.setConfigScript(getExternalizableConfigScript());
-    BuildManager.getInstance().clearState(myProject);
+    if (!myProject.isDefault()) {
+      BuildManager.getInstance().clearState(myProject);
+    }
   }
 
   @Override
@@ -153,8 +156,9 @@ public class GroovyCompilerConfigurable implements SearchableConfigurable, Confi
     myPathPanel.add(UI.PanelFactory.panel(myConfigScriptPath).withLabel(GroovyBundle.message("settings.compiler.path.to.configscript")).createPanel(), gb.nextLine().insetTop(13));
 
     String cbText = GroovyBundle.message("settings.compiler.invoke.dynamic.support");
-    myInvokeDynamicSupportCB = new JBCheckBox(UIUtil.removeMnemonic(cbText));
-    myInvokeDynamicSupportCB.setDisplayedMnemonicIndex(UIUtil.getDisplayMnemonicIndex(cbText));
+    TextWithMnemonic parsedText = TextWithMnemonic.parse(cbText);
+    myInvokeDynamicSupportCB = new JBCheckBox(parsedText.getText(true));
+    myInvokeDynamicSupportCB.setDisplayedMnemonicIndex(parsedText.getMnemonicIndex());
     myPathPanel.add(myInvokeDynamicSupportCB, gb.nextLine().insetTop(8));
   }
 
@@ -168,10 +172,10 @@ public class GroovyCompilerConfigurable implements SearchableConfigurable, Confi
     if (kit instanceof HTMLEditorKit) {
       StyleSheet css = ((HTMLEditorKit)kit).getStyleSheet();
 
-      css.addRule("a, a:link {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkColor()) + ";}");
-      css.addRule("a:visited {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkVisitedColor()) + ";}");
-      css.addRule("a:hover {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkHoverColor()) + ";}");
-      css.addRule("a:active {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkPressedColor()) + ";}");
+      css.addRule("a, a:link {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.Foreground.ENABLED) + ";}");
+      css.addRule("a:visited {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.Foreground.VISITED) + ";}");
+      css.addRule("a:hover {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.Foreground.HOVERED) + ";}");
+      css.addRule("a:active {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.Foreground.PRESSED) + ";}");
       //css.addRule("body {background-color:#" + ColorUtil.toHex(info.warning ? warningBackgroundColor() : errorBackgroundColor()) + ";}");
     }
 

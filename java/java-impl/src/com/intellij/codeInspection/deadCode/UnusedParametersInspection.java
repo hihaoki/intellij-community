@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.deadCode;
 
@@ -156,8 +156,7 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
     boolean checkDeep = !refMethod.isStatic() && !refMethod.isConstructor();
     ArrayList<RefParameter> res = new ArrayList<>();
     RefParameter[] methodParameters = refMethod.getParameters();
-    RefParameter[] result = new RefParameter[methodParameters.length];
-    System.arraycopy(methodParameters, 0, result, 0, methodParameters.length);
+    RefParameter[] result = methodParameters.clone();
 
     clearUsedParameters(refMethod, result, checkDeep);
 
@@ -173,7 +172,7 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
   private static void clearUsedParameters(@NotNull RefMethod refMethod, RefParameter[] params, boolean checkDeep) {
     RefParameter[] methodParams = refMethod.getParameters();
 
-    for (int i = 0; i < methodParams.length; i++) {
+    for (int i = 0; i < Math.min(methodParams.length, params.length); i++) {
       if (methodParams[i].isUsedForReading()) params[i] = null;
     }
 

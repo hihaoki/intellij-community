@@ -19,7 +19,6 @@ import com.intellij.application.options.CodeStyle;
 import com.intellij.formatting.Indent;
 import com.intellij.lang.Language;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -117,11 +116,13 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
       }
       else if (getPosition(editor, offset).beforeOptional(Whitespace).isAt(BlockClosingBrace)) {
         SemanticEditorPosition position = getPosition(editor, offset).beforeOptional(Whitespace).before();
+        boolean isOnNewLine = position.isAtMultiline(Whitespace);
         position.moveToLeftParenthesisBackwardsSkippingNested(BlockOpeningBrace, BlockClosingBrace);
         position.moveBefore();
         int statementStart = getStatementStartOffset(position, true);
         position = getPosition(editor, statementStart);
         if (!isStartOfStatementWithOptionalBlock(position)) {
+          if (!isOnNewLine) return null;
           return myFactory.createIndentCalculator(getBlockIndentType(editor, language), IndentCalculator.LINE_BEFORE);
         }
         else {
@@ -136,7 +137,7 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
         }
         int statementStart = getStatementStartOffset(beforeSemicolon, dropIndentAfterReturnLike(beforeSemicolon));
         SemanticEditorPosition atStatementStart = getPosition(editor, statementStart);
-        if (atStatementStart.isAt(BlockOpeningBrace)) {
+        if (isAtBlockOpeningOnSameLine(atStatementStart)) {
           return myFactory.createIndentCalculator(getIndentInBlock(project, language, atStatementStart), this::getDeepBlockStatementStartOffset);
         }
         if (!isInsideForLikeConstruction(atStatementStart)) {
@@ -163,7 +164,10 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
       }
       else if (getPosition(editor, offset).before().matchesRule(
         position -> isColonAfterLabelOrCase(position) || position.isAtAnyOf(ElseKeyword, DoKeyword))) {
-        return myFactory.createIndentCalculator(NORMAL, IndentCalculator.LINE_BEFORE);
+        Type indentType = getPosition(editor, offset).afterOptional(Whitespace).isAt(BlockOpeningBrace) ?
+                          NONE : // e.g. else <caret> {
+                          NORMAL;
+        return myFactory.createIndentCalculator(indentType, IndentCalculator.LINE_BEFORE);
       }
       else if (getPosition(editor, offset).matchesRule(
         position -> {
@@ -201,6 +205,17 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
     }
     //return myFactory.createIndentCalculator(NONE, IndentCalculator.LINE_BEFORE); /* TO CHECK UNCOVERED CASES */
     return null;
+  }
+
+  private static boolean isAtBlockOpeningOnSameLine(@NotNull SemanticEditorPosition position) {
+    SemanticEditorPosition pos = position.copy();
+    while (!pos.isAt(BlockOpeningBrace)) {
+      pos.moveBefore();
+      if (pos.isAtEnd() || pos.isAtMultiline()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private SemanticEditorPosition afterOptionalWhitespaceOnSameLine(@NotNull Editor editor, int offset) {
@@ -425,13 +440,13 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
    * @param offset the offset in the {@code editor}    
    */
   public SemanticEditorPosition getPosition(@NotNull Editor editor, int offset) {
-    return SemanticEditorPosition.createEditorPosition((EditorEx)editor, offset,
+    return SemanticEditorPosition.createEditorPosition(editor, offset,
                                                        (_editor, _offset) -> getIteratorAtPosition(_editor, _offset),
                                                        tokenType -> mapType(tokenType));
   }
 
   @NotNull
-  protected HighlighterIterator getIteratorAtPosition(@NotNull EditorEx editor, int offset) {
+  protected HighlighterIterator getIteratorAtPosition(@NotNull Editor editor, int offset) {
     return editor.getHighlighter().createIterator(offset);
   }
 

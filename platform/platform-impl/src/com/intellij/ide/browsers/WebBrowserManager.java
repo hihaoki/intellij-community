@@ -1,8 +1,8 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.browsers;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,7 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 @State(name = "WebBrowsersConfiguration", storages = @Storage("web-browsers.xml"))
-public class WebBrowserManager extends SimpleModificationTracker implements PersistentStateComponent<Element> {
+public final class WebBrowserManager extends SimpleModificationTracker implements PersistentStateComponent<Element> {
   private static final Logger LOG = Logger.getInstance(WebBrowserManager.class);
 
   // default standard browser ID must be constant across all IDE versions on all machines for all users
@@ -32,7 +32,8 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
   private static final UUID PREDEFINED_OPERA_ID = UUID.fromString("53E2F627-B1A7-4DFA-BFA7-5B83CC034776");
   private static final UUID PREDEFINED_YANDEX_ID = UUID.fromString("B1B2EC2C-20BD-4EE2-89C4-616DB004BCD4");
   private static final UUID PREDEFINED_EXPLORER_ID = UUID.fromString("16BF23D4-93E0-4FFC-BFD6-CB13575177B0");
-  private static final UUID PREDEFINED_EDGE_ID = UUID.fromString("B2A9DCA7-9D0B-4E1E-98A8-AFB19C1328D2");
+  private static final UUID PREDEFINED_OLD_EDGE_ID = UUID.fromString("B2A9DCA7-9D0B-4E1E-98A8-AFB19C1328D2");
+  private static final UUID PREDEFINED_EDGE_ID = UUID.fromString("37cae5b9-e8b2-4949-9172-aafa37fbc09c");
 
   private static final UUID[] PREDEFINED_BROWSER_IDS = new UUID[]{
     PREDEFINED_CHROME_ID,
@@ -44,18 +45,36 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
     PREDEFINED_EDGE_ID
   };
 
-  private static final String EDGE_COMMAND = "microsoft-edge";
+  @NotNull
+  private static String getEdgeExecutionPath() {
+    if (SystemInfo.isWindows) {
+      return "msedge";
+    }
+    else if (SystemInfo.isMac) {
+      return "Microsoft Edge";
+    }
+    else {
+      return "microsoft-edge";
+    }
+  }
 
   private static List<ConfigurableWebBrowser> getPredefinedBrowsers() {
     return Arrays.asList(
       new ConfigurableWebBrowser(PREDEFINED_CHROME_ID, BrowserFamily.CHROME),
       new ConfigurableWebBrowser(PREDEFINED_FIREFOX_ID, BrowserFamily.FIREFOX),
-      new ConfigurableWebBrowser(PREDEFINED_SAFARI_ID, BrowserFamily.SAFARI),
-      new ConfigurableWebBrowser(PREDEFINED_OPERA_ID, BrowserFamily.OPERA),
-      new ConfigurableWebBrowser(PREDEFINED_YANDEX_ID, BrowserFamily.CHROME, "Yandex", SystemInfo.isWindows ? "browser" : (SystemInfo.isMac
-                                                                                                                           ? "Yandex" : "yandex"), false, BrowserFamily.CHROME.createBrowserSpecificSettings()),
-      new ConfigurableWebBrowser(PREDEFINED_EXPLORER_ID, BrowserFamily.EXPLORER),
-      new ConfigurableWebBrowser(PREDEFINED_EDGE_ID, BrowserFamily.EXPLORER, "Edge", SystemInfo.isWindows ? EDGE_COMMAND : null, true, null)
+      new ConfigurableWebBrowser(PREDEFINED_SAFARI_ID, BrowserFamily.SAFARI, BrowserFamily.SAFARI.getName(),
+                                 BrowserFamily.SAFARI.getExecutionPath(), SystemInfo.isMac,
+                                 BrowserFamily.SAFARI.createBrowserSpecificSettings()),
+      new ConfigurableWebBrowser(PREDEFINED_OPERA_ID, BrowserFamily.CHROME, "Opera", SystemInfo.isMac ? "Opera" : "opera", false, null),
+      new ConfigurableWebBrowser(PREDEFINED_YANDEX_ID, BrowserFamily.CHROME, "Yandex",
+                                 SystemInfo.isWindows ? "browser" : (SystemInfo.isMac ? "Yandex" : "yandex"), false,
+                                 BrowserFamily.CHROME.createBrowserSpecificSettings()),
+      new ConfigurableWebBrowser(PREDEFINED_EXPLORER_ID, BrowserFamily.EXPLORER, BrowserFamily.EXPLORER.getName(),
+                                 BrowserFamily.EXPLORER.getExecutionPath(), false,
+                                 BrowserFamily.EXPLORER.createBrowserSpecificSettings()),
+      new ConfigurableWebBrowser(PREDEFINED_EDGE_ID, BrowserFamily.CHROME, "Edge",
+                                 getEdgeExecutionPath(), SystemInfo.isWindows,
+                                 BrowserFamily.CHROME.createBrowserSpecificSettings())
     );
   }
 
@@ -69,7 +88,7 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
   }
 
   public static WebBrowserManager getInstance() {
-    return ServiceManager.getService(WebBrowserManager.class);
+    return ApplicationManager.getApplication().getService(WebBrowserManager.class);
   }
 
   public static boolean isYandexBrowser(@NotNull WebBrowser browser) {
@@ -81,10 +100,14 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
   }
 
   public static boolean isEdge(@NotNull WebBrowser browser) {
-    return browser.getFamily() == BrowserFamily.EXPLORER &&
+    return browser.getFamily() == BrowserFamily.CHROME &&
            (browser.getId().equals(PREDEFINED_EDGE_ID) ||
-            checkNameAndPath(EDGE_COMMAND, browser) ||
+            checkNameAndPath(getEdgeExecutionPath(), browser) ||
             checkNameAndPath("MicrosoftEdge", browser));
+  }
+
+  public static boolean isOpera(@NotNull WebBrowser browser) {
+    return checkNameAndPath("Opera", browser);
   }
 
   static boolean checkNameAndPath(@NotNull String what, @NotNull WebBrowser browser) {
@@ -167,6 +190,7 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
   @Nullable
   private static BrowserFamily readFamily(String value) {
     try {
+      if ("OPERA".equals(value)) return BrowserFamily.CHROME;
       return BrowserFamily.valueOf(value);
     }
     catch (RuntimeException e) {
@@ -195,9 +219,6 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
           break;
         case FIREFOX:
           id = PREDEFINED_FIREFOX_ID;
-          break;
-        case OPERA:
-          id = PREDEFINED_OPERA_ID;
           break;
         case SAFARI:
           id = PREDEFINED_SAFARI_ID;
@@ -248,7 +269,7 @@ public class WebBrowserManager extends SimpleModificationTracker implements Pers
       }
 
       UUID id = readId(child.getAttributeValue("id"), family, list);
-      if (id == null) {
+      if (id == null || PREDEFINED_OLD_EDGE_ID.equals(id)) {
         continue;
       }
 

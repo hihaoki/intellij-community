@@ -5,7 +5,6 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
@@ -28,7 +27,7 @@ public final class EditorLastActionTracker {
 
   @NotNull
   public static EditorLastActionTracker getInstance() {
-    return ServiceManager.getService(EditorLastActionTracker.class);
+    return ApplicationManager.getApplication().getService(EditorLastActionTracker.class);
   }
 
   /**
@@ -77,8 +76,8 @@ public final class EditorLastActionTracker {
 
   final static class MyAnActionListener implements AnActionListener {
     @Override
-    public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
-      Editor editor = CommonDataKeys.HOST_EDITOR.getData(dataContext);
+    public void beforeActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event) {
+      Editor editor = event.getData(CommonDataKeys.HOST_EDITOR);
       EditorLastActionTracker tracker = editor == null ? getTrackerIfCreated() : getInstance();
       if (tracker == null) {
         return;
@@ -91,7 +90,7 @@ public final class EditorLastActionTracker {
     }
 
     @Override
-    public void afterActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
+    public void afterActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event, @NotNull AnActionResult result) {
       EditorLastActionTracker tracker = getInstance();
       tracker.myLastActionId = getActionId(action);
       tracker.myLastEditor = tracker.myCurrentEditor;

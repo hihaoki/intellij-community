@@ -6,6 +6,7 @@ import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupItem;
 import com.intellij.codeInsight.lookup.PresentableLookupValue;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.paths.PsiDynaReference;
@@ -53,6 +54,7 @@ public class CompletionData {
    * @deprecated see {@link CompletionContributor}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected void registerVariant(CompletionVariant variant){
     myCompletionVariants.add(variant);
   }
@@ -163,6 +165,7 @@ public class CompletionData {
    * @deprecated Use {@link CompletionUtil} methods instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static String findPrefixDefault(final PsiElement insertedElement, final int offset, @NotNull final ElementPattern trimStart) {
     String substr = insertedElement.getText().substring(0, offset - insertedElement.getTextRange().getStartOffset());
     if (substr.length() == 0 || Character.isWhitespace(substr.charAt(substr.length() - 1))) return "";
@@ -193,7 +196,7 @@ public class CompletionData {
       s = ((PresentableLookupValue)object).getPresentation();
     }
     if (s == null) {
-      throw new AssertionError("Null string for object: " + object + " of class " + object.getClass());
+      throw PluginException.createByClass("Null string for object: " + object + " of " + object.getClass(), null, object.getClass());
     }
 
     LookupItem<?> item = new LookupItem<>(object, s);

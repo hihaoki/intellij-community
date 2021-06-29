@@ -23,7 +23,7 @@ import com.intellij.util.IncorrectOperationException
  */
 class JavaFormatterTest : AbstractJavaFormatterTest() {
   override fun getProjectDescriptor(): LightProjectDescriptor {
-    return LightJavaCodeInsightFixtureTestCase.JAVA_14
+    return LightJavaCodeInsightFixtureTestCase.JAVA_15
   }
 
   fun testPaymentManager() {
@@ -199,6 +199,8 @@ class JavaFormatterTest : AbstractJavaFormatterTest() {
       KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = true
       WHILE_ON_NEW_LINE = true
       BRACE_STYLE = CommonCodeStyleSettings.END_OF_LINE
+
+      SPACE_WITHIN_BRACES = true;
     }
     doTest()
   }
@@ -1538,6 +1540,9 @@ class Test {
     doTextTest("/**\n" + " *\n" + " */\n" + "class Foo\n extends B\n{\n" + "}",
                "/**\n" + " *\n" + " */\n" + "class Foo\n        extends B\n" + "{\n" + "}")
 
+    doTextTest("/**\n" + " *\n" + " */\n" + "class Foo\n permits B\n{\n" + "}",
+               "/**\n" + " *\n" + " */\n" + "class Foo\n        permits B\n" + "{\n" + "}")
+
   }
 
   fun testSynchronized() {
@@ -1634,7 +1639,7 @@ class Test {
       settings.KEEP_SIMPLE_METHODS_IN_ONE_LINE = true
 
       doTextTest("enum En {\n" + "    A(10) {},\n" + "    B(10) {},\n" + "    C(10);\n" + "\n" + "    En(int i) { }\n" + "}",
-                 "enum En {\n" + "    A(10) {},\n" + "    B(10) {},\n" + "    C(10);\n" + "\n" + "    En(int i) { }\n" + "}")
+                 "enum En {\n" + "    A(10) {},\n" + "    B(10) {},\n" + "    C(10);\n" + "\n" + "    En(int i) {}\n" + "}")
 
       doTextTest("class C {\n" +
                  "    void foo (Map<?, String> s) {\n" +
@@ -2323,7 +2328,7 @@ enum Foo {
     settings.METHOD_BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE_SHIFTED
     settings.KEEP_SIMPLE_METHODS_IN_ONE_LINE = true
     settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = false
-    doTextTest("class Foo {\n" + "    void foo() { return;}" + "}", "class Foo {\n" + "    void foo() { return;}\n" + "}")
+    doTextTest("class Foo {\n" + "    void foo() { return;}" + "}", "class Foo {\n" + "    void foo() {return;}\n" + "}")
 
     settings.BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE_SHIFTED2
     settings.KEEP_SIMPLE_METHODS_IN_ONE_LINE = false
@@ -4025,6 +4030,95 @@ public enum LevelCode {
             String commented = null;
         }
     }""".trimIndent()
+    )
+  }
+
+  fun testPermitsList() {
+    settings.ALIGN_MULTILINE_EXTENDS_LIST = true
+    doTextTest("sealed class A permits B, \n" + "C {}", "sealed class A permits B,\n" + "                       C {\n}")
+  }
+
+  fun testWrapPermitsList() {
+    settings.RIGHT_MARGIN = 50
+    settings.EXTENDS_LIST_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM
+    settings.EXTENDS_KEYWORD_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED
+
+    doTextTest("sealed class ColtreDataProvider permits Provider, AgentEventListener, ParameterDataEventListener {\n}",
+               "sealed class ColtreDataProvider permits Provider,\n" +
+               "        AgentEventListener,\n" +
+               "        ParameterDataEventListener {\n}")
+  }
+
+
+  fun testPermitsListWithPrecedingGeneric() {
+    doTextTest("""
+      sealed class Simple permits B {
+      }
+
+      final class B extends Simple {
+      }
+    """.trimIndent(), """
+      sealed class Simple permits B {
+      }
+
+      final class B extends Simple {
+      }
+    """.trimIndent())
+  }
+
+  fun testIdea250114() {
+    doTextTest("""
+      @Deprecated // Comment
+      class Test {
+      }
+      """.trimIndent(),
+
+      """
+      @Deprecated // Comment
+      class Test {
+      }
+      """.trimIndent())
+  }
+
+  fun testIdea252167() {
+    doTextTest("""      
+      @Ann record R(String str) {
+      }
+      """.trimIndent(),
+
+      """
+      @Ann
+      record R(String str) {
+      }
+      """.trimIndent())
+  }
+
+  fun testIdea153525() {
+    settings.LAMBDA_BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE_SHIFTED;
+    doTextTest(
+      """
+      public class Test {
+      void foo () {
+          bar (event ->{for (Listener l : listeners) {
+            notify ();
+        }
+          });
+      }
+      }
+      """.trimIndent(),
+
+      """
+      public class Test {
+          void foo() {
+              bar(event ->
+                  {
+                  for (Listener l : listeners) {
+                      notify();
+                  }
+                  });
+          }
+      }
+      """.trimIndent()
     )
   }
 }

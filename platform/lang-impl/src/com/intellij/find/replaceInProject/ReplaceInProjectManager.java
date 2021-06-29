@@ -1,5 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.replaceInProject;
 
 import com.intellij.find.*;
@@ -16,8 +15,8 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -41,6 +40,7 @@ import com.intellij.usages.*;
 import com.intellij.usages.impl.UsageViewImpl;
 import com.intellij.usages.rules.UsageInFile;
 import com.intellij.util.AdapterProcessor;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,14 +50,14 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.*;
 
-public class ReplaceInProjectManager {
+public final class ReplaceInProjectManager {
   private static final NotificationGroup NOTIFICATION_GROUP = FindInPathAction.NOTIFICATION_GROUP;
 
   private final Project myProject;
   private boolean myIsFindInProgress;
 
   public static ReplaceInProjectManager getInstance(Project project) {
-    return ServiceManager.getService(project, ReplaceInProjectManager.class);
+    return project.getService(ReplaceInProjectManager.class);
   }
 
   public ReplaceInProjectManager(Project project) {
@@ -172,9 +172,8 @@ public class ReplaceInProjectManager {
       super(project, findModel);
     }
 
-    @NotNull
     @Override
-    public String getLongDescriptiveName() {
+    public @Nls @NotNull String getLongDescriptiveName() {
       UsageViewPresentation presentation = FindInProjectUtil.setupViewPresentation(myFindModel);
       return StringUtil.decapitalize(presentation.getToolwindowTitle());
     }
@@ -194,7 +193,7 @@ public class ReplaceInProjectManager {
   }
 
   public void searchAndShowUsages(@NotNull UsageViewManager manager,
-                                  @NotNull Factory<UsageSearcher> usageSearcherFactory,
+                                  @NotNull Factory<? extends UsageSearcher> usageSearcherFactory,
                                   @NotNull final FindModel findModelCopy,
                                   @NotNull UsageViewPresentation presentation,
                                   @NotNull FindUsagesProcessPresentation processPresentation) {
@@ -240,12 +239,10 @@ public class ReplaceInProjectManager {
                                           StringUtil.trimMiddle(StringUtil.escapeXmlEntities(stringToFind), 400),
                                           filesCount,
                                           StringUtil.trimMiddle(StringUtil.escapeXmlEntities(stringToReplace), 400));
-    return Messages.YES == MessageDialogBuilder.yesNo(
-      FindBundle.message("find.replace.all.confirmation.title"),
-      message)
-                                               .yesText(FindBundle.message("find.replace.command"))
-                                               .project(myProject)
-                                               .noText(Messages.getCancelButton()).show();
+    return MessageDialogBuilder.yesNo(FindBundle.message("find.replace.all.confirmation.title"), message)
+      .yesText(FindBundle.message("find.replace.command"))
+      .noText(Messages.getCancelButton())
+      .ask(myProject);
   }
 
   private static Set<VirtualFile> getFiles(@NotNull ReplaceContext replaceContext, boolean selectedOnly) {
@@ -396,15 +393,14 @@ public class ReplaceInProjectManager {
     //replaceContext.getUsageView().addButtonToLowerPane(skipThisFileAction);
   }
 
-  private boolean replaceUsages(@NotNull ReplaceContext replaceContext, @NotNull Collection<Usage> usages) {
+  private boolean replaceUsages(@NotNull ReplaceContext replaceContext, @NotNull Collection<? extends Usage> usages) {
     if (!ensureUsagesWritable(replaceContext, usages)) {
       return true;
     }
 
     int[] replacedCount = {0};
-    final boolean[] success = {true};
-
-    success[0] &= ((ApplicationImpl)ApplicationManager.getApplication()).runWriteActionWithCancellableProgressInDispatchThread(
+    boolean[] success = {true};
+    boolean result = ((ApplicationImpl)ApplicationManager.getApplication()).runWriteActionWithCancellableProgressInDispatchThread(
       FindBundle.message("find.replace.all.confirmation.title"),
       myProject,
       null,
@@ -438,9 +434,10 @@ public class ReplaceInProjectManager {
             }
           });
         }
+        FileDocumentManager.getInstance().saveAllDocuments();
       }
     );
-
+    success[0] &= result;
     replaceContext.getUsageView().removeUsagesBulk(usages);
     reportNumberReplacedOccurrences(myProject, replacedCount[0]);
     return success[0];
@@ -471,7 +468,7 @@ public class ReplaceInProjectManager {
       }
 
       final Document document = ((UsageInfo2UsageAdapter)usage).getDocument();
-      if (!document.isWritable()) return false;
+      if (document == null || !document.isWritable()) return false;
 
       return ((UsageInfo2UsageAdapter)usage).processRangeMarkers(segment -> {
         final int textOffset = segment.getStartOffset();

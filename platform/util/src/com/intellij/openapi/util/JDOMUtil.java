@@ -1,26 +1,22 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.util.io.URLUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.CharSequenceReader;
 import com.intellij.xml.util.XmlStringUtil;
+import org.codehaus.stax2.XMLStreamReader2;
 import org.jdom.*;
 import org.jdom.filter.Filter;
 import org.jdom.output.Format;
 import org.jdom.output.XMLOutputter;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
-import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
 import java.awt.*;
 import java.io.*;
 import java.net.URL;
@@ -33,66 +29,16 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 public final class JDOMUtil {
-  private static final String X = "x";
-  private static final String Y = "y";
-  private static final String WIDTH = "width";
-  private static final String HEIGHT = "height";
+  private static final @NonNls String X = "x";
+  private static final @NonNls String Y = "y";
+  private static final @NonNls String WIDTH = "width";
+  private static final @NonNls String HEIGHT = "height";
 
   //xpointer($1)
   public static final Pattern XPOINTER_PATTERN = Pattern.compile("xpointer\\((.*)\\)");
   public static final Namespace XINCLUDE_NAMESPACE = Namespace.getNamespace("xi", "http://www.w3.org/2001/XInclude");
   // /$1(/$2)?/*
   public static final Pattern CHILDREN_PATTERN = Pattern.compile("/([^/]*)(/[^/]*)?/\\*");
-
-  private static final String XML_INPUT_FACTORY_KEY = "javax.xml.stream.XMLInputFactory";
-  private static final String XML_INPUT_FACTORY_IMPL = "com.sun.xml.internal.stream.XMLInputFactoryImpl";
-
-  private static volatile XMLInputFactory XML_INPUT_FACTORY;
-
-  // do not use AtomicNotNullLazyValue to reduce class loading
-  private static XMLInputFactory getXmlInputFactory() {
-    XMLInputFactory factory = XML_INPUT_FACTORY;
-    if (factory != null) {
-      return factory;
-    }
-
-    //noinspection SynchronizeOnThis
-    synchronized (JDOMUtil.class) {
-      factory = XML_INPUT_FACTORY;
-      if (factory != null) {
-        return factory;
-      }
-
-      // requests default JRE factory implementation instead of an incompatible one from the classpath
-      String property = System.setProperty(XML_INPUT_FACTORY_KEY, XML_INPUT_FACTORY_IMPL);
-      try {
-        factory = XMLInputFactory.newFactory();
-      }
-      finally {
-        if (property != null) {
-          System.setProperty(XML_INPUT_FACTORY_KEY, property);
-        }
-        else {
-          System.clearProperty(XML_INPUT_FACTORY_KEY);
-        }
-      }
-
-      if (!SystemInfo.isIbmJvm) {
-        try {
-          factory.setProperty("http://java.sun.com/xml/stream/properties/report-cdata-event", true);
-        }
-        catch (Exception e) {
-          getLogger().error("cannot set \"report-cdata-event\" property for XMLInputFactory", e);
-        }
-      }
-
-      factory.setProperty(XMLInputFactory.IS_COALESCING, true);
-      factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
-      factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-      XML_INPUT_FACTORY = factory;
-      return factory;
-    }
-  }
 
   private JDOMUtil() { }
 
@@ -107,12 +53,12 @@ public final class JDOMUtil {
     return Collections.emptyList();
   }
 
-  private static class LoggerHolder {
-    private static final Logger ourLogger = Logger.getInstance(JDOMUtil.class);
+  private static final class LoggerHolder {
+    private static final Logger LOG = Logger.getInstance(JDOMUtil.class);
   }
 
   private static Logger getLogger() {
-    return LoggerHolder.ourLogger;
+    return LoggerHolder.LOG;
   }
 
   public static boolean areElementsEqual(@Nullable Element e1, @Nullable Element e2) {
@@ -161,6 +107,7 @@ public final class JDOMUtil {
    * @deprecated Use {@link Element#getChildren} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static Element @NotNull [] getElements(@NotNull Element m) {
     List<Element> list = m.getChildren();
     return list.toArray(new Element[0]);
@@ -178,12 +125,12 @@ public final class JDOMUtil {
     return result;
   }
 
-  private static void appendLegalized(@NotNull StringBuilder sb, char each) {
+  private static void appendLegalized(@NotNull @NonNls StringBuilder sb, char each) {
     if (each == '<' || each == '>') {
       sb.append(each == '<' ? "&lt;" : "&gt;");
     }
     else if (!Verifier.isXMLCharacter(each)) {
-      sb.append("0x").append(StringUtil.toUpperCase(Long.toHexString(each)));
+      sb.append("0x").append(Strings.toUpperCase(Long.toHexString(each)));
     }
     else {
       sb.append(each);
@@ -262,9 +209,9 @@ public final class JDOMUtil {
 
   private static @NotNull Document loadDocumentUsingStaX(@NotNull Reader reader) throws JDOMException, IOException {
     try {
-      XMLStreamReader xmlStreamReader = getXmlInputFactory().createXMLStreamReader(reader);
+      XMLStreamReader2 xmlStreamReader = StaxFactory.createXmlStreamReader(reader);
       try {
-        return SafeStAXStreamBuilder.buildDocument(xmlStreamReader, true);
+        return SafeStAXStreamBuilder.buildDocument(xmlStreamReader);
       }
       finally {
         xmlStreamReader.close();
@@ -278,11 +225,11 @@ public final class JDOMUtil {
     }
   }
 
-  private static @NotNull Element loadUsingStaX(@NotNull Reader reader, @Nullable SafeJdomFactory factory) throws JDOMException, IOException {
+  private static @NotNull Element loadUsingStaX(@NotNull InputStream stream, @Nullable SafeJdomFactory factory) throws JDOMException {
     try {
-      XMLStreamReader xmlStreamReader = getXmlInputFactory().createXMLStreamReader(reader);
+      XMLStreamReader2 xmlStreamReader = StaxFactory.createXmlStreamReader(stream);
       try {
-        return SafeStAXStreamBuilder.build(xmlStreamReader, true, factory == null ? SafeStAXStreamBuilder.FACTORY : factory);
+        return SafeStAXStreamBuilder.build(xmlStreamReader, true, true, factory == null ? SafeStAXStreamBuilder.FACTORY : factory);
       }
       finally {
         xmlStreamReader.close();
@@ -291,19 +238,6 @@ public final class JDOMUtil {
     catch (XMLStreamException e) {
       throw new JDOMException(e.getMessage(), e);
     }
-    finally {
-      reader.close();
-    }
-  }
-
-  /**
-   * @deprecated Use {@link #load(CharSequence)}
-   * <p>
-   * Direct usage of element allows to get rid of {@link Document#getRootElement()} because only Element is required in mostly all cases.
-   */
-  @Deprecated
-  public static @NotNull Document loadDocument(@NotNull CharSequence seq) throws IOException, JDOMException {
-    return loadDocument(new CharSequenceReader(seq));
   }
 
   public static @NotNull Element load(@NotNull CharSequence seq) throws IOException, JDOMException {
@@ -325,12 +259,12 @@ public final class JDOMUtil {
   }
 
   public static @NotNull Element load(@NotNull File file) throws JDOMException, IOException {
-    return load(file, null);
+    return loadUsingStaX(new FileInputStream(file), null);
   }
 
   public static @NotNull Element load(@NotNull Path file) throws JDOMException, IOException {
     try {
-      return loadUsingStaX(new InputStreamReader(CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(Files.newInputStream(file))), StandardCharsets.UTF_8), null);
+      return loadUsingStaX(Files.newInputStream(file), null);
     }
     catch (ClosedFileSystemException e) {
       throw new IOException("Cannot read file from closed file system: " + file, e);
@@ -342,13 +276,13 @@ public final class JDOMUtil {
    */
   @ApiStatus.Internal
   public static @NotNull Element load(@NotNull File file, @Nullable SafeJdomFactory factory) throws JDOMException, IOException {
-    return loadUsingStaX(new InputStreamReader(CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(new FileInputStream(file))), StandardCharsets.UTF_8), factory);
+    return loadUsingStaX(new FileInputStream(file), factory);
   }
 
   @ApiStatus.Internal
   public static @NotNull Element load(@NotNull Path file, @Nullable SafeJdomFactory factory) throws JDOMException, IOException {
     try {
-      return loadUsingStaX(new InputStreamReader(CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(Files.newInputStream(file))), StandardCharsets.UTF_8), factory);
+      return loadUsingStaX(Files.newInputStream(file), factory);
     }
     catch (ClosedFileSystemException e) {
       throw new IOException("Cannot read file from closed file system: " + file, e);
@@ -367,20 +301,32 @@ public final class JDOMUtil {
 
   @Contract("null -> null; !null -> !null")
   public static Element load(Reader reader) throws JDOMException, IOException {
-    return reader == null ? null : loadUsingStaX(reader, null);
+    if (reader == null) {
+      return null;
+    }
+
+    try {
+      XMLStreamReader2 xmlStreamReader = StaxFactory.createXmlStreamReader(reader);
+      try {
+        return SafeStAXStreamBuilder.build(xmlStreamReader, true, true, null == null ? SafeStAXStreamBuilder.FACTORY : null);
+      }
+      finally {
+        xmlStreamReader.close();
+      }
+    }
+    catch (XMLStreamException e) {
+      throw new JDOMException(e.getMessage(), e);
+    }
   }
 
   @Contract("null -> null; !null -> !null")
   public static Element load(InputStream stream) throws JDOMException, IOException {
-    return stream == null ? null : load(stream, null);
+    return stream == null ? null : loadUsingStaX(stream, null);
   }
 
-  /**
-   * Internal use only.
-   */
   @ApiStatus.Internal
   public static @NotNull Element load(@NotNull InputStream stream, @Nullable SafeJdomFactory factory) throws JDOMException, IOException {
-    return loadUsingStaX(new InputStreamReader(stream, StandardCharsets.UTF_8), factory);
+    return loadUsingStaX(stream, factory);
   }
 
   public static @NotNull Element load(@NotNull Class<?> clazz, @NotNull String resource) throws JDOMException, IOException {
@@ -405,16 +351,6 @@ public final class JDOMUtil {
     return load(URLUtil.openStream(url));
   }
 
-  /**
-   * @deprecated Use {@link #load(URL)}
-   * <p>
-   * Direct usage of element allows to get rid of {@link Document#getRootElement()} because only Element is required in mostly all cases.
-   */
-  @Deprecated
-  public static @NotNull Document loadResourceDocument(@NotNull URL url) throws JDOMException, IOException {
-    return loadDocument(URLUtil.openResourceStream(url));
-  }
-
   public static @NotNull Element loadResource(@NotNull URL url) throws JDOMException, IOException {
     return load(URLUtil.openResourceStream(url));
   }
@@ -429,14 +365,14 @@ public final class JDOMUtil {
     write(document, file, lineSeparator);
   }
 
+  /**
+   * @deprecated Use {@link #write(Element, Path)}
+   */
+  @Deprecated
   public static void write(@NotNull Element element, @NotNull File file) throws IOException {
-    write(element, file, "\n");
-  }
-
-  public static void write(@NotNull Element element, @NotNull File file, @Nullable String lineSeparator) throws IOException {
-    FileUtil.createParentDirs(file);
+    FileUtilRt.createParentDirs(file);
     try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
-      writeElement(element, writer, createOutputter(lineSeparator));
+      writeElement(element, writer, createOutputter("\n"));
     }
   }
 
@@ -452,7 +388,7 @@ public final class JDOMUtil {
   }
 
   public static void write(@NotNull Parent element, @NotNull File file, @NotNull String lineSeparator) throws IOException {
-    FileUtil.createParentDirs(file);
+    FileUtilRt.createParentDirs(file);
 
     try (OutputStream stream = new BufferedOutputStream(new FileOutputStream(file))) {
       write(element, stream, lineSeparator);
@@ -600,14 +536,17 @@ public final class JDOMUtil {
     return null;
   }
 
+  @Contract(pure = true)
   public static @NotNull String escapeText(@NotNull String text) {
     return escapeText(text, false, false);
   }
 
+  @Contract(pure = true)
   public static @NotNull String escapeText(@NotNull String text, boolean escapeSpaces, boolean escapeLineEnds) {
     return escapeText(text, false, escapeSpaces, escapeLineEnds);
   }
 
+  @Contract(pure = true)
   public static @NotNull String escapeText(@NotNull String text, boolean escapeApostrophes, boolean escapeSpaces, boolean escapeLineEnds) {
     StringBuilder buffer = null;
     for (int i = 0; i < text.length(); i++) {

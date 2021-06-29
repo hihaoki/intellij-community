@@ -5,8 +5,8 @@ import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -15,13 +15,13 @@ import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.URLUtil;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -39,7 +39,9 @@ public final class VfsUtil extends VfsUtilCore {
 
   public static void saveText(@NotNull VirtualFile file, @NotNull String text) throws IOException {
     Charset charset = file.getCharset();
-    file.setBinaryContent(text.getBytes(charset.name()));
+    try (OutputStream stream = file.getOutputStream(file)) {
+      stream.write(text.getBytes(charset));
+    }
   }
 
   public static byte @NotNull [] toByteArray(@NotNull VirtualFile file, @NotNull String text) throws IOException {
@@ -48,7 +50,7 @@ public final class VfsUtil extends VfsUtilCore {
     }
 
     Charset charset = file.getCharset();
-    return text.getBytes(charset.name());
+    return text.getBytes(charset);
   }
 
   /**
@@ -95,15 +97,14 @@ public final class VfsUtil extends VfsUtilCore {
    * @param toDir     directory to make a copy in
    * @throws IOException if file failed to be copied
    */
+  @NotNull
   public static VirtualFile copy(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile toDir) throws IOException {
     if (file.isDirectory()) {
       VirtualFile newDir = toDir.createChildDirectory(requestor, file.getName());
       copyDirectory(requestor, file, newDir, null);
       return newDir;
     }
-    else {
-      return copyFile(requestor, file, toDir);
-    }
+    return copyFile(requestor, file, toDir);
   }
 
   /**
@@ -165,7 +166,7 @@ public final class VfsUtil extends VfsUtilCore {
     return ancestor;
   }
 
-  public static @Nullable VirtualFile findRelativeFile(@Nullable VirtualFile base, String ... path) {
+  public static @Nullable VirtualFile findRelativeFile(@Nullable VirtualFile base, String @NotNull ... path) {
     VirtualFile file = base;
 
     for (String pathElement : path) {
@@ -277,14 +278,13 @@ public final class VfsUtil extends VfsUtilCore {
     }
   }
 
+  @NotNull
   public static String getUrlForLibraryRoot(@NotNull File libraryRoot) {
     String path = FileUtil.toSystemIndependentName(libraryRoot.getAbsolutePath());
     if (FileTypeRegistry.getInstance().getFileTypeByFileName(libraryRoot.getName()) == ArchiveFileType.INSTANCE) {
       return VirtualFileManager.constructUrl(StandardFileSystems.JAR_PROTOCOL, path + URLUtil.JAR_SEPARATOR);
     }
-    else {
-      return VirtualFileManager.constructUrl(LocalFileSystem.getInstance().getProtocol(), path);
-    }
+    return VirtualFileManager.constructUrl(LocalFileSystem.getInstance().getProtocol(), path);
   }
 
   public static @NotNull String getNextAvailableName(@NotNull VirtualFile dir,
@@ -397,7 +397,7 @@ public final class VfsUtil extends VfsUtilCore {
     });
   }
 
-  public static @NotNull String getReadableUrl(final @NotNull VirtualFile file) {
+  public static @NotNull @NlsSafe String getReadableUrl(@NotNull VirtualFile file) {
     String url = null;
     if (file.isInLocalFileSystem()) {
       url = file.getPresentableUrl();
@@ -441,7 +441,7 @@ public final class VfsUtil extends VfsUtilCore {
   /**
    * Returns a name of the given file.
    */
-  public static @Nullable String extractFileName(@Nullable String urlOrPath) {
+  public static @Nullable @NlsSafe String extractFileName(@Nullable String urlOrPath) {
     if (urlOrPath == null) return null;
     int index = urlOrPath.lastIndexOf(VfsUtilCore.VFS_SEPARATOR_CHAR);
     return index < 0 ? null : urlOrPath.substring(index+1);
@@ -510,79 +510,4 @@ public final class VfsUtil extends VfsUtilCore {
     }
     return file;
   }
-
-  //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link VfsUtilCore#toIdeaUrl(String)} */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
-  public static String toIdeaUrl(@NotNull String url) {
-    return toIdeaUrl(url, true);
-  }
-
-  /** @deprecated obsolete */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public static VirtualFile copyFileRelative(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile toDir, @NotNull String relativePath) throws IOException {
-    StringTokenizer tokenizer = new StringTokenizer(relativePath,"/");
-    VirtualFile curDir = toDir;
-
-    while (true) {
-      String token = tokenizer.nextToken();
-      if (tokenizer.hasMoreTokens()) {
-        VirtualFile childDir = curDir.findChild(token);
-        if (childDir == null) {
-          childDir = curDir.createChildDirectory(requestor, token);
-        }
-        curDir = childDir;
-      }
-      else {
-        return copyFile(requestor, file, curDir, token);
-      }
-    }
-  }
-
-  /** @deprecated incorrect when {@code src} is a directory; use {@link #findRelativePath(VirtualFile, VirtualFile, char)} instead */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public static @Nullable String getPath(@NotNull VirtualFile src, @NotNull VirtualFile dst, char separatorChar) {
-    final VirtualFile commonAncestor = getCommonAncestor(src, dst);
-    if (commonAncestor != null) {
-      StringBuilder buffer = new StringBuilder();
-      if (!Comparing.equal(src, commonAncestor)) {
-        while (!Comparing.equal(src.getParent(), commonAncestor)) {
-          buffer.append("..").append(separatorChar);
-          src = src.getParent();
-        }
-      }
-      buffer.append(getRelativePath(dst, commonAncestor, separatorChar));
-      return buffer.toString();
-    }
-
-    return null;
-  }
-
-  /** @deprecated incorrect, use {@link #toUri(String)} if needed (to be removed in IDEA 2019 */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public static @NotNull URI toUri(@NotNull VirtualFile file) {
-    String path = file.getPath();
-    try {
-      String protocol = file.getFileSystem().getProtocol();
-      if (file.isInLocalFileSystem()) {
-        if (SystemInfo.isWindows && path.charAt(0) != '/') {
-          path = '/' + path;
-        }
-        return new URI(protocol, "", path, null, null);
-      }
-      if (URLUtil.HTTP_PROTOCOL.equals(protocol)) {
-        return new URI(URLUtil.HTTP_PROTOCOL + URLUtil.SCHEME_SEPARATOR + path);
-      }
-      return new URI(protocol, path, null);
-    }
-    catch (URISyntaxException e) {
-      throw new IllegalArgumentException(e);
-    }
-  }
-  //</editor-fold>
 }

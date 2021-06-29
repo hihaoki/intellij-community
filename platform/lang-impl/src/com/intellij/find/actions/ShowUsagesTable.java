@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.actions;
 
 import com.intellij.ide.util.gotoByName.ModelDiff;
@@ -228,13 +228,13 @@ public class ShowUsagesTable extends JBTable implements DataProvider {
     }
 
     @Override
-    protected int convertIndexToModel(int viewIndex) {
-      return getTable().convertRowIndexToModel(viewIndex);
+    protected int getElementCount() {
+      return ((MyModel)getTable().getModel()).getItems().size();
     }
 
     @Override
-    protected Object @NotNull [] getAllElements() {
-      return ((MyModel)getTable().getModel()).getItems().toArray();
+    protected Object getElementAt(int viewIndex) {
+      return ((MyModel)getTable().getModel()).getItems().get(getTable().convertRowIndexToModel(viewIndex));
     }
 
     @Override
@@ -245,7 +245,7 @@ public class ShowUsagesTable extends JBTable implements DataProvider {
       Usage usage = node.getUsage();
       if (usage == getTable().MORE_USAGES_SEPARATOR || usage == getTable().USAGES_OUTSIDE_SCOPE_SEPARATOR || usage == getTable().USAGES_FILTERED_OUT_SEPARATOR) return "";
       GroupNode group = (GroupNode)node.getParent();
-      String groupText = group == null ? "" : group.getGroup().getText(null);
+      String groupText = group == null ? "" : group.getGroup().getPresentableGroupText();
       return groupText + usage.getPresentation().getPlainText();
     }
 
@@ -264,14 +264,14 @@ public class ShowUsagesTable extends JBTable implements DataProvider {
     }
   }
 
-  static final class MyModel extends ListTableModel<UsageNode> implements ModelDiff.Model<Object> {
+  static final class MyModel extends ListTableModel<UsageNode> implements ModelDiff.Model<UsageNode> {
+
     private MyModel(@NotNull List<UsageNode> data, int cols) {
       super(cols(cols), data, 0);
     }
 
-    @NotNull
-    private static ColumnInfo<UsageNode, UsageNode>[] cols(int cols) {
-      ColumnInfo<UsageNode, UsageNode> o = new ColumnInfo<UsageNode, UsageNode>("") {
+    private static ColumnInfo<UsageNode, UsageNode> @NotNull [] cols(int cols) {
+      ColumnInfo<UsageNode, UsageNode> o = new ColumnInfo<>("") {
         @Nullable
         @Override
         public UsageNode valueOf(UsageNode node) {
@@ -283,20 +283,18 @@ public class ShowUsagesTable extends JBTable implements DataProvider {
     }
 
     @Override
-    public void addToModel(int idx, Object element) {
-      UsageNode node = element instanceof UsageNode ? (UsageNode)element : ShowUsagesAction.createStringNode(element);
-
+    public void addToModel(int idx, UsageNode element) {
       if (idx < getRowCount()) {
-        insertRow(idx, node);
+        insertRow(idx, element);
       }
       else {
-        addRow(node);
+        addRow(element);
       }
     }
 
     @Override
     public void removeRangeFromModel(int start, int end) {
-      for (int i=end; i>=start; i--) {
+      for (int i = end; i >= start; i--) {
         removeRow(i);
       }
     }

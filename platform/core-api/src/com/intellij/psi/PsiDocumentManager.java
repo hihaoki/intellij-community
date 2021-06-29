@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.openapi.application.ModalityState;
@@ -89,7 +89,8 @@ public abstract class PsiDocumentManager {
   public abstract boolean commitAllDocumentsUnderProgress();
 
   /**
-   * If the document is committed, runs action synchronously, otherwise schedules to execute it right after it has been committed.
+   * If the {@code document} is committed, run {@code action} immediately.
+   * Otherwise, schedule the execution of the {@code action} sometime in the future right after the {@code document} is committed.
    */
   public abstract void performForCommittedDocument(@NotNull Document document, @NotNull Runnable action);
 
@@ -139,7 +140,7 @@ public abstract class PsiDocumentManager {
    * @return the list of uncommitted documents.
    * @see #commitDocument(Document)
    */
-  public abstract Document @NotNull [] getUncommittedDocuments();
+  public abstract @NotNull Document @NotNull [] getUncommittedDocuments();
 
   /**
    * Checks if the specified document has been committed.
@@ -217,16 +218,11 @@ public abstract class PsiDocumentManager {
   }
 
   /**
-   * @deprecated Use message bus {@link Listener#TOPIC}.
+   * @deprecated Use message bus {@link PsiDocumentListener#TOPIC}.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addListener(@NotNull Listener listener);
-
-  /**
-   * @deprecated Use message bus {@link Listener#TOPIC}.
-   */
-  @Deprecated
-  public abstract void removeListener(@NotNull Listener listener);
 
   /**
    * Checks if the PSI tree corresponding to the specified document has been modified and the changes have not
@@ -256,17 +252,15 @@ public abstract class PsiDocumentManager {
   public abstract boolean performWhenAllCommitted(@NotNull Runnable action);
 
   /**
-   * Same as {@link #performLaterWhenAllCommitted(Runnable, ModalityState)} using {@link ModalityState#defaultModalityState()}
+   * Same as {@link #performLaterWhenAllCommitted(ModalityState, Runnable)} using {@link ModalityState#defaultModalityState()}
    */
   public abstract void performLaterWhenAllCommitted(@NotNull Runnable runnable);
 
   /**
-   * Schedule the runnable to be executed on Swing thread when all the documents with event-system-enabled PSI
+   * Schedule the {@code runnable} to be executed on Swing thread when all documents with event-system-enabled PSI
    * are committed at some later moment in a given modality state.
-   * The runnable is guaranteed to be invoked when no write action is running, and not immediately.
-   * If the project is disposed before such moment, the runnable is not run.
+   * The {@code runnable} is guaranteed to be invoked when no write action is running, and not immediately.
+   * If the project is disposed before such moment, the {@code runnable} is not executed.
    */
-  public abstract void performLaterWhenAllCommitted(@NotNull Runnable runnable, ModalityState modalityState);
-
-
+  public abstract void performLaterWhenAllCommitted(@NotNull ModalityState modalityState, @NotNull Runnable runnable);
 }

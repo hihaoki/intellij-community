@@ -1,10 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file: JvmName("SuggestUsingRunDashBoardUtil")
 package com.intellij.execution
 
+import com.intellij.CommonBundle
 import com.intellij.execution.configurations.ConfigurationType
 import com.intellij.execution.dashboard.RunDashboardManager
 import com.intellij.icons.AllIcons
+import com.intellij.lang.LangBundle
 import com.intellij.notification.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runWriteAction
@@ -30,21 +32,18 @@ private const val suggestRunDashboardId = "Suggest Run Dashboard"
 
 private class SuggestDashboardNotification(
   private val project: Project,
-  private val types: Set<ConfigurationType>,
+  types: Set<ConfigurationType>,
   toolWindowId: String
 ) : Notification(
   suggestRunDashboardId,
-  AllIcons.RunConfigurations.TestState.Run,
-  "Use $toolWindowId?",
-  null,
-  "$toolWindowId is convenient for viewing results of multiple run configuration at once. " +
-  "Add the following configuration types to $toolWindowId:<br>" +
-  types.joinToString(prefix = "<b>", postfix = "</b>", separator = "<br>") { it.configurationTypeDescription } + "<br>?",
-  NotificationType.INFORMATION,
-  { _, _ -> }
+  LangBundle.message("notification.title.use.toolwindow", toolWindowId),
+  LangBundle.message("notification.suggest.dashboard", toolWindowId, toolWindowId,
+                     types.joinToString(prefix = "<b>", postfix = "</b>", separator = "<br>") { it.configurationTypeDescription }),
+  NotificationType.INFORMATION
 ) {
   init {
-    addAction(NotificationAction.create("Yes") { _ ->
+    icon = AllIcons.RunConfigurations.TestState.Run
+    addAction(NotificationAction.create(CommonBundle.message("button.without.mnemonic.yes")) { _ ->
       ApplicationManager.getApplication().invokeLater {
         runWriteAction {
           val runDashboardManager = RunDashboardManager.getInstance(project)
@@ -53,10 +52,10 @@ private class SuggestDashboardNotification(
       }
       expire()
     })
-    addAction(NotificationAction.create("Not this time") { _ ->
+    addAction(NotificationAction.create(LangBundle.message("button.not.this.time.text")) { _ ->
       expire()
     })
-    addAction(NotificationAction.create("Do not ask again") { _ ->
+    addAction(NotificationAction.create(LangBundle.message("button.do.not.ask.again.text")) { _ ->
       NotificationsConfiguration.getNotificationsConfiguration().changeSettings(
         suggestRunDashboardId, NotificationDisplayType.NONE, true, false
       )

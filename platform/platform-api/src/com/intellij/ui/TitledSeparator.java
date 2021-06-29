@@ -5,10 +5,12 @@ package com.intellij.ui;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
@@ -29,7 +31,7 @@ public class TitledSeparator extends JPanel {
 
   protected final JBLabel myLabel = new JBLabel();
   protected final JSeparator mySeparator = new JSeparator(SwingConstants.HORIZONTAL);
-  private String originalText;
+  private @NlsContexts.Separator String originalText;
 
   public TitledSeparator() {
     this("");
@@ -51,9 +53,23 @@ public class TitledSeparator extends JPanel {
     setText(text);
     setLabelFor(labelFor);
     setOpaque(false);
+    updateLabelFont();
   }
 
-  public String getText() {
+  @Override
+  public void updateUI() {
+    super.updateUI();
+    updateLabelFont();
+  }
+
+  private void updateLabelFont() {
+    if (myLabel != null) {
+      Font labelFont = StartupUiUtil.getLabelFont();
+      myLabel.setFont(RelativeFont.NORMAL.fromResource("TitledSeparator.fontSizeOffset", 0).derive(labelFont));
+    }
+  }
+
+  public @NlsContexts.Separator String getText() {
     return originalText;
   }
 
@@ -93,5 +109,14 @@ public class TitledSeparator extends JPanel {
     mySeparator.setEnabled(enabled);
 
     mySeparator.setForeground(enabled ? ENABLED_SEPARATOR_FOREGROUND : DISABLED_SEPARATOR_FOREGROUND);
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = super.getAccessibleContext();
+      accessibleContext.setAccessibleName(myLabel.getText());
+    }
+    return accessibleContext;
   }
 }

@@ -50,7 +50,7 @@ import java.util.regex.Pattern;
  * (a java implementation: https://github.com/atteo/evo-inflector)
  *
  * @author gregsh
- * @noinspection SpellCheckingInspection
+ * @noinspection SpellCheckingInspection, HardCodedStringLiteral
  */
 final class Pluralizer {
   static final Pluralizer PLURALIZER;
@@ -159,15 +159,15 @@ final class Pluralizer {
     return Pattern.compile(rule.startsWith("/") ? rule.substring(1) : "^" + rule + "$", Pattern.CASE_INSENSITIVE);
   }
 
-  protected void addPluralRule(String rule, String replacement) {
+  private void addPluralRule(String rule, String replacement) {
     pluralRules.add(Pair.create(sanitizeRule(rule), replacement));
   }
 
-  protected void addSingularRule(String rule, String replacement) {
+  private void addSingularRule(String rule, String replacement) {
     singularRules.add(Pair.create(sanitizeRule(rule), replacement));
   }
 
-  protected void addUncountableRule(String word) {
+  private void addUncountableRule(String word) {
     if (!word.startsWith("/")) {
       uncountables.add(word);
     }
@@ -178,7 +178,7 @@ final class Pluralizer {
     }
   }
 
-  protected void addIrregularRule(String single, String plural) {
+  private void addIrregularRule(String single, String plural) {
     irregularSingles.put(single, plural);
     irregularPlurals.put(plural, single);
   }

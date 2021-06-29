@@ -1,17 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl.rules;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.usages.Usage;
-import com.intellij.usages.UsageGroup;
-import com.intellij.usages.UsageTarget;
-import com.intellij.usages.UsageViewSettings;
+import com.intellij.usages.*;
 import com.intellij.usages.impl.FileStructureGroupRuleProvider;
 import com.intellij.usages.rules.UsageGroupingRule;
-import com.intellij.usages.rules.UsageGroupingRuleEx;import com.intellij.util.containers.ContainerUtil;
+import com.intellij.usages.rules.UsageGroupingRuleEx;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,12 +18,13 @@ import java.util.List;
 public final class ActiveRules {
   public static UsageGroupingRule @NotNull [] getActiveRules(@NotNull Project project,
                                                              @NotNull UsageViewSettings usageViewSettings,
+                                                             @Nullable UsageViewPresentation presentation,
                                                              boolean supportsNonCodeRule,
                                                              boolean supportsScopesRule,
                                                              boolean supportsModuleRule) {
     List<UsageGroupingRule> rules = new ArrayList<>();
     if (supportsNonCodeRule) {
-      rules.add(new NonCodeUsageGroupingRule(project));
+      rules.add(new NonCodeUsageGroupingRule(presentation));
     }
     if (supportsScopesRule && usageViewSettings.isGroupByScope()) {
       rules.add(new UsageScopeGroupingRule());
@@ -55,12 +55,13 @@ public final class ActiveRules {
 
   public static UsageGroupingRule @NotNull [] getAllRules(@NotNull Project project,
                                                           @NotNull UsageViewSettings usageViewSettings,
+                                                          @Nullable UsageViewPresentation presentation,
                                                           boolean supportsNonCodeRule,
                                                           boolean supportsScopesRule,
                                                           boolean supportsModuleRule) {
     List<UsageGroupingRule> rules = new ArrayList<>();
     if (supportsNonCodeRule) {
-      rules.add(new NonCodeUsageGroupingRule(project));
+      rules.add(new NonCodeUsageGroupingRule(presentation));
     }
     if (supportsScopesRule) {
       rules.add(new UsageScopeGroupingRule());
@@ -103,7 +104,7 @@ public final class ActiveRules {
     }
 
     @Override
-    public @Nullable String getGroupingActionId() {
+    public @NotNull String getGroupingActionId() {
       return "UsageGrouping.FileStructure";
     }
 

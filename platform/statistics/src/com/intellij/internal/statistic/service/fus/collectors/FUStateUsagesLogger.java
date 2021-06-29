@@ -24,9 +24,9 @@ import java.util.concurrent.CompletableFuture;
  * <p><b>Don't</b> use it directly unless absolutely necessary.
  * Implement {@link ApplicationUsagesCollector} or {@link ProjectUsagesCollector} instead.</p>
  *
- * <p>To record IDE events (e.g. invoked action, opened dialog) use {@link FUCounterUsageLogger}</p>
+ * <p>To record IDE events (e.g. invoked action, opened dialog) use {@link CounterUsagesCollector}</p>
  */
-public class FUStateUsagesLogger implements UsagesCollectorConsumer {
+public final class FUStateUsagesLogger implements UsagesCollectorConsumer {
   private static final Logger LOG = Logger.getInstance(FUStateUsagesLogger.class);
   private static final Object LOCK = new Object();
 
@@ -44,7 +44,7 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
 
         EventLogGroup group = new EventLogGroup(groupId, usagesCollector.getVersion());
         Promise<? extends Set<MetricEvent>> metrics = usagesCollector.getMetrics(project, indicator);
-        futures.add(logMetricsOrError(project, group, usagesCollector.getData(project), metrics));
+        futures.add(logMetricsOrError(project, group, metrics));
       }
       return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
@@ -62,7 +62,7 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
 
         EventLogGroup group = new EventLogGroup(groupId, usagesCollector.getVersion());
         Promise<Set<MetricEvent>> metrics = Promises.resolvedPromise(usagesCollector.getMetrics());
-        futures.add(logMetricsOrError(null, group, usagesCollector.getData(), metrics));
+        futures.add(logMetricsOrError(null, group, metrics));
       }
       return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
@@ -70,10 +70,9 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
 
   private static CompletableFuture<Void> logMetricsOrError(@Nullable Project project,
                                                            @NotNull EventLogGroup group,
-                                                           @Nullable FeatureUsageData context,
                                                            @NotNull Promise<? extends Set<MetricEvent>> metricsPromise) {
     try {
-      return logUsagesAsStateEvents(project, group, context, metricsPromise);
+      return logUsagesAsStateEvents(project, group, metricsPromise);
     }
     catch (Throwable th) {
       if (project != null && project.isDisposed()) {
@@ -87,7 +86,6 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
 
   private static @NotNull CompletableFuture<Void> logUsagesAsStateEvents(@Nullable Project project,
                                                                          @NotNull EventLogGroup group,
-                                                                         @Nullable FeatureUsageData context,
                                                                          @NotNull Promise<? extends Set<MetricEvent>> metricsPromise) {
     CompletableFuture<Void> future = new CompletableFuture<>();
     metricsPromise.onSuccess(metrics -> {
@@ -98,7 +96,7 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
 
       List<CompletableFuture<Void>> futures = new ArrayList<>();
       if (!metrics.isEmpty()) {
-        final FeatureUsageData groupData = addProject(project, context);
+        final FeatureUsageData groupData = addProject(project);
         for (MetricEvent metric : metrics) {
           final FeatureUsageData data = mergeWithEventData(groupData, metric.getData());
           final Map<String, Object> eventData = data != null ? data.build() : Collections.emptyMap();
@@ -113,12 +111,11 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
   }
 
   @Nullable
-  private static FeatureUsageData addProject(@Nullable Project project,
-                                             @Nullable FeatureUsageData context) {
-    if (project == null && context == null) {
+  private static FeatureUsageData addProject(@Nullable Project project) {
+    if (project == null) {
       return null;
     }
-    return context != null ? context.addProject(project) : new FeatureUsageData().addProject(project);
+    return new FeatureUsageData().addProject(project);
   }
 
   @Nullable
@@ -138,7 +135,7 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
    * </p>
    * <br/>
    * <p>
-   * Consider using counter events {@link FUCounterUsageLogger} or
+   * Consider using counter events {@link CounterUsagesCollector} or
    * state events recorded by a scheduler {@link ApplicationUsagesCollector} or {@link ProjectUsagesCollector}
    * </p>
    */
@@ -155,7 +152,7 @@ public class FUStateUsagesLogger implements UsagesCollectorConsumer {
    * </p>
    * <br/>
    * <p>
-   * Consider using counter events {@link FUCounterUsageLogger} or
+   * Consider using counter events {@link CounterUsagesCollector} or
    * state events recorded by a scheduler {@link ApplicationUsagesCollector} or {@link ProjectUsagesCollector}
    * </p>
    */

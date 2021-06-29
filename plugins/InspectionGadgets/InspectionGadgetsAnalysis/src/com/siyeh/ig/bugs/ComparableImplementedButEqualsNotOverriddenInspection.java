@@ -1,21 +1,6 @@
-/*
- * Copyright 2006-2018 Bas Leijdekkers
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.bugs;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
@@ -32,6 +17,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ClassUtils;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -40,10 +26,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseInspection {
-  @VisibleForTesting
-  static final @Nls String ADD_NOTE_FIX_NAME = "Add 'ordering inconsistent with equals' JavaDoc note";
-  @VisibleForTesting
-  static final @Nls String GENERATE_EQUALS_FIX_NAME = "Generate 'equals()' method";
 
   @Override
   @NotNull
@@ -68,20 +50,20 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
     @NotNull
     @Override
     public String getFamilyName() {
-      return GENERATE_EQUALS_FIX_NAME;
+      return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.fix.generate.equals.name");
     }
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiClass aClass = (PsiClass)descriptor.getPsiElement().getParent();
-      final StringBuilder methodText = new StringBuilder();
+      final @NonNls StringBuilder methodText = new StringBuilder();
       if (PsiUtil.isLanguageLevel5OrHigher(aClass)) {
         methodText.append("@java.lang.Override ");
       }
       methodText.append("public ");
       methodText.append("boolean equals(Object o) {\n");
-      methodText.append("if (!(o instanceof ").append(aClass.getName()).append("))").append("return false;");
-      methodText.append("return compareTo((").append(aClass.getName()).append(")o)==0;\n");
+      methodText.append("return o instanceof ").append(aClass.getName());
+      methodText.append("&& compareTo((").append(aClass.getName()).append(")o) == 0;\n");
       methodText.append("}");
       final PsiMethod method =
         JavaPsiFacade.getElementFactory(project).createMethodFromText(methodText.toString(), aClass, PsiUtil.getLanguageLevel(aClass));
@@ -93,13 +75,15 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
   private static class AddNoteFix extends InspectionGadgetsFix {
 
     private static final Pattern PARAM_PATTERN = Pattern.compile("\\*[ \t]+@");
-    private static final String NOTE = " * Note: this class has a natural ordering that is inconsistent with equals.\n";
+    // Let's keep a doc comment in English. Otherwise it will be hard to suppress the warning based on the JavaDoc substring
+    // (see CompareToAndEqualsNotPairedVisitor#visitClass below).
+    private static final @NonNls String NOTE = " * Note: this class has a natural ordering that is inconsistent with equals.\n";
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return ADD_NOTE_FIX_NAME;
+      return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.fix.add.note.name");
     }
 
     @Override
@@ -132,8 +116,10 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
     @Override
     public void visitClass(PsiClass aClass) {
       super.visitClass(aClass);
-      if (aClass.isInterface()) {
+      if (aClass.isInterface() || aClass.isRecord() || aClass.isEnum()) {
         // the problem can't be fixed for an interface, so let's not report it
+        // a record has an equals method implemented by default
+        // an enum has a default final compareTo() method, no need to check
         return;
       }
       final PsiClass comparableClass =

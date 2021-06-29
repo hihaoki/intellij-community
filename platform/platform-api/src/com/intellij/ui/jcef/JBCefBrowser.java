@@ -1,15 +1,22 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.jcef;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.LightEditActionFactory;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.JBColor;
+import com.jetbrains.cef.JCefAppConfig;
+import com.jetbrains.cef.JCefVersionDetails;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
-import org.cef.callback.CefContextMenuParams;
-import org.cef.callback.CefMenuModel;
-import org.cef.handler.*;
+import org.cef.handler.CefFocusHandler;
+import org.cef.handler.CefFocusHandlerAdapter;
+import org.cef.handler.CefKeyboardHandler;
+import org.cef.handler.CefKeyboardHandlerAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,123 +26,260 @@ import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
-import static com.intellij.ui.jcef.JBCefEventUtils.*;
-import static org.cef.callback.CefMenuModel.MenuId.MENU_ID_USER_LAST;
+import static com.intellij.ui.jcef.JBCefEventUtils.convertCefKeyEvent;
+import static com.intellij.ui.jcef.JBCefEventUtils.isUpDownKeyEvent;
 
 /**
  * A wrapper over {@link CefBrowser}.
  * <p>
  * Use {@link #getComponent()} as the browser's UI component.
+ * <p>
  * Use {@link #loadURL(String)} or {@link #loadHTML(String)} for loading.
  *
+ * @see #createBuilder
+ * @see JBCefOsrHandlerBrowser
  * @author tav
  */
-public class JBCefBrowser implements JBCefDisposable {
-  private static final String BLANK_URI = "about:blank";
+public class JBCefBrowser extends JBCefBrowserBase {
+  /**
+   * @see #setProperty(String, Object)
+   */
+  public static class Properties extends JBCefBrowserBase.Properties {
+    /**
+     * Defines whether the browser component should take focus on navigation (loading a new URL).
+     * <p></p>
+     * Accepts {@link Boolean} values. The default value is {@link Boolean#FALSE}.
+     */
+    public static final @NotNull String FOCUS_ON_NAVIGATION = "JBCefBrowser.focusOnNavigation";
 
-  @SuppressWarnings("SpellCheckingInspection")
-  private static final String JBCEFBROWSER_INSTANCE_PROP = "JBCefBrowser.instance";
+    /**
+     * Defines whether the browser component should take focus on show.
+     * <p></p>
+     * Accepts {@link Boolean} values. The default value is {@link Boolean#FALSE}.
+     */
+    public static final @NotNull String FOCUS_ON_SHOW ="JBCefBrowser.focusOnShow";
 
-  @NotNull private static final List<Consumer<JBCefBrowser>> ourOnBrowserMoveResizeCallbacks =
+    static {
+      PropertiesHelper.setType(FOCUS_ON_NAVIGATION, Boolean.class);
+      PropertiesHelper.setType(FOCUS_ON_SHOW, Boolean.class);
+    }
+  }
+
+  private static final @NotNull List<Consumer<? super JBCefBrowser>> ourOnBrowserMoveResizeCallbacks =
     Collections.synchronizedList(new ArrayList<>(1));
 
-  @NotNull private final JBCefClient myCefClient;
-  @NotNull private final JPanel myComponent;
-  @NotNull private final CefBrowser myCefBrowser;
-  @Nullable private volatile JBCefCookieManager myJBCefCookieManager;
-  @NotNull private final CefFocusHandler myCefFocusHandler;
-  @Nullable private final CefLifeSpanHandler myLifeSpanHandler;
-  @NotNull private final CefKeyboardHandler myKeyboardHandler;
-  @NotNull private final DisposeHelper myDisposeHelper = new DisposeHelper();
+  static final @NotNull Dimension DEF_PREF_SIZE = new Dimension(800, 600);
 
-  private final boolean myIsDefaultClient;
-  private volatile boolean myIsCefBrowserCreated;
-  @Nullable private volatile LoadDeferrer myLoadDeferrer;
-  private JDialog myDevtoolsFrame = null;
-  protected CefContextMenuHandler myDefaultContextMenuHandler;
-  private final ReentrantLock myCookieManagerLock = new ReentrantLock();
+  private static final class ShortcutProvider {
+    // Since these CefFrame::* methods are available only with JCEF API 1.1 and higher, we are adding no shortcuts for older JCEF
+    private static final List<Pair<String, AnAction>> ourActions = isSupportedByJCefApi() ? List.of(
+      createAction("$Cut", CefFrame::cut),
+      createAction("$Copy", CefFrame::copy),
+      createAction("$Paste", CefFrame::paste),
+      createAction("$Delete", CefFrame::delete),
+      createAction("$SelectAll", CefFrame::selectAll),
+      createAction("$Undo", CefFrame::undo),
+      createAction("$Redo", CefFrame::redo)
+    ) : List.of();
 
-  private static final class LoadDeferrer {
-    @Nullable private final String myHtml;
-    @NotNull private final String myUrl;
-
-    private LoadDeferrer(@Nullable String html, @NotNull String url) {
-      myHtml = html;
-      myUrl = url;
+    // This method may be deleted when JCEF API version check is included into JBCefApp#isSupported
+    private static boolean isSupportedByJCefApi() {
+      try {
+        /* getVersionDetails() was introduced alongside JCEF API versioning with first version of 1.1, which also added these necessary
+         * for shortcuts to work CefFrame methods. Therefore successful call to getVersionDetails() means our JCEF API is at least 1.1 */
+        JCefAppConfig.getVersionDetails();
+        return true;
+      }
+      catch (NoSuchMethodError | JCefVersionDetails.VersionUnavailableException e) {
+        Logger.getInstance(ShortcutProvider.class).warn("JCEF shortcuts are unavailable (incompatible API)", e);
+        return false;
+      }
     }
 
-    @NotNull
-    public static LoadDeferrer urlDeferrer(String url) {
-      return new LoadDeferrer(null, url);
+    private static Pair<String, AnAction> createAction(String shortcut, Consumer<? super CefFrame> action) {
+      return Pair.create(
+        shortcut,
+        LightEditActionFactory.create(event -> {
+          Component component = event.getData(PlatformDataKeys.CONTEXT_COMPONENT);
+          if (component == null) return;
+          Component parentComponent = component.getParent();
+          if (!(parentComponent instanceof JComponent)) return;
+          Object browser = ((JComponent)parentComponent).getClientProperty(JBCEFBROWSER_INSTANCE_PROP);
+          if (!(browser instanceof JBCefBrowser)) return;
+          action.accept(((JBCefBrowser) browser).getCefBrowser().getFocusedFrame());
+        })
+      );
     }
 
-    @NotNull
-    public static LoadDeferrer htmlDeferrer(String html, String url) {
-      return new LoadDeferrer(html, url);
+    private static void registerShortcuts(JComponent uiComp, JBCefBrowser jbCefBrowser) {
+      ActionManager actionManager = ActionManager.getInstance();
+      for (Pair<String, AnAction> action : ourActions) {
+        action.second.registerCustomShortcutSet(actionManager.getAction(action.first).getShortcutSet(), uiComp, jbCefBrowser);
+      }
     }
+  }
 
-    public void load(@NotNull CefBrowser browser) {
-      // JCEF demands async loading.
-      SwingUtilities.invokeLater(
-        myHtml == null ?
-          () -> browser.loadURL(myUrl) :
-          () -> loadString(browser, myHtml, myUrl));
-    }
+  private final @NotNull JPanel myComponent;
+  private final @NotNull CefFocusHandler myCefFocusHandler;
+  private final @NotNull CefKeyboardHandler myKeyboardHandler;
+
+  private volatile boolean myFirstShow = true;
+
+  /**
+   * Creates a browser builder.
+   */
+  public static @NotNull JBCefBrowserBuilder createBuilder() {
+    return new JBCefBrowserBuilder();
+  }
+
+  /**
+   * Creates a browser according to the provided builder options.
+   */
+  public static @NotNull JBCefBrowser create(@NotNull JBCefBrowserBuilder builder) {
+    return new JBCefBrowser(builder);
+  }
+
+  /**
+   * Creates a browser with default {@link JBCefClient}. The default client is disposed with this browser and may not be used with other browsers.
+   *
+   * @see #createBuilder
+   */
+  public JBCefBrowser() {
+    this(createBuilder());
+  }
+
+  /**
+   * Creates a browser with the initial URL.
+   *
+   * @see #createBuilder
+   */
+  public JBCefBrowser(@NotNull String url) {
+    this(createBuilder().setUrl(url));
   }
 
   /**
    * Creates a browser with the provided {@code JBCefClient} and initial URL. The client's lifecycle is the responsibility of the caller.
+   *
+   * @see #createBuilder
    */
   public JBCefBrowser(@NotNull JBCefClient client, @Nullable String url) {
-    this(client, false, url);
+    this(createBuilder().setClient(client).setUrl(url));
   }
 
+  /**
+   * Creates a browser wrapping the provided {@link CefBrowser} with the provided {@link JBCefClient}.
+   *
+   * @see #createBuilder
+   */
   public JBCefBrowser(@NotNull CefBrowser cefBrowser, @NotNull JBCefClient client) {
-    this(cefBrowser, client, false, null);
+    this(createBuilder().setCefBrowser(cefBrowser).setClient(client));
   }
 
-  private JBCefBrowser(@NotNull JBCefClient client, boolean isDefaultClient, @Nullable String url) {
-    this(null, client, isDefaultClient, url);
-  }
+  protected JBCefBrowser(@NotNull JBCefBrowserBuilder builder) {
+    super(builder);
 
-  private JBCefBrowser(@Nullable CefBrowser cefBrowser, @NotNull JBCefClient client, boolean isDefaultClient, @Nullable String url) {
-    if (client.isDisposed()) {
+    if (myCefClient.isDisposed()) {
       throw new IllegalArgumentException("JBCefClient is disposed");
     }
-    myCefClient = client;
-    myIsDefaultClient = isDefaultClient;
 
-    myComponent = SystemInfoRt.isWindows ?
-      new JPanel(new BorderLayout()) {
-        @Override
-        public void removeNotify() {
-          if (myCefBrowser.getUIComponent().hasFocus()) {
-            // pass focus before removal
+    myComponent = createComponent();
+
+    myCefClient.addFocusHandler(myCefFocusHandler = new CefFocusHandlerAdapter() {
+      @Override
+      public void onTakeFocus(CefBrowser browser, boolean next) {
+        super.onTakeFocus(browser, next);
+        //noinspection AssignmentToStaticFieldFromInstanceMethod
+        focusedBrowser = null;
+      }
+
+      @Override
+      public void onGotFocus(CefBrowser browser) {
+        super.onGotFocus(browser);
+        //noinspection AssignmentToStaticFieldFromInstanceMethod
+        focusedBrowser = JBCefBrowser.this;
+      }
+
+      @Override
+      public boolean onSetFocus(CefBrowser browser, FocusSource source) {
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        boolean componentFocused = focusOwner == getComponent() || focusOwner == getCefBrowser().getUIComponent();
+        boolean focusOnNavigation = (myFirstShow && isProperty(Properties.FOCUS_ON_SHOW) ||
+                                     isProperty(Properties.FOCUS_ON_NAVIGATION)) ||
+                                    componentFocused;
+        myFirstShow = false;
+
+        if (source == FocusSource.FOCUS_SOURCE_NAVIGATION && !focusOnNavigation) {
+          if (SystemInfo.isWindows) {
             myCefBrowser.setFocus(false);
           }
-          super.removeNotify();
+          return true; // suppress focusing the browser on navigation events
         }
-      } :
-      new JPanel(new BorderLayout());
+        if (!browser.getUIComponent().hasFocus()) {
+          if (SystemInfo.isLinux) {
+            if (isOffScreenRendering()) {
+              browser.getUIComponent().requestFocusInWindow();
+            }
+            else {
+              browser.getUIComponent().requestFocus();
+            }
+          }
+          else {
+            browser.getUIComponent().requestFocusInWindow();
+          }
+        }
+        return false;
+      }
+    }, myCefBrowser);
 
-    myComponent.setBackground(JBColor.background());
+    myCefClient.addKeyboardHandler(myKeyboardHandler = new CefKeyboardHandlerAdapter() {
+      @Override
+      public boolean onKeyEvent(CefBrowser browser, CefKeyEvent cefKeyEvent) {
+        if (isOffScreenRendering()) return false;
 
-    myCefBrowser = cefBrowser != null ?
-      cefBrowser : myCefClient.getCefClient().createBrowser(url != null ? url : BLANK_URI, false, false);
-    JComponent uiComp = (JComponent)myCefBrowser.getUIComponent();
-    uiComp.putClientProperty(JBCEFBROWSER_INSTANCE_PROP, this);
-    myComponent.add(uiComp, BorderLayout.CENTER);
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        boolean consume = focusOwner != browser.getUIComponent();
+        if (consume && SystemInfo.isMac && isUpDownKeyEvent(cefKeyEvent)) return true; // consume
 
-    myComponent.setFocusCycleRoot(true);
-    myComponent.setFocusTraversalPolicyProvider(true);
-    myComponent.setFocusTraversalPolicy(new MyFTP());
+        Window focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+        if (focusedWindow == null) {
+          return true; // consume
+        }
+        KeyEvent javaKeyEvent = convertCefKeyEvent(cefKeyEvent, focusedWindow);
+        Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(javaKeyEvent);
+        return consume;
+      }
+    }, myCefBrowser);
+  }
 
-    myComponent.addComponentListener(new ComponentAdapter() {
+  private @NotNull JPanel createComponent() {
+    Component uiComp = getCefBrowser().getUIComponent();
+    JPanel resultPanel = new MyPanel(uiComp);
+
+    resultPanel.setBackground(JBColor.background());
+    resultPanel.putClientProperty(JBCEFBROWSER_INSTANCE_PROP, this);
+    if (SystemInfo.isMac) {
+      // We handle shortcuts manually on MacOS: https://www.magpcss.org/ceforum/viewtopic.php?f=6&t=12561
+      ShortcutProvider.registerShortcuts(resultPanel, this);
+    }
+    resultPanel.add(uiComp, BorderLayout.CENTER);
+    if (SystemInfo.isWindows) {
+      myCefBrowser.getUIComponent().addMouseListener(new MouseAdapter() {
+        @Override
+        public void mousePressed(MouseEvent e) {
+          if (myCefBrowser.getUIComponent().isFocusable()) {
+            getCefBrowser().setFocus(true);
+          }
+        }
+      });
+    }
+
+    resultPanel.setFocusCycleRoot(true);
+    resultPanel.setFocusTraversalPolicyProvider(true);
+    resultPanel.setFocusTraversalPolicy(new MyFTP());
+
+    resultPanel.addComponentListener(new ComponentAdapter() {
       @Override
       public void componentResized(ComponentEvent e) {
         ourOnBrowserMoveResizeCallbacks.forEach(callback -> callback.accept(JBCefBrowser.this));
@@ -156,280 +300,50 @@ public class JBCefBrowser implements JBCefDisposable {
         ourOnBrowserMoveResizeCallbacks.forEach(callback -> callback.accept(JBCefBrowser.this));
       }
     });
-
-    if (cefBrowser == null) {
-      myCefClient.addLifeSpanHandler(myLifeSpanHandler = new CefLifeSpanHandlerAdapter() {
-          @Override
-          public void onAfterCreated(CefBrowser browser) {
-            myIsCefBrowserCreated = true;
-            myCefClient.notifyBrowserCreated(JBCefBrowser.this);
-            LoadDeferrer loader = myLoadDeferrer;
-            if (loader != null) {
-              loader.load(browser);
-              myLoadDeferrer = null;
-            }
-          }
-        }, myCefBrowser);
-    }
-    else {
-      myLifeSpanHandler = null;
-    }
-
-    myCefClient.addFocusHandler(myCefFocusHandler = new CefFocusHandlerAdapter() {
-      @Override
-      public boolean onSetFocus(CefBrowser browser, FocusSource source) {
-        if (source == FocusSource.FOCUS_SOURCE_NAVIGATION) {
-          if (SystemInfoRt.isWindows) {
-            myCefBrowser.setFocus(false);
-          }
-          return true; // suppress focusing the browser on navigation events
-        }
-        if (SystemInfoRt.isLinux) {
-          browser.getUIComponent().requestFocus();
-        }
-        else {
-          browser.getUIComponent().requestFocusInWindow();
-        }
-        return false;
-      }
-    }, myCefBrowser);
-
-    if (SystemInfoRt.isWindows) {
-      myCefBrowser.getUIComponent().addMouseListener(new MouseAdapter() {
-        @Override
-        public void mousePressed(MouseEvent e) {
-          if (myCefBrowser.getUIComponent().isFocusable()) {
-            myCefBrowser.setFocus(true);
-          }
-        }
-      });
-    }
-
-    myCefClient.addKeyboardHandler(myKeyboardHandler = new CefKeyboardHandlerAdapter() {
-      @Override
-      public boolean onKeyEvent(CefBrowser browser, CefKeyEvent cefKeyEvent) {
-        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-        boolean consume = focusOwner != browser.getUIComponent();
-        if (consume && SystemInfoRt.isMac && isUpDownKeyEvent(cefKeyEvent)) return true; // consume
-
-        Window focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-        KeyEvent javaKeyEvent = convertCefKeyEvent(cefKeyEvent, focusedWindow);
-        Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(javaKeyEvent);
-
-        if (javaKeyEvent.getID() == KeyEvent.KEY_PRESSED && cefKeyEvent.modifiers == 0 && cefKeyEvent.character != 0) {
-          javaKeyEvent = javaKeyEventWithID(javaKeyEvent, KeyEvent.KEY_TYPED);
-          Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(javaKeyEvent);
-        }
-        return consume;
-      }
-    }, myCefBrowser);
-
-    myDefaultContextMenuHandler = createDefaultContextMenuHandler();
-    myCefClient.addContextMenuHandler(myDefaultContextMenuHandler, this.getCefBrowser());
-  }
-
-  protected DefaultCefContextMenuHandler createDefaultContextMenuHandler() {
-    boolean isInternal = ApplicationManager.getApplication().isInternal();
-    return new DefaultCefContextMenuHandler(isInternal);
-  }
-
-  /**
-   * Loads URL.
-   */
-  public void loadURL(@NotNull String url) {
-    if (myIsCefBrowserCreated) {
-      myCefBrowser.loadURL(url);
-    }
-    else {
-      myLoadDeferrer = LoadDeferrer.urlDeferrer(url);
-    }
-  }
-
-  /**
-   * Loads html content.
-   *
-   * @param html content to load
-   * @param url a dummy URL that may affect restriction policy applied to the content
-   */
-  public void loadHTML(@NotNull String html, @NotNull String url) {
-    if (myIsCefBrowserCreated) {
-      loadString(myCefBrowser, html, url);
-    }
-    else {
-      myLoadDeferrer = LoadDeferrer.htmlDeferrer(html, url);
-    }
-  }
-
-  /**
-   * Loads html content.
-   */
-  public void loadHTML(@NotNull String html) {
-    loadHTML(html, BLANK_URI);
-  }
-
-  private static void loadString(CefBrowser cefBrowser, String html, String url) {
-    url = JBCefFileSchemeHandlerFactory.registerLoadHTMLRequest(cefBrowser, html, url);
-    cefBrowser.loadURL(url);
-  }
-
-  /**
-   * Creates a browser with default {@link JBCefClient}. The default client is disposed with this browser and may not be used with other browsers.
-   */
-  @SuppressWarnings("unused")
-  public JBCefBrowser() {
-    this(JBCefApp.getInstance().createClient(), true, null);
-  }
-
-  /**
-   * @see #JBCefBrowser()
-   * @param url initial url
-   */
-  @SuppressWarnings("unused")
-  public JBCefBrowser(@NotNull String url) {
-    this(JBCefApp.getInstance().createClient(), true, url);
-  }
-
-  @NotNull
-  public JComponent getComponent() {
-    return myComponent;
-  }
-
-  @NotNull
-  public CefBrowser getCefBrowser() {
-    return myCefBrowser;
-  }
-
-  @NotNull
-  public JBCefClient getJBCefClient() {
-    return myCefClient;
-  }
-
-  @NotNull
-  public JBCefCookieManager getJBCefCookieManager() {
-    myCookieManagerLock.lock();
-    try {
-      if (myJBCefCookieManager == null) {
-        myJBCefCookieManager = new JBCefCookieManager();
-      }
-      return Objects.requireNonNull(myJBCefCookieManager);
-    }
-    finally {
-      myCookieManagerLock.unlock();
-    }
-  }
-
-  @SuppressWarnings("unused")
-  public void setJBCefCookieManager(@NotNull JBCefCookieManager jBCefCookieManager) {
-    myCookieManagerLock.lock();
-    try {
-      myJBCefCookieManager = jBCefCookieManager;
-    }
-    finally {
-      myCookieManagerLock.unlock();
-    }
-  }
-
-  @Nullable
-  private static Window getActiveFrame() {
-    for (Frame frame : Frame.getFrames()) {
-      if (frame.isActive()) return frame;
-    }
-    return null;
-  }
-
-  public void openDevtools() {
-    if (myDevtoolsFrame != null) {
-      myDevtoolsFrame.toFront();
-      return;
-    }
-
-    Window activeFrame = getActiveFrame();
-    if (activeFrame == null) return;
-    Rectangle bounds = activeFrame.getGraphicsConfiguration().getBounds();
-
-    myDevtoolsFrame = new JDialog(activeFrame);
-    myDevtoolsFrame.setTitle("JCEF DevTools");
-    myDevtoolsFrame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-    myDevtoolsFrame.setBounds(bounds.width / 4 + 100, bounds.height / 4 + 100, bounds.width / 2, bounds.height / 2);
-    myDevtoolsFrame.setLayout(new BorderLayout());
-    JBCefBrowser devTools = new JBCefBrowser(myCefBrowser.getDevTools(), myCefClient);
-    myDevtoolsFrame.add(devTools.getComponent(), BorderLayout.CENTER);
-    myDevtoolsFrame.addWindowListener(new WindowAdapter() {
-      @Override
-      public void windowClosed(WindowEvent e) {
-        myDevtoolsFrame = null;
-        Disposer.dispose(devTools);
-      }
-    });
-    myDevtoolsFrame.setVisible(true);
-  }
-
-  @Override
-  public void dispose() {
-    myDisposeHelper.dispose(() -> {
-      myCefClient.removeFocusHandler(myCefFocusHandler, myCefBrowser);
-      myCefClient.removeKeyboardHandler(myKeyboardHandler, myCefBrowser);
-      if (myLifeSpanHandler != null) myCefClient.removeLifeSpanHandler(myLifeSpanHandler, myCefBrowser);
-      myCefBrowser.stopLoad();
-      myCefBrowser.close(false);
-      if (myIsDefaultClient) {
-        Disposer.dispose(myCefClient);
-      }
-    });
-  }
-
-  @Override
-  public boolean isDisposed() {
-    return myDisposeHelper.isDisposed();
-  }
-
-  boolean isCefBrowserCreated() {
-    return myIsCefBrowserCreated;
-  }
-
-  /**
-   * Returns {@code JBCefBrowser} instance associated with this {@code CefBrowser}.
-   */
-  public static JBCefBrowser getJBCefBrowser(@NotNull CefBrowser browser) {
-    return (JBCefBrowser)((JComponent)browser.getUIComponent()).getClientProperty(JBCEFBROWSER_INSTANCE_PROP);
+    return resultPanel;
   }
 
   /**
    * For internal usage.
    */
-  public static void addOnBrowserMoveResizeCallback(@NotNull Consumer<JBCefBrowser> callback) {
+  public static void addOnBrowserMoveResizeCallback(@NotNull Consumer<? super JBCefBrowser> callback) {
     ourOnBrowserMoveResizeCallbacks.add(callback);
   }
 
   /**
    * For internal usage.
    */
-  public static void removeOnBrowserMoveResizeCallback(@NotNull Consumer<JBCefBrowser> callback) {
+  public static void removeOnBrowserMoveResizeCallback(@NotNull Consumer<? super JBCefBrowser> callback) {
     ourOnBrowserMoveResizeCallbacks.remove(callback);
   }
 
-  protected class DefaultCefContextMenuHandler extends CefContextMenuHandlerAdapter {
-    protected static final int DEBUG_COMMAND_ID = MENU_ID_USER_LAST;
-    private final boolean isInternal;
+  @Override
+  public @NotNull JComponent getComponent() {
+    return myComponent;
+  }
 
+  /**
+   * Supports {@link Properties}.
+   *
+   * @throws IllegalArgumentException if the value has wrong type or format
+   */
+  @Override
+  public void setProperty(@NotNull String name, @Nullable Object value) {
+    super.setProperty(name, value);
+  }
+
+  @Override
+  public void dispose() {
+    super.dispose(() -> {
+      myCefClient.removeFocusHandler(myCefFocusHandler, myCefBrowser);
+      myCefClient.removeKeyboardHandler(myKeyboardHandler, myCefBrowser);
+    });
+  }
+
+  // for binary compatibility
+  protected class DefaultCefContextMenuHandler extends JBCefBrowserBase.DefaultCefContextMenuHandler {
     public DefaultCefContextMenuHandler(boolean isInternal) {
-      this.isInternal = isInternal;
-    }
-
-    @Override
-    public void onBeforeContextMenu(CefBrowser browser, CefFrame frame, CefContextMenuParams params, CefMenuModel model) {
-      if (isInternal) {
-        model.addItem(DEBUG_COMMAND_ID, "Open DevTools");
-      }
-    }
-
-    @Override
-    public boolean onContextMenuCommand(CefBrowser browser, CefFrame frame, CefContextMenuParams params, int commandId, int eventFlags) {
-      if (commandId == DEBUG_COMMAND_ID) {
-        openDevtools();
-        return true;
-      }
-      return false;
+      super(isInternal);
     }
   }
 
@@ -457,6 +371,55 @@ public class JBCefBrowser implements JBCefDisposable {
     @Override
     public Component getDefaultComponent(Container aContainer) {
       return myCefBrowser.getUIComponent();
+    }
+  }
+
+  public class MyPanel extends JPanel {
+    private final Component myUiComp;
+
+    private MyPanel(Component uiComp) {
+      super(new BorderLayout());
+      myUiComp = uiComp;
+      myUiComp.setBackground(getBackground());
+      enableEvents(AWTEvent.MOUSE_WHEEL_EVENT_MASK);
+    }
+
+    @Override
+    public void setBackground(Color bg) {
+      if (myUiComp != null) myUiComp.setBackground(bg);
+      super.setBackground(bg);
+    }
+
+    @Override
+    public void removeNotify() {
+      if (SystemInfo.isWindows) {
+        if (myCefBrowser.getUIComponent().hasFocus()) {
+          // pass focus before removal
+          myCefBrowser.setFocus(false);
+        }
+      }
+      myFirstShow = true;
+      super.removeNotify();
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      // Preferred size should not be zero, otherwise the content loading is not triggered
+      Dimension size = super.getPreferredSize();
+      return size.width > 0 && size.height > 0 ? size : DEF_PREF_SIZE;
+    }
+
+    @Override
+    protected void processFocusEvent(FocusEvent e) {
+      super.processFocusEvent(e);
+      if (e.getID() == FocusEvent.FOCUS_GAINED) {
+        myUiComp.requestFocusInWindow();
+      }
+    }
+
+    @NotNull
+    public JBCefBrowser getJBCefBrowser() {
+      return JBCefBrowser.this;
     }
   }
 }

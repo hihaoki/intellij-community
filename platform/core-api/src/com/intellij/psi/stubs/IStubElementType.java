@@ -1,8 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.stubs;
 
 import com.intellij.lang.ASTNode;
@@ -24,15 +20,15 @@ public abstract class IStubElementType<StubT extends StubElement<?>, PsiT extend
   public IStubElementType(@NotNull @NonNls String debugName, @Nullable Language language) {
     super(debugName, language);
     if (!isLazilyRegistered()) {
-      checkNotInstantiatedTooLate();
+      checkNotInstantiatedTooLate(getClass());
     }
   }
 
-  public static void checkNotInstantiatedTooLate() {
+  public static void checkNotInstantiatedTooLate(@NotNull Class<?> aClass) {
     if (ourInitializedStubs) {
       LOG.error("All stub element types should be created before index initialization is complete.\n" +
-                "Please add the class containing stub element type constants to \"stubElementTypeHolder\" extension.\n" +
-                "Registered extensions: " + Arrays.toString(StubElementTypeHolderEP.EP_NAME.getExtensions()));
+                "Please add the " + aClass + " containing stub element type constants to \"stubElementTypeHolder\" extension.\n" +
+                "Registered extensions: " + StubElementTypeHolderEP.EP_NAME.getExtensionList());
     }
   }
 
@@ -41,7 +37,7 @@ public abstract class IStubElementType<StubT extends StubElement<?>, PsiT extend
       return ourLazyExternalIds.contains(getExternalId());
     }
     catch (Throwable e) {
-      // "getExternalId" might throw when called from constructor, if it accesses subclass fields
+      // "getExternalId" might throw when called from constructor, if it accesses subclass fields.
       // Lazily-registered types have a contract that their "getExternalId" doesn't throw like this,
       // so getting an exception here is a sign that someone indeed creates their stub type after StubElementTypeHolderEP initialization.
       return false;
@@ -54,22 +50,22 @@ public abstract class IStubElementType<StubT extends StubElement<?>, PsiT extend
 
   static @NotNull List<StubFieldAccessor> loadRegisteredStubElementTypes() {
     List<StubFieldAccessor> result = new ArrayList<>();
-    for (StubElementTypeHolderEP bean : StubElementTypeHolderEP.EP_NAME.getExtensionList()) {
-      result.addAll(bean.initializeOptimized());
-    }
+    StubElementTypeHolderEP.EP_NAME.processWithPluginDescriptor((bean, pluginDescriptor) -> {
+      bean.initializeOptimized(pluginDescriptor, result);
+    });
 
-    Set<String> lazyIds = new HashSet<>();
+    Set<String> lazyIds = new HashSet<>(result.size());
     for (StubFieldAccessor accessor : result) {
       lazyIds.add(accessor.externalId);
     }
-    ourLazyExternalIds = lazyIds;
     ourInitializedStubs = true;
+    ourLazyExternalIds = lazyIds;
     return result;
   }
 
   public abstract PsiT createPsi(@NotNull StubT stub);
 
-  public abstract @NotNull StubT createStub(@NotNull PsiT psi, StubElement<?> parentStub);
+  public abstract @NotNull StubT createStub(@NotNull PsiT psi, StubElement<? extends PsiElement> parentStub);
 
   public boolean shouldCreateStub(ASTNode node) {
     return true;

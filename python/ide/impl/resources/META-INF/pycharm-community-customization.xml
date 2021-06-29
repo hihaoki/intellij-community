@@ -2,6 +2,9 @@
 <idea-plugin>
   <resource-bundle>messages.PyBundle</resource-bundle>
 
+  <content>
+    <module name="intellij.pycharm.community.customization.impl/training"/>
+  </content>
   <projectListeners>
     <listener class="com.jetbrains.python.PyModuleListener" topic="com.intellij.openapi.project.ModuleListener"/>
   </projectListeners>
@@ -28,8 +31,6 @@
                          key="configurable.PyDependenciesConfigurable.display.name"
                          provider="com.jetbrains.python.configuration.PyDependenciesConfigurableProvider"/>
 
-    <filetype.prebuiltStubsProvider filetype="Python" implementationClass="com.jetbrains.python.psi.impl.stubs.PyPrebuiltStubsProvider"/>
-
     <statusBarWidgetFactory id="pythonInterpreterWidget"
                             implementation="com.jetbrains.python.configuration.PySdkStatusBarWidgetFactory"
                             order="after codeStyleWidget, before gitWidget, before hgWidget, before notificationsWidget"/>
@@ -46,7 +47,7 @@
                                   order="after sdk"/>
     <directoryProjectConfigurator implementation="com.jetbrains.python.buildout.BuildoutFacetConfigurator" id="buildout"
                                   order="after sourceRoot"/>
-    <directoryProjectConfigurator implementation="com.intellij.platform.PlatformInspectionProfileConfigurator"/>
+    <directoryProjectConfigurator implementation="com.jetbrains.python.PlatformInspectionProfileConfigurator"/>
     <directoryProjectConfigurator implementation="com.jetbrains.python.newProject.welcome.PyWelcomeConfigurator" id="welcome" order="last"/>
 
     <applicationService serviceInterface="com.intellij.openapi.module.ModuleTypeManager"
@@ -54,7 +55,7 @@
                         overrides="true"/>
 
     <fileStructureGroupRuleProvider implementation="com.intellij.usages.impl.rules.FileGroupingRuleProvider" order="first"/>
-    <fileStructureGroupRuleProvider implementation="com.jetbrains.python.findUsages.PyClassGroupingRuleProvider"
+    <fileStructureGroupRuleProvider implementation="com.jetbrains.python.PyClassGroupingRuleProvider"
                                     order="before py-function"/>
     <diffPreviewProvider implementation="com.jetbrains.python.configuration.PyDiffPreviewProvider"/>
 
@@ -71,6 +72,22 @@
 
     <applicationService serviceImplementation="com.jetbrains.python.newProject.welcome.PyWelcomeSettings"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.newProject.welcome.PyWelcomeCollector"/>
+    <notificationGroup id="PyCharm Professional Advertiser" displayType="STICKY_BALLOON" isLogByDefault="false"/>
+    <notificationGroup id="Python interpreter configuring" displayType="BALLOON"/>
+    <notificationGroup id="Packaging" displayType="BALLOON"/>
+
+    <ignoredFileProvider implementation="com.jetbrains.python.sdk.configuration.PyTemporarilyIgnoredFileProvider"/>
+
+    <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.sdk.configuration.PySdkConfigurationCollector"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="Pythonid">
+    <projectSdkConfigurationExtension implementation="com.jetbrains.python.sdk.configuration.PyRequirementsTxtOrSetupPySdkConfiguration"
+                                      id="requirementsTxtOrSetupPy"/>
+    <projectSdkConfigurationExtension implementation="com.jetbrains.python.sdk.configuration.PyEnvironmentYmlSdkConfiguration"
+                                      id="environmentYml"/>
+    <projectSdkConfigurationExtension implementation="com.jetbrains.python.sdk.configuration.PyPipfileSdkConfiguration"
+                                      id="pipfile" order="before requirementsTxtOrSetupPy"/>
   </extensions>
 
   <actions resource-bundle="messages.ActionsBundle">
@@ -80,10 +97,8 @@
     </action>
 
     <group id="WelcomeScreen.Platform.NewProject">
-      <action id="WelcomeScreen.CreateDirectoryProject" class="com.jetbrains.python.newProject.steps.PyCharmNewProjectStep"
-              icon="AllIcons.Welcome.CreateNewProject"/>
-      <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction$OnWelcomeScreen"
-              icon="AllIcons.Actions.Menu_open"/>
+      <action id="WelcomeScreen.CreateDirectoryProject" class="com.jetbrains.python.newProject.steps.PyCharmNewProjectStep"/>
+      <reference ref="WelcomeScreen.OpenDirectoryProject"/>
 
       <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
     </group>

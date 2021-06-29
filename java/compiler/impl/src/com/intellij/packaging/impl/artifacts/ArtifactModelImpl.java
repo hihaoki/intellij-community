@@ -23,7 +23,7 @@ public final class ArtifactModelImpl extends ArtifactModelBase implements Modifi
   public ArtifactModelImpl(ArtifactManagerImpl artifactManager, List<? extends ArtifactImpl> originalArtifacts) {
     myArtifactManager = artifactManager;
     myOriginalArtifacts = new ArrayList<>(originalArtifacts);
-    addListener(new ArtifactAdapter() {
+    addListener(new ArtifactListener() {
       @Override
       public void artifactChanged(@NotNull Artifact artifact, @NotNull String oldName) {
         artifactsChanged();
@@ -65,7 +65,7 @@ public final class ArtifactModelImpl extends ArtifactModelBase implements Modifi
                                                  @Nullable ProjectModelExternalSource externalSource) {
     String uniqueName = generateUniqueName(name);
     String outputPath = ArtifactUtil.getDefaultArtifactOutputPath(uniqueName, myArtifactManager.getProject());
-    ArtifactImpl artifact = new ArtifactImpl(uniqueName, artifactType, false, rootElement, outputPath, externalSource, myDispatcher);
+    ArtifactImpl artifact = new ArtifactImpl(uniqueName, artifactType, false, rootElement, outputPath, externalSource, myDispatcher, false);
     addArtifact(artifact);
     return artifact;
   }
@@ -172,7 +172,7 @@ public final class ArtifactModelImpl extends ArtifactModelBase implements Modifi
 
   @Override
   @Nullable
-  public ArtifactImpl getModifiableCopy(Artifact artifact) {
+  public ArtifactImpl getModifiableCopy(@NotNull Artifact artifact) {
     //noinspection SuspiciousMethodCalls
     return myArtifact2ModifiableCopy.get(artifact);
   }

@@ -2,6 +2,7 @@
 package com.intellij.java.codeInspection;
 
 import com.intellij.JavaTestUtil;
+import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.dataFlow.DataFlowInspection;
 import com.intellij.openapi.Disposable;
@@ -185,8 +186,13 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
     doTest();
   }
   public void testStreamInlining() { doTest(); }
+  public void testStreamCollectInlining() {
+    setupTypeUseAnnotations("foo", myFixture);
+    doTest();
+  }
   public void testStreamCollectorInlining() { doTest(); }
   public void testStreamToMapInlining() { doTest(); }
+  public void testStreamToMapInlining2() { doTest(); }
   public void testStreamToCollectionInlining() { doTest(); }
   public void testStreamComparatorInlining() { doTest(); }
   public void testStreamKnownSource() { doTest(); }
@@ -197,7 +203,7 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
   public void testStreamAnyMatchIsNull() { doTest(); }
   public void testStreamCustomSumMethod() { doTest(); }
   public void testStreamReduceLogicalAnd() { doTest(); }
-  
+
   public void testMapGetWithValueNullability() { doTestWithCustomAnnotations(); }
   public void testInferNestedForeachNullability() { doTestWithCustomAnnotations(); }
 
@@ -245,7 +251,7 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
     doTest();
   }
 
-  public void testConflictsInInferredTypes() { 
+  public void testConflictsInInferredTypes() {
     setupAmbiguousAnnotations("foo", myFixture);
     doTest();
   }
@@ -287,4 +293,49 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
     doTest();
   }
   public void testClassInsideLambda() { doTest(); }
+  public void testMultiDimensionalArrays() {
+    setupTypeUseAnnotations("typeUse", myFixture);
+    doTest();
+  }
+  public void testImplicitUnboxingInMethodReference() {
+    doTest();
+  }
+  public void testArrayTypeParameterInference() {
+    setupTypeUseAnnotations("typeUse", myFixture);
+    NullableNotNullManager nnnManager = NullableNotNullManager.getInstance(getProject());
+    nnnManager.setDefaultNotNull("typeUse.NotNull");
+    nnnManager.setDefaultNullable("typeUse.Nullable");
+    Disposer.register(getTestRootDisposable(), () -> {
+      nnnManager.setDefaultNotNull(AnnotationUtil.NOT_NULL);
+      nnnManager.setDefaultNullable(AnnotationUtil.NULLABLE);
+    });
+    doTest();
+  }
+  public void testArrayTypeParameterInferenceAmbiguous() {
+    setupAmbiguousAnnotations("ambiguous", myFixture);
+    NullableNotNullManager nnnManager = NullableNotNullManager.getInstance(getProject());
+    nnnManager.setDefaultNotNull("ambiguous.NotNull");
+    nnnManager.setDefaultNullable("ambiguous.Nullable");
+    Disposer.register(getTestRootDisposable(), () -> {
+      nnnManager.setDefaultNotNull(AnnotationUtil.NOT_NULL);
+      nnnManager.setDefaultNullable(AnnotationUtil.NULLABLE);
+    });
+    doTest();
+  }
+  public void testGuavaFunction() {
+    setupTypeUseAnnotations("typeUse", myFixture);
+    doTest();
+  }
+  public void testModifyListInLambda() {
+    doTest();
+  }
+  public void testConstantInClosure() { doTest(); }
+  public void testUnknownNullability() {
+    myFixture.addClass("package org.jetbrains.annotations;\nimport java.lang.annotation.*;\n" +
+                       "@Target(ElementType.TYPE_USE)\n" +
+                       "public @interface UnknownNullability { }");
+    doTestWith(insp -> insp.SUGGEST_NULLABLE_ANNOTATIONS = false);
+  }
+  public void testReturnOrElseNull() { doTestWith(insp -> insp.REPORT_NULLABLE_METHODS_RETURNING_NOT_NULL = true); }
+  public void testArrayIntersectionType() { doTest(); }
 }

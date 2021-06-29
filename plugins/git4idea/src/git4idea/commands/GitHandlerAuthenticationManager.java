@@ -1,8 +1,9 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.commands;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.SystemInfo;
@@ -13,13 +14,13 @@ import git4idea.config.GitExecutable;
 import git4idea.config.GitVcsApplicationSettings;
 import git4idea.config.GitVersion;
 import git4idea.config.GitVersionSpecialty;
+import git4idea.http.GitAskPassXmlRpcHandler;
+import git4idea.nativessh.GitNativeSshAskPassXmlRpcHandler;
+import git4idea.ssh.GitXmlRpcHandlerService;
+import git4idea.ssh.GitXmlRpcNativeSshService;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.git4idea.http.GitAskPassXmlRpcHandler;
-import org.jetbrains.git4idea.nativessh.GitNativeSshAskPassXmlRpcHandler;
-import org.jetbrains.git4idea.ssh.GitXmlRpcHandlerService;
-import org.jetbrains.git4idea.ssh.GitXmlRpcNativeSshService;
 
 import java.io.File;
 import java.io.IOException;
@@ -80,7 +81,7 @@ public final class GitHandlerAuthenticationManager implements AutoCloseable {
   }
 
   private void prepareHttpAuth() throws IOException {
-    GitHttpAuthService service = ServiceManager.getService(GitHttpAuthService.class);
+    GitHttpAuthService service = ApplicationManager.getApplication().getService(GitHttpAuthService.class);
     addHandlerPathToEnvironment(GitCommand.GIT_ASK_PASS_ENV, service);
     GitAuthenticationGate authenticationGate = notNull(myHandler.getAuthenticationGate(), GitPassthroughAuthenticationGate.getInstance());
     GitHttpAuthenticator httpAuthenticator = service.createAuthenticator(myProject,
@@ -135,7 +136,7 @@ public final class GitHandlerAuthenticationManager implements AutoCloseable {
 
     boolean useSchannel = SystemInfo.isWindows &&
                           GitVersionSpecialty.CAN_USE_SCHANNEL.existsIn(myVersion) &&
-                          Registry.is("git.use.schannel.on.windows");
+                          AdvancedSettings.getBoolean("git.use.schannel.on.windows");
     if (useSchannel) {
       myHandler.overwriteConfig("http.sslBackend=schannel");
     }
@@ -144,7 +145,7 @@ public final class GitHandlerAuthenticationManager implements AutoCloseable {
 
   private void cleanupHttpAuth() {
     if (myHttpHandler != null) {
-      ServiceManager.getService(GitHttpAuthService.class).unregisterHandler(myHttpHandler);
+      ApplicationManager.getApplication().getService(GitHttpAuthService.class).unregisterHandler(myHttpHandler);
       myHttpHandler = null;
     }
   }
@@ -154,7 +155,7 @@ public final class GitHandlerAuthenticationManager implements AutoCloseable {
   }
 
   private void prepareNativeSshAuth() throws IOException {
-    GitXmlRpcNativeSshService service = ServiceManager.getService(GitXmlRpcNativeSshService.class);
+    GitXmlRpcNativeSshService service = ApplicationManager.getApplication().getService(GitXmlRpcNativeSshService.class);
 
     boolean doNotRememberPasswords = myHandler.getUrls().size() > 1;
     GitAuthenticationGate authenticationGate = notNull(myHandler.getAuthenticationGate(), GitPassthroughAuthenticationGate.getInstance());
@@ -190,7 +191,7 @@ public final class GitHandlerAuthenticationManager implements AutoCloseable {
 
   private void cleanupNativeSshAuth() {
     if (myNativeSshHandler != null) {
-      ServiceManager.getService(GitXmlRpcNativeSshService.class).unregisterHandler(myNativeSshHandler);
+      ApplicationManager.getApplication().getService(GitXmlRpcNativeSshService.class).unregisterHandler(myNativeSshHandler);
       myNativeSshHandler = null;
     }
   }

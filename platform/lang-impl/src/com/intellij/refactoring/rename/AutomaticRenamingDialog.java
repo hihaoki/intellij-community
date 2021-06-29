@@ -9,9 +9,11 @@ import com.intellij.openapi.ui.InputValidatorEx;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNamedElement;
+import com.intellij.psi.SyntheticElement;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.rename.naming.AutomaticRenamer;
 import com.intellij.refactoring.ui.EnableDisableAction;
@@ -199,10 +201,13 @@ public class AutomaticRenamingDialog extends DialogWrapper {
 
     GuiUtils.replaceJSplitPaneWithIDEASplitter(myPanel);
 
-    if (myTableModel.getRowCount() != 0) {
-      myTable.getSelectionModel().addSelectionInterval(0, 0);
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
+      SwingUtilities.invokeLater(() -> {
+        if (myTableModel.getRowCount() != 0) {
+          myTable.getSelectionModel().addSelectionInterval(0, 0);
+        }
+      });
     }
-
     myOptionsPanel.setVisible(false);
 
     return myPanel;
@@ -323,7 +328,8 @@ public class AutomaticRenamingDialog extends DialogWrapper {
 
     @Override
     public boolean isCellEditable(int rowIndex, int columnIndex) {
-      return columnIndex != OLD_NAME_COLUMN && (myAllowRename || columnIndex != NEW_NAME_COLUMN);
+      return columnIndex != OLD_NAME_COLUMN && (myAllowRename || columnIndex != NEW_NAME_COLUMN)
+        && !(myRenames[rowIndex] instanceof SyntheticElement);
     }
 
     @Override
@@ -393,21 +399,16 @@ public class AutomaticRenamingDialog extends DialogWrapper {
       String newName = Messages.showInputDialog(myTable, RefactoringBundle.message("automatic.renaming.dialog.new.name.label"),
                                                 RefactoringBundle.message("automatic.renaming.dialog.rename.selected.title"), null, initial, new InputValidatorEx() {
         @Override
-        public boolean checkInput(String inputString) {
-          return getErrorText(inputString) == null;
-        }
-
-        @Override
         public boolean canClose(String inputString) {
           return checkInput(inputString);
         }
 
         @Nullable
         @Override
-        public String getErrorText(String inputString) {
+        public String getErrorText(@NlsSafe String inputString) {
           final int selectedRow = myTable.getSelectedRow();
           if (!isValidName(inputString, selectedRow)) {
-            return "Identifier '" + inputString + "' is invalid";
+            return RefactoringBundle.message("text.identifier.invalid", inputString);
           }
           return null;
         }

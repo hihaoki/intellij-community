@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.psi.PsiAnonymousClass
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.uast.internal.acceptList
 import org.jetbrains.uast.internal.log
 import org.jetbrains.uast.visitor.UastTypedVisitor
@@ -15,6 +16,9 @@ import org.jetbrains.uast.visitor.UastVisitor
  * A class wrapper to be used in [UastVisitor].
  */
 interface UClass : UDeclaration, PsiClass {
+  @get:ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @get:Deprecated("see the base property description")
+  @Deprecated("see the base property description", ReplaceWith("javaPsi"))
   override val psi: PsiClass
 
   override val javaPsi: PsiClass
@@ -113,8 +117,12 @@ interface UClass : UDeclaration, PsiClass {
 private val LOG = Logger.getInstance(UClass::class.java)
 
 interface UAnonymousClass : UClass, PsiAnonymousClass {
+  @get:ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @get:Deprecated("see the base property description")
+  @Deprecated("see the base property description", ReplaceWith("javaPsi"))
   override val psi: PsiAnonymousClass
 }
 
 @Deprecated("no more needed, use UClass", ReplaceWith("UClass"))
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 interface UClassTypeSpecific : UClass

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.process;
 
 import com.intellij.execution.process.impl.ProcessListUtil;
@@ -11,10 +11,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jvnet.winp.WinProcess;
 import org.jvnet.winp.WinpException;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 public final class OSProcessUtil {
   private static final Logger LOG = Logger.getInstance(OSProcessUtil.class);
@@ -127,39 +123,21 @@ public final class OSProcessUtil {
   }
 
   public static int getProcessID(@NotNull Process process) {
-    return getProcessID(process, Registry.is("disable.winp"));
+    return (int)process.pid();
   }
 
+  /**
+   * @deprecated use {@link #getProcessID(Process)}
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static int getProcessID(@NotNull Process process, Boolean disableWinp) {
-    if (SystemInfo.isWindows) {
-      try {
-        if (process instanceof WinPtyProcess) {
-          return ((WinPtyProcess)process).getChildProcessId();
-        }
-        if (!disableWinp) {
-          try {
-            return createWinProcess(process).getPid();
-          }
-          catch (Throwable e) {
-            LOG.error("Failed to get PID with winp, fallback to default logic", e);
-          }
-        }
-        return WinProcessManager.getProcessId(process);
-      }
-      catch (Throwable e) {
-        throw new IllegalStateException("Cannot get PID from an instance of " + process.getClass() + ", OS: " + SystemInfo.OS_NAME, e);
-      }
-    }
-    else if (SystemInfo.isUnix) {
-      return UnixProcessManager.getProcessId(process);
-    }
-    throw new IllegalStateException("Unknown OS: "  + SystemInfo.OS_NAME);
+    return (int)process.pid();
   }
 
   @SuppressWarnings("deprecation")
   @NotNull
   static WinProcess createWinProcess(@NotNull Process process) {
-    if (process instanceof RunnerWinProcess) process = ((RunnerWinProcess)process).getOriginalProcess();
     if (process instanceof WinPtyProcess) {
       return new WinProcess(((WinPtyProcess)process).getPid());
     }
@@ -172,16 +150,7 @@ public final class OSProcessUtil {
   }
 
   public static int getCurrentProcessId() {
-    int pid;
-
-    if (SystemInfo.isWindows) {
-      pid = WinProcessManager.getCurrentProcessId();
-    }
-    else {
-      pid = UnixProcessManager.getCurrentProcessId();
-    }
-
-    return pid;
+    return (int)ProcessHandle.current().pid();
   }
 
   public static String getApplicationPid() {
@@ -189,16 +158,5 @@ public final class OSProcessUtil {
       ourPid = String.valueOf(getCurrentProcessId());
     }
     return ourPid;
-  }
-
-  /** @deprecated trivial, use {@link #getProcessList()} directly */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public static List<String> getCommandLinesOfRunningProcesses() {
-    List<String> result = new ArrayList<>();
-    for (ProcessInfo each : getProcessList()) {
-      result.add(each.getCommandLine());
-    }
-    return Collections.unmodifiableList(result);
   }
 }

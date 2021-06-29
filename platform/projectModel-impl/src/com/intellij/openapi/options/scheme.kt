@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options
 
 import com.intellij.configurationStore.CURRENT_NAME_CONVERTER
@@ -8,10 +8,8 @@ import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import org.jdom.Parent
+import org.jetbrains.annotations.NonNls
 import java.nio.file.Path
-
-@Deprecated("Please use SchemeManager")
-abstract class SchemesManager<T> : SchemeManager<T>()
 
 interface ExternalizableScheme : Scheme {
   fun setName(value: String)
@@ -30,11 +28,11 @@ abstract class SchemeManagerFactory {
    * directoryName - like "keymaps".
    */
   @JvmOverloads
-  fun <SCHEME : Any, MUTABLE_SCHEME : SCHEME> create(directoryName: String, processor: SchemeProcessor<SCHEME, MUTABLE_SCHEME>, presentableName: String? = null, directoryPath: Path? = null): SchemeManager<SCHEME> {
+  fun <SCHEME : Scheme, MUTABLE_SCHEME : SCHEME> create(@NonNls directoryName: String, processor: SchemeProcessor<SCHEME, MUTABLE_SCHEME>, presentableName: String? = null, directoryPath: Path? = null): SchemeManager<SCHEME> {
     return create(directoryName, processor, presentableName, RoamingType.DEFAULT, directoryPath = directoryPath)
   }
 
-  abstract fun <SCHEME : Any, MUTABLE_SCHEME : SCHEME> create(directoryName: String,
+  abstract fun <SCHEME : Scheme, MUTABLE_SCHEME : SCHEME> create(directoryName: String,
                                                               processor: SchemeProcessor<SCHEME, MUTABLE_SCHEME>,
                                                               presentableName: String? = null,
                                                               roamingType: RoamingType = RoamingType.DEFAULT,
@@ -42,7 +40,6 @@ abstract class SchemeManagerFactory {
                                                               streamProvider: StreamProvider? = null,
                                                               directoryPath: Path? = null,
                                                               isAutoSave: Boolean = true): SchemeManager<SCHEME>
-
   open fun dispose(schemeManager: SchemeManager<*>) {
   }
 }
@@ -51,9 +48,9 @@ enum class SchemeState {
   UNCHANGED, NON_PERSISTENT, POSSIBLY_CHANGED
 }
 
-abstract class SchemeProcessor<SCHEME, in MUTABLE_SCHEME: SCHEME> {
+abstract class SchemeProcessor<SCHEME: Scheme, in MUTABLE_SCHEME: SCHEME> {
   open fun getSchemeKey(scheme: SCHEME): String {
-    return (scheme as Scheme).name
+    return scheme.name
   }
 
   open fun isExternalizable(scheme: SCHEME): Boolean = scheme is ExternalizableScheme

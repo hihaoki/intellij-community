@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.actions
 
 import com.intellij.icons.AllIcons
@@ -7,10 +7,12 @@ import com.intellij.idea.ActionsBundle
 import com.intellij.internal.statistic.StatisticsBundle
 import com.intellij.internal.statistic.StatisticsDevKitUtil
 import com.intellij.internal.statistic.StatisticsDevKitUtil.DEFAULT_RECORDER
-import com.intellij.internal.statistic.StatisticsDevKitUtil.STATISTICS_NOTIFICATION_GROUP
+import com.intellij.internal.statistic.StatisticsDevKitUtil.STATISTICS_NOTIFICATION_GROUP_ID
+import com.intellij.internal.statistic.eventLog.StatisticsEventLogProviderUtil
 import com.intellij.internal.statistic.eventLog.fus.FeatureUsageLogger.getConfig
 import com.intellij.internal.statistic.eventLog.fus.FeatureUsageLogger.rollOver
-import com.intellij.internal.statistic.eventLog.getEventLogProvider
+import com.intellij.internal.statistic.utils.StatisticsRecorderUtil
+import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -27,9 +29,9 @@ import com.intellij.openapi.vfs.LocalFileSystem
 /**
  * Collects the data from all state collectors and record it in event log.
  *
- * @see ApplicationUsagesCollector
+ * @see com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
  *
- * @see ProjectUsagesCollector
+ * @see com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector
  */
 internal class RecordStateStatisticsEventLogAction(private val recorderId: String = DEFAULT_RECORDER,
                                                    private val myShowNotification: Boolean = true) : DumbAwareAction(
@@ -60,12 +62,10 @@ internal class RecordStateStatisticsEventLogAction(private val recorderId: Strin
     val logFile = getConfig().getActiveLogFile()
     val virtualFile = if (logFile != null) LocalFileSystem.getInstance().findFileByIoFile(logFile.file) else null
     ApplicationManager.getApplication().invokeLater {
-      val notification = STATISTICS_NOTIFICATION_GROUP.createNotification("Finished collecting and recording events",
-                                                                          NotificationType.INFORMATION)
+      val notification = Notification(STATISTICS_NOTIFICATION_GROUP_ID, "Finished collecting and recording events", NotificationType.INFORMATION)
       if (virtualFile != null) {
         notification.addAction(NotificationAction.createSimple(
-          StatisticsBundle.messagePointer(
-            "action.NotificationAction.RecordStateStatisticsEventLogAction.text.show.log.file"),
+          StatisticsBundle.message("stats.open.log.notification.action"),
           Runnable { FileEditorManager.getInstance(project).openFile(virtualFile, true) }))
       }
       notification.notify(project)
@@ -74,22 +74,20 @@ internal class RecordStateStatisticsEventLogAction(private val recorderId: Strin
 
   override fun update(e: AnActionEvent) {
     super.update(e)
-    e.presentation.isEnabled = recorderId == DEFAULT_RECORDER && !FusStatesRecorder.isRecordingInProgress()
+    val isTestMode = recorderId == DEFAULT_RECORDER && StatisticsRecorderUtil.isTestModeEnabled(DEFAULT_RECORDER)
+    e.presentation.isEnabled = isTestMode && !FusStatesRecorder.isRecordingInProgress()
   }
 
   companion object {
-
     fun checkLogRecordingEnabled(project: Project?, recorderId: String?): Boolean {
-      if (getEventLogProvider(recorderId!!).isRecordEnabled()) {
+      if (StatisticsEventLogProviderUtil.getEventLogProvider(recorderId!!).isRecordEnabled()) {
         return true
       }
-      val notification = STATISTICS_NOTIFICATION_GROUP.createNotification(StatisticsBundle.message("stats.logging.is.disabled"),
-                                                                          NotificationType.WARNING)
-      notification.addAction(NotificationAction.createSimple(StatisticsBundle.messagePointer("stats.enable.data.sharing"),
-                                                             Runnable { SingleConfigurableEditor(project, ConsentConfigurable()).show() }))
-      notification.notify(project)
+      Notification(STATISTICS_NOTIFICATION_GROUP_ID, StatisticsBundle.message("stats.logging.is.disabled"), NotificationType.WARNING)
+        .addAction(NotificationAction.createSimple(StatisticsBundle.message("stats.enable.data.sharing"),
+                                                   Runnable { SingleConfigurableEditor(project, ConsentConfigurable()).show() }))
+        .notify(project)
       return false
     }
   }
-
 }

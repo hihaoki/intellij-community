@@ -2,7 +2,6 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.application.options.CodeStyle;
-import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
@@ -29,8 +28,6 @@ public class SuspiciousIndentAfterControlStatementInspection extends BaseInspect
   }
 
   private static class SuspiciousIndentAfterControlStatementVisitor extends BaseInspectionVisitor {
-
-    private static final Key<Integer> TAB_SIZE = new Key<>("TAB_SIZE");
 
     @Override
     public void visitWhileStatement(PsiWhileStatement statement) {
@@ -97,9 +94,10 @@ public class SuspiciousIndentAfterControlStatementInspection extends BaseInspect
             final int statementLineBreak = siblingText.lastIndexOf('\n');
             if (statementLineBreak >= 0) {
               final int statementIndent = getIndent(siblingText.substring(statementLineBreak + 1));
-              final int bodyIndent = getIndent(text.substring(bodyLineBreak + 1));
+              final String indentText = text.substring(bodyLineBreak + 1);
+              final int bodyIndent = getIndent(indentText);
               if (statementIndent == bodyIndent) {
-                registerErrorAtOffset(bodyWhiteSpace, bodyLineBreak + 1, bodyIndent, statement);
+                registerErrorAtOffset(bodyWhiteSpace, bodyLineBreak + 1, indentText.length(), statement);
                 return;
               }
             }
@@ -125,14 +123,10 @@ public class SuspiciousIndentAfterControlStatementInspection extends BaseInspect
         return;
       }
       final int bodyIndent = getIndent(text.substring(bodyLineBreak + 1));
-      final int nextIndent = getIndent(nextText.substring(nextLineBreak + 1));
-      if (lineBreakBeforeBody) {
-        if (nextIndent >= bodyIndent) {
-          registerErrorAtOffset(nextWhiteSpace, nextLineBreak + 1, nextIndent, statement);
-        }
-      }
-      else if (nextIndent > bodyIndent) {
-        registerErrorAtOffset(nextWhiteSpace, nextLineBreak + 1, nextIndent, statement);
+      final String nextIndentText = nextText.substring(nextLineBreak + 1);
+      final int nextIndent = getIndent(nextIndentText);
+      if (nextIndent > bodyIndent || lineBreakBeforeBody && nextIndent == bodyIndent) {
+        registerErrorAtOffset(nextWhiteSpace, nextLineBreak + 1, nextIndentText.length(), statement);
       }
     }
 
@@ -142,15 +136,13 @@ public class SuspiciousIndentAfterControlStatementInspection extends BaseInspect
         final char c = indent.charAt(i);
         if (c == ' ') result++;
         else if (c == '\t') result += getTabSize();
-        else throw new AssertionError(indent);
+        else if (c != '\f') throw new AssertionError(indent);
       }
       return result;
     }
 
     private int getTabSize() {
-      final PsiFile file = getCurrentFile();
-      final Integer tabSize = file.getUserData(TAB_SIZE);
-      return tabSize != null ? tabSize : CodeStyle.getIndentOptions(file).TAB_SIZE;
+      return CodeStyle.getIndentOptions(getCurrentFile()).TAB_SIZE;
     }
   }
 }

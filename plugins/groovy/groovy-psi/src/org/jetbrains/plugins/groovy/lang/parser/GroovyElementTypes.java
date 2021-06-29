@@ -3,7 +3,6 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyElementType;
-import org.jetbrains.plugins.groovy.lang.psi.stubs.elements.GrMethodElementType;
 
 import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.*;
 
@@ -13,9 +12,6 @@ import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.*;
  * @author Dmitry.Krasilschikov, ilyas
  */
 public interface GroovyElementTypes extends GroovyStubElementTypes, GroovyEmptyStubElementTypes {
-
-  @Deprecated
-  GrMethodElementType METHOD_DEFINITION = METHOD;
 
   GroovyElementType LITERAL = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.LITERAL;
 

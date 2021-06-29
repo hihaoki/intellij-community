@@ -2,6 +2,7 @@
 package com.intellij.lang;
 
 import com.intellij.diagnostic.ImplementationConflictException;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.LanguageFileType;
@@ -55,11 +56,11 @@ public abstract class Language extends UserDataHolderBase {
     this(ID, ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
-  protected Language(@NonNls @NotNull String ID, @NonNls String @NotNull ... mimeTypes) {
+  protected Language(@NonNls @NotNull String ID, @NonNls @NotNull String @NotNull ... mimeTypes) {
     this(null, ID, mimeTypes);
   }
 
-  protected Language(@Nullable Language baseLanguage, @NonNls @NotNull String ID, @NonNls String @NotNull ... mimeTypes) {
+  protected Language(@Nullable Language baseLanguage, @NonNls @NotNull String ID, @NonNls @NotNull String @NotNull ... mimeTypes) {
     if (baseLanguage instanceof MetaLanguage) {
       throw new ImplementationConflictException(
         "MetaLanguage cannot be a base language.\n" +
@@ -107,7 +108,8 @@ public abstract class Language extends UserDataHolderBase {
     return Collections.unmodifiableCollection(new ArrayList<>(languages));
   }
 
-  public static void unregisterLanguages(ClassLoader classLoader) {
+  @ApiStatus.Internal
+  public static void unregisterLanguages(@NotNull ClassLoader classLoader) {
     List<Class<? extends Language>> classes = new ArrayList<>(ourRegisteredLanguages.keySet());
     for (Class<? extends Language> clazz : classes) {
       if (clazz.getClassLoader() == classLoader) {
@@ -119,7 +121,10 @@ public abstract class Language extends UserDataHolderBase {
 
   public static void unregisterLanguage(@NotNull Language language) {
     IElementType.unregisterElementTypes(language);
-    ReferenceProvidersRegistry.getInstance().unloadProvidersFor(language);
+    ReferenceProvidersRegistry referenceProvidersRegistry = ApplicationManager.getApplication().getServiceIfCreated(ReferenceProvidersRegistry.class);
+    if (referenceProvidersRegistry != null) {
+      referenceProvidersRegistry.unloadProvidersFor(language);
+    }
     ourRegisteredLanguages.remove(language.getClass());
     ourRegisteredIDs.remove(language.getID());
     for (String mimeType : language.getMimeTypes()) {
@@ -132,7 +137,7 @@ public abstract class Language extends UserDataHolderBase {
   }
 
   @ApiStatus.Internal
-  public void unregisterDialect(Language language) {
+  public void unregisterDialect(@NotNull Language language) {
     myDialects.remove(language);
   }
 
@@ -183,7 +188,7 @@ public abstract class Language extends UserDataHolderBase {
   }
 
   @ApiStatus.Internal
-  public @Nullable LanguageFileType findMyFileType(FileType[] types) {
+  public @Nullable LanguageFileType findMyFileType(FileType @NotNull [] types) {
     for (final FileType fileType : types) {
       if (fileType instanceof LanguageFileType) {
         final LanguageFileType languageFileType = (LanguageFileType)fileType;
@@ -246,7 +251,7 @@ public abstract class Language extends UserDataHolderBase {
     return myDialects;
   }
 
-  public static @Nullable Language findLanguageByID(String id) {
+  public static @Nullable Language findLanguageByID(@NonNls String id) {
     return id == null ? null : ourRegisteredIDs.get(id);
   }
 

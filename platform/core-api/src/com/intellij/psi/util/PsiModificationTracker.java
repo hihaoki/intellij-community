@@ -1,13 +1,15 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.lang.Language;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.util.messages.Topic;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.function.Predicate;
 
 /**
  * An interface used to support tracking of common PSI modifications. It has three main usage patterns:
@@ -37,7 +39,7 @@ public interface PsiModificationTracker extends ModificationTracker {
      * @return The instance of {@link PsiModificationTracker} corresponding to the given project.
      */
     public static PsiModificationTracker getInstance(Project project) {
-      return ServiceManager.getService(project, PsiModificationTracker.class);
+      return project.getService(PsiModificationTracker.class);
     }
   }
 
@@ -52,7 +54,6 @@ public interface PsiModificationTracker extends ModificationTracker {
    * This key can be passed as a dependency in a {@link CachedValueProvider}.
    * The corresponding {@link CachedValue} will then be flushed on every physical PSI change that doesn't happen inside a Java code block.
    * This can include changes on Java class or file level, or changes in non-Java files, e.g. XML. Rarely needed.
-   * @see #getOutOfCodeBlockModificationCount()
    * @deprecated rarely supported by language plugins; also a wrong way for optimisations
    */
   @Deprecated
@@ -62,7 +63,6 @@ public interface PsiModificationTracker extends ModificationTracker {
   /**
    * This key can be passed as a dependency in a {@link CachedValueProvider}.
    * The corresponding {@link CachedValue} will then be flushed on every physical PSI change that can affect Java structure and resolve.
-   * @see #getJavaStructureModificationCount()
    * @deprecated rarely supported by JVM language plugins; also a wrong way for optimisations
    */
   @Deprecated
@@ -84,33 +84,6 @@ public interface PsiModificationTracker extends ModificationTracker {
   long getModificationCount();
 
   /**
-   * @return Same as {@link #getModificationCount()}.
-   * @deprecated rarely supported by language plugins; also a wrong way for optimisations
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  long getOutOfCodeBlockModificationCount();
-
-  /**
-   * @return an object returning {@link #getModificationCount()}
-   * @deprecated rarely supported by language plugins; also a wrong way for optimisations
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  @NotNull
-  ModificationTracker getOutOfCodeBlockModificationTracker();
-
-  /**
-   * Tracks structural Java modifications, i.e. the ones on class/method/field/file level. Modifications inside method bodies are not tracked.
-   * Useful to work with resolve caches that only depend on Java structure, and not the method code.
-   * @return current counter value. Increased whenever any physical PSI in Java structure is changed.
-   * @deprecated rarely supported by JVM language plugins; also a wrong way for optimisations
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  long getJavaStructureModificationCount();
-
-  /**
    * @return an object returning {@link #getModificationCount()}
    * @deprecated rarely supported by JVM language plugins; also a wrong way for optimisations
    */
@@ -118,6 +91,16 @@ public interface PsiModificationTracker extends ModificationTracker {
   @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
   @NotNull
   ModificationTracker getJavaStructureModificationTracker();
+
+  /**
+   * @return modification tracker incremented on changes in files with the passed language.
+   */
+  @NotNull ModificationTracker forLanguage(@NotNull Language language);
+
+  /**
+   * @return modification tracker incremented on changes in files with language that matches the passed condition.
+   */
+  @NotNull ModificationTracker forLanguages(@NotNull Predicate<? super Language> condition);
 
   /**
    * A listener to be notified on any PSI modification count change (which happens on any physical PSI change).

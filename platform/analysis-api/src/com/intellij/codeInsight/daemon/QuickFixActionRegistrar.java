@@ -4,13 +4,23 @@ package com.intellij.codeInsight.daemon;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public interface QuickFixActionRegistrar {
+  QuickFixActionRegistrar IGNORE_ALL = new QuickFixActionRegistrar() {
+    @Override
+    public void register(@NotNull IntentionAction action) {
+    }
+    @Override
+    public void register(@NotNull TextRange fixRange, @NotNull IntentionAction action, @Nullable HighlightDisplayKey key) {
+    }
+  };
 
   void register(@NotNull IntentionAction action);
 
-  void register(@NotNull TextRange fixRange, @NotNull IntentionAction action, HighlightDisplayKey key);
+  void register(@NotNull TextRange fixRange, @NotNull IntentionAction action, @Nullable HighlightDisplayKey key);
 
   /**
    * Allows to replace some of the built-in quick fixes.
@@ -21,5 +31,6 @@ public interface QuickFixActionRegistrar {
    * instead of filtering it with this method
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   default void unregister(@NotNull Condition<? super IntentionAction> condition) {}
 }

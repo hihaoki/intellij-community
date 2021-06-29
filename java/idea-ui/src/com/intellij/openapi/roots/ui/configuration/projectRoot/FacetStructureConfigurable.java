@@ -11,7 +11,6 @@ import com.intellij.facet.ui.MultipleFacetSettingsEditor;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.options.ConfigurationException;
@@ -25,7 +24,7 @@ import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.treeStructure.filtered.FilteringTreeBuilder;
 import com.intellij.util.ui.tree.TreeUtil;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,11 +39,10 @@ import java.util.*;
 public class FacetStructureConfigurable extends BaseStructureConfigurable {
   private final Map<FacetType<?, ?>, FacetTypeEditor> myFacetTypeEditors = new HashMap<>();
   private MultipleFacetSettingsEditor myCurrentMultipleSettingsEditor;
-  @NonNls private static final String NO_FRAMEWORKS_NODE = "No facets are configured";
   private boolean myTreeWasInitialized;
 
-  public FacetStructureConfigurable(@NotNull Project project) {
-    super(project);
+  public FacetStructureConfigurable(ProjectStructureConfigurable projectStructureConfigurable) {
+    super(projectStructureConfigurable);
   }
 
   @Override
@@ -52,8 +50,13 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
     return "FacetStructureConfigurable.UI";
   }
 
+  /**
+   * @deprecated use {@link ProjectStructureConfigurable#getFacetStructureConfigurable()} instead
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static FacetStructureConfigurable getInstance(final @NotNull Project project) {
-    return ServiceManager.getService(project, FacetStructureConfigurable.class);
+    return ProjectStructureConfigurable.getInstance(project).getFacetStructureConfigurable();
   }
 
   public boolean isVisible() {
@@ -121,7 +124,10 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
       addFacetTypeNode(InvalidFacetType.getInstance());
     }
     if (!hasFacetTypeNodes) {
-      addNode(new MyNode(new TextConfigurable<>(NO_FRAMEWORKS_NODE, NO_FRAMEWORKS_NODE, "Facets", "Press '+' button to add a new facet",
+      String title = JavaUiBundle.message("no.facets.are.configured");
+      addNode(new MyNode(new TextConfigurable<>(title, title,
+                                                JavaUiBundle.message("project.facets.display.name"),
+                                                JavaUiBundle.message("text.press.button.to.add.new.facet"),
                                                 null)), myRoot);
     }
     addNode(new MyNode(new FrameworkDetectionConfigurable(myProject)), myRoot);
@@ -140,7 +146,7 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
   }
 
   private MyNode addFacetTypeNode(FacetType<?, ?> facetType) {
-    final MyNode noFrameworksNode = findNodeByObject(myRoot, NO_FRAMEWORKS_NODE);
+    final MyNode noFrameworksNode = findNodeByObject(myRoot, JavaUiBundle.message("no.facets.are.configured"));
     if (noFrameworksNode != null) {
       removePaths(TreeUtil.getPathFromRoot(noFrameworksNode));
     }
@@ -149,7 +155,7 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
     MyNode facetTypeNode = new MyNode(facetTypeConfigurable);
     addNode(facetTypeNode, myRoot);
 
-    FacetEditorFacadeImpl editorFacade = ModuleStructureConfigurable.getInstance(myProject).getFacetEditorFacade();
+    FacetEditorFacadeImpl editorFacade = myProjectStructureConfigurable.getModulesConfig().getFacetEditorFacade();
     addFacetNodes(facetTypeNode, ProjectFacetManager.getInstance(myProject).getFacets(facetType.getId()), editorFacade);
     return facetTypeNode;
   }
@@ -279,7 +285,7 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
         facetEditors.add(facetConfigurable.getEditor());
       }
     }
-    if (facetEditors.size() <= 1 || selectedFacetType == null) {
+    if (facetEditors.size() <= 1) {
       return false;
     }
 
@@ -374,7 +380,7 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
     public boolean remove(@NotNull Collection<? extends Facet> facets) {
       for (Facet facet : facets) {
         List<Facet> removed = myContext.myModulesConfigurator.getFacetsConfigurator().removeFacet(facet);
-        ModuleStructureConfigurable.getInstance(myProject).removeFacetNodes(removed);
+        myProjectStructureConfigurable.getModulesConfig().removeFacetNodes(removed);
         for (Facet removedFacet : removed) {
           myContext.getDaemonAnalyzer().removeElement(new FacetProjectStructureElement(myContext, removedFacet));
         }
@@ -413,7 +419,7 @@ public class FacetStructureConfigurable extends BaseStructureConfigurable {
     public void actionPerformed(@NotNull final AnActionEvent e) {
       NamedConfigurable selected = getSelectedConfigurable();
       if (selected instanceof FacetConfigurable) {
-        ProjectStructureConfigurable.getInstance(myProject).select(((FacetConfigurable)selected).getEditableObject(), true);
+        myProjectStructureConfigurable.select(((FacetConfigurable)selected).getEditableObject(), true);
       }
     }
   }

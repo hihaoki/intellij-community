@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard;
 
 import com.intellij.ide.IdeBundle;
@@ -8,8 +8,10 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.*;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectType;
 import com.intellij.openapi.project.ProjectTypeService;
@@ -27,9 +29,8 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.GuiUtils;
 import com.intellij.util.EventDispatcher;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ModalityUiUtil;
 import org.jdom.JDOMException;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -42,8 +43,7 @@ import java.io.IOException;
 import java.util.*;
 
 public abstract class ModuleBuilder extends AbstractModuleBuilder {
-
-  public static final ExtensionPointName<ModuleBuilderFactory> EP_NAME = ExtensionPointName.create("com.intellij.moduleBuilder");
+  private static final ExtensionPointName<ModuleBuilderFactory> EP_NAME = new ExtensionPointName<>("com.intellij.moduleBuilder");
 
   private static final Logger LOG = Logger.getInstance(ModuleBuilder.class);
   private final Set<ModuleConfigurationUpdater> myUpdaters = new HashSet<>();
@@ -58,16 +58,32 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
     return Collections.emptyList();
   }
 
-  @NotNull
-  public static List<ModuleBuilder> getAllBuilders() {
+  public static @NotNull List<ModuleBuilder> getAllBuilders() {
     List<ModuleBuilder> result = new ArrayList<>();
-    for (final ModuleType<?> moduleType : ModuleTypeManager.getInstance().getRegisteredTypes()) {
-      result.add(moduleType.createModuleBuilder());
+    for (ModuleType<?> moduleType : ModuleTypeManager.getInstance().getRegisteredTypes()) {
+      ModuleBuilder builder = moduleType.createModuleBuilder();
+      if (builder.isAvailable()) {
+        result.add(builder);
+      }
     }
-    for (ModuleBuilderFactory factory : EP_NAME.getExtensions()) {
-      result.add(factory.createBuilder());
-    }
-    return ContainerUtil.filter(result, moduleBuilder -> moduleBuilder.isAvailable());
+    EP_NAME.processWithPluginDescriptor((bean, pluginDescriptor) -> {
+      ModuleBuilder builder;
+      try {
+        builder = ApplicationManager.getApplication().instantiateClass(bean.builderClass, pluginDescriptor);
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
+      }
+      catch (Exception e) {
+        LOG.error(e);
+        return;
+      }
+
+      if (builder.isAvailable()) {
+        result.add(builder);
+      }
+    });
+    return result;
   }
 
   public static void deleteModuleFile(String moduleFilePath) {
@@ -101,7 +117,7 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
 
   @Override
   @Nullable
-  public String getBuilderId() {
+  public @NonNls String getBuilderId() {
     ModuleType<?> moduleType = getModuleType();
     return moduleType == null ? null : moduleType.getId();
   }
@@ -293,7 +309,7 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
 
     if (runFromProjectWizard) {
       StartupManager.getInstance(module.getProject()).runAfterOpened(() -> {
-        GuiUtils.invokeLaterIfNeeded(() -> {
+        ModalityUiUtil.invokeLaterIfNeeded(() -> {
           ApplicationManager.getApplication().runWriteAction(() -> onModuleInitialized(module));
         }, ModalityState.NON_MODAL, module.getDisposed());
       });
@@ -362,7 +378,7 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
   @Nls(capitalization = Nls.Capitalization.Title)
   protected String getModuleTypeName() {
     String name = getModuleType().getName();
-    return StringUtil.trimEnd(name, " Module");
+    return StringUtil.trimEnd(name, " Module");  // NON-NLS
   }
 
   public String getGroupName() {

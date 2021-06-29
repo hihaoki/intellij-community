@@ -1,9 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.dvcs.cherrypick;
 
 import com.intellij.dvcs.ui.DvcsBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.BackgroundTaskQueue;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -13,7 +12,6 @@ import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vcs.VcsNotifier;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
@@ -25,6 +23,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+
+import static com.intellij.openapi.vcs.VcsNotificationIdsHolder.CHERRY_PICK_ERROR;
 
 public final class VcsCherryPickManager {
   private static final Logger LOG = Logger.getInstance(VcsCherryPickManager.class);
@@ -71,7 +71,7 @@ public final class VcsCherryPickManager {
     CherryPickingTask(@NotNull List<? extends VcsFullCommitDetails> detailsInReverseOrder) {
       super(VcsCherryPickManager.this.myProject, DvcsBundle.message("cherry.picking.process"));
       myAllDetailsInReverseOrder = detailsInReverseOrder;
-      myChangeListManager = (ChangeListManagerEx)ChangeListManager.getInstance(myProject);
+      myChangeListManager = ChangeListManagerEx.getInstanceEx(myProject);
       myChangeListManager.blockModalNotifications();
     }
 
@@ -97,7 +97,7 @@ public final class VcsCherryPickManager {
     }
 
     public void showError(@Nls @NotNull String message) {
-      VcsNotifier.getInstance(myProject).notifyWeakError(message);
+      VcsNotifier.getInstance(myProject).notifyWeakError(CHERRY_PICK_ERROR, message);
       LOG.warn(message);
     }
 
@@ -133,7 +133,7 @@ public final class VcsCherryPickManager {
 
     @NotNull
     public MultiMap<VcsCherryPicker, VcsFullCommitDetails> createArrayMultiMap() {
-      return new MultiMap<VcsCherryPicker, VcsFullCommitDetails>() {
+      return new MultiMap<>() {
         @NotNull
         @Override
         protected Collection<VcsFullCommitDetails> createCollection() {
@@ -144,6 +144,6 @@ public final class VcsCherryPickManager {
   }
 
   public static VcsCherryPickManager getInstance(@NotNull Project project) {
-    return ServiceManager.getService(project, VcsCherryPickManager.class);
+    return project.getService(VcsCherryPickManager.class);
   }
 }

@@ -8,6 +8,7 @@ import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.codeInsight.intention.QuickFixFactory;
 import com.intellij.find.FindBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.application.ApplicationManager;
@@ -43,6 +44,7 @@ import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -403,16 +405,17 @@ public class InlineLocalHandler extends JavaInlineActionHandler {
                                    @Nullable Editor editor,
                                    @NotNull List<SmartPsiElementPointer<PsiExpression>> exprs) {
     if (editor != null && !ApplicationManager.getApplication().isUnitTestMode()) {
-      PsiExpression[] occurrences = ContainerUtil.map2Array(exprs, new PsiExpression[exprs.size()], SmartPsiElementPointer::getElement);
+      PsiExpression[] occurrences = StreamEx.of(exprs).map(SmartPsiElementPointer::getElement).nonNull().toArray(PsiExpression.EMPTY_ARRAY);
       HighlightManager.getInstance(project).addOccurrenceHighlights(editor, occurrences, EditorColors.SEARCH_RESULT_ATTRIBUTES, true, null);
       if (exprs.size() > 1) {
         Shortcut shortcut = KeymapUtil.getPrimaryShortcut("FindNext");
         String message;
         if (shortcut != null) {
-          message = "Press " + KeymapUtil.getShortcutText(shortcut) + " to go through " + exprs.size() + " inlined occurrences";
+          message =
+            JavaBundle.message("hint.text.press.to.go.through.inlined.occurrences", KeymapUtil.getShortcutText(shortcut), exprs.size());
         }
         else {
-          message = exprs.size() + " occurrences were inlined";
+          message = JavaBundle.message("hint.text.occurrences.were.inlined", exprs.size());
         }
         HintManagerImpl.getInstanceImpl().showInformationHint(editor, message, HintManager.UNDER);
       }

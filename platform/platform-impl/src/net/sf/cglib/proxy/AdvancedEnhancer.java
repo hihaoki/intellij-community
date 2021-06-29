@@ -17,12 +17,13 @@ package net.sf.cglib.proxy;
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.ide.plugins.cl.PluginClassLoader;
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.sf.cglib.asm.$ClassVisitor;
 import net.sf.cglib.asm.$Label;
 import net.sf.cglib.asm.$Type;
@@ -375,9 +376,9 @@ public final class AdvancedEnhancer extends AbstractClassGenerator
     ClassLoader nonPluginLoader = null;
 
     List<? extends IdeaPluginDescriptor> plugins = PluginManagerCore.getLoadedPlugins();
-    NotNullLazyValue<TObjectIntHashMap<PluginId>> idToIndex = NotNullLazyValue.createValue(() -> {
+    NotNullLazyValue<Object2IntMap<PluginId>> idToIndex = NotNullLazyValue.createValue(() -> {
       int count = 0;
-      TObjectIntHashMap<PluginId> map = new TObjectIntHashMap<>(plugins.size());
+      Object2IntMap<PluginId > map = new Object2IntOpenHashMap<>(plugins.size());
       for (IdeaPluginDescriptor descriptor : plugins) {
         map.put(descriptor.getPluginId(), count++);
       }
@@ -387,8 +388,8 @@ public final class AdvancedEnhancer extends AbstractClassGenerator
     if (interfaces != null && interfaces.length > 0) {
       for (Class<?> anInterface : interfaces) {
         ClassLoader loader = anInterface.getClassLoader();
-        if (loader instanceof PluginClassLoader) {
-          int order = idToIndex.getValue().get(((PluginClassLoader)loader).getPluginId());
+        if (loader instanceof PluginAwareClassLoader) {
+          int order = idToIndex.getValue().getInt(((PluginAwareClassLoader)loader).getPluginId());
           if (maxIndex < order) {
             maxIndex = order;
             bestLoader = loader;
@@ -403,8 +404,8 @@ public final class AdvancedEnhancer extends AbstractClassGenerator
     ClassLoader superLoader = null;
     if (superclass != null) {
       superLoader = superclass.getClassLoader();
-      if (superLoader instanceof PluginClassLoader &&
-          maxIndex < idToIndex.getValue().get(((PluginClassLoader)superLoader).getPluginId())) {
+      if (superLoader instanceof PluginAwareClassLoader &&
+          maxIndex < idToIndex.getValue().getInt(((PluginAwareClassLoader)superLoader).getPluginId())) {
         return superLoader;
       }
     }

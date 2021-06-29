@@ -2,14 +2,17 @@
 package org.jetbrains.plugins.github.api.data
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.intellij.collaboration.api.dto.GraphQLFragment
+import com.intellij.openapi.util.NlsSafe
 
+@GraphQLFragment("/graphql/fragment/commit.graphql")
 class GHCommit(id: String,
                oid: String,
                abbreviatedOid: String,
                url: String,
-               val messageHeadline: String,
-               messageHeadlineHTML: String,
-               val messageBodyHTML: String,
+               @NlsSafe val messageHeadline: String,
+               @NlsSafe messageHeadlineHTML: String,
+               @NlsSafe val messageBodyHTML: String,
                author: GHGitActor?,
                val committer: GHGitActor?,
                @JsonProperty("parents") parents: GHNodes<GHCommitHash>)

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.ui;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -21,10 +21,10 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.impl.EditorMarkupModelImpl;
-import com.intellij.openapi.editor.markup.UIController;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vcs.CommitMessageI;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsDataKeys;
@@ -34,6 +34,9 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.*;
+import com.intellij.ui.components.JBLoadingPanel;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.vcs.commit.CommitMessageUi;
@@ -61,7 +64,11 @@ import static javax.swing.BorderFactory.createEmptyBorder;
 public class CommitMessage extends JPanel implements Disposable, DataProvider, CommitMessageUi, CommitMessageI, LafManagerListener {
   public static final Key<CommitMessage> DATA_KEY = Key.create("Vcs.CommitMessage.Panel");
 
-  private static final EditorCustomization COLOR_SCHEME_FOR_CURRENT_UI_THEME_CUSTOMIZATION = editor -> {
+  private final @NotNull JBLoadingPanel myLoadingPanel;
+
+  private final @Nullable @Nls String myMessagePlaceholder;
+
+  private static final @NotNull EditorCustomization COLOR_SCHEME_FOR_CURRENT_UI_THEME_CUSTOMIZATION = editor -> {
     editor.setBackgroundColor(null); // to use background from set color scheme
     editor.setColorsScheme(getCommitMessageColorScheme());
   };
@@ -84,13 +91,28 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     this(project, true, true, true);
   }
 
-  public CommitMessage(@NotNull Project project, boolean withSeparator, boolean showToolbar, boolean runInspections) {
-    super(new BorderLayout());
+  public CommitMessage(@NotNull Project project,
+                       boolean withSeparator,
+                       boolean showToolbar,
+                       boolean runInspections) {
+    this(project, withSeparator, showToolbar, runInspections, null);
+  }
 
+  public CommitMessage(@NotNull Project project,
+                       boolean withSeparator,
+                       boolean showToolbar,
+                       boolean runInspections,
+                       @Nullable @Nls String messagePlaceholder) {
+    super(new BorderLayout());
+    myMessagePlaceholder = messagePlaceholder;
     myEditorField = createCommitMessageEditor(project, runInspections);
     myEditorField.getDocument().putUserData(DATA_KEY, this);
+    myEditorField.setPlaceholder(myMessagePlaceholder);
 
-    add(myEditorField, BorderLayout.CENTER);
+    myLoadingPanel = new JBLoadingPanel(new BorderLayout(), this, 0);
+    myLoadingPanel.add(myEditorField, BorderLayout.CENTER);
+
+    add(myLoadingPanel, BorderLayout.CENTER);
 
     if (withSeparator) {
       mySeparator = SeparatorFactory.createSeparator(VcsBundle.message("label.commit.comment"), myEditorField.getComponent());
@@ -114,6 +136,20 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(LafManagerListener.TOPIC, this);
   }
 
+  @Override
+  public void stopLoading() {
+    myLoadingPanel.stopLoading();
+    myEditorField.setEnabled(true);
+    myEditorField.setPlaceholder(myMessagePlaceholder);
+  }
+
+  @Override
+  public void startLoading() {
+    myEditorField.setEnabled(false);
+    myEditorField.setPlaceholder(null);
+    myLoadingPanel.startLoading();
+  }
+
   private void updateOnInspectionProfileChanged(@NotNull Project project) {
     project.getMessageBus().connect(this).subscribe(CommitMessageInspectionProfile.TOPIC, () -> {
       Editor editor = myEditorField.getEditor();
@@ -130,8 +166,6 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
   @NotNull
   private JComponent createToolbar(boolean horizontal) {
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("CommitMessage", getToolbarActions(), horizontal);
-
-    toolbar.updateActionsImmediately();
     toolbar.setReservePlaceAutoPopupIcon(false);
     toolbar.getComponent().setBorder(createEmptyBorder());
     toolbar.setTargetComponent(this);
@@ -148,7 +182,7 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     return null;
   }
 
-  public void setSeparatorText(@NotNull String text) {
+  public void setSeparatorText(@NotNull @NlsContexts.Separator String text) {
     if (mySeparator != null) {
       mySeparator.setText(text);
     }
@@ -165,6 +199,7 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
    * @deprecated Use {@link CommitMessage} component.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static EditorTextField createCommitTextEditor(@NotNull Project project, @SuppressWarnings("unused") boolean forceSpellCheckOn) {
     return createCommitMessageEditor(project, false);
   }
@@ -247,19 +282,19 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     myEditorField.getDocument().putUserData(DATA_KEY, null);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public synchronized void setChangeList(@NotNull ChangeList value) {
     setChangeLists(singletonList(value));
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public synchronized void setChangeLists(@NotNull List<ChangeList> value) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     myChangeLists = newUnmodifiableList(value);
   }
 
   @NotNull
-  @CalledWithReadLock
+  @RequiresReadLock
   public synchronized List<ChangeList> getChangeLists() {
     return myChangeLists;
   }
@@ -328,12 +363,6 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
         }
       }
       return false;
-    }
-
-    @Override
-    @NotNull
-    protected UIController createUIController(@NotNull Editor editor) {
-      return new SimplifiedUIController();
     }
   }
 }

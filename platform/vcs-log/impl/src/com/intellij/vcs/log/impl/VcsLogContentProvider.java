@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
 import com.intellij.ide.DataManager;
@@ -7,23 +7,23 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentEP;
+import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager;
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentProvider;
 import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.content.Content;
 import com.intellij.util.Consumer;
-import com.intellij.util.NotNullFunction;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.vcs.log.VcsLogBundle;
 import com.intellij.vcs.log.ui.MainVcsLogUi;
 import com.intellij.vcs.log.ui.VcsLogPanel;
-import com.intellij.vcs.log.ui.VcsLogUiEx;
-import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -31,21 +31,21 @@ import java.util.function.Supplier;
  * <p/>
  * Delegates to the VcsLogManager.
  */
-public class VcsLogContentProvider implements ChangesViewContentProvider {
+public final class VcsLogContentProvider implements ChangesViewContentProvider {
   private static final Logger LOG = Logger.getInstance(VcsLogContentProvider.class);
-  @NonNls public static String TAB_NAME = "Log"; // used as tab id, not user-visible
+  @NonNls public static final String TAB_NAME = "Log"; // used as tab id, not user-visible
 
   @NotNull private final VcsProjectLog myProjectLog;
-  @NotNull private final JPanel myContainer = new JBPanel(new BorderLayout());
+  @NotNull private final JPanel myContainer = new JBPanel<>(new BorderLayout());
   @Nullable private Consumer<? super MainVcsLogUi> myOnCreatedListener;
 
   @Nullable private MainVcsLogUi myUi;
   @Nullable private Content myContent;
 
-  public VcsLogContentProvider(@NotNull Project project, @NotNull VcsProjectLog projectLog) {
-    myProjectLog = projectLog;
+  public VcsLogContentProvider(@NotNull Project project) {
+    myProjectLog = VcsProjectLog.getInstance(project);
 
-    MessageBusConnection connection = project.getMessageBus().connect(projectLog);
+    MessageBusConnection connection = project.getMessageBus().connect(myProjectLog);
     connection.subscribe(VcsProjectLog.VCS_PROJECT_LOG_CHANGED, new VcsProjectLog.ProjectLogListener() {
       @Override
       public void logCreated(@NotNull VcsLogManager logManager) {
@@ -64,15 +64,16 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
     }
   }
 
-  @Nullable
-  public MainVcsLogUi getUi() {
+  public @Nullable MainVcsLogUi getUi() {
     return myUi;
   }
 
   @Override
   public void initTabContent(@NotNull Content content) {
     myContent = content;
-    myContent.setTabName(TAB_NAME);
+    // Display name is always used for presentation, tab name is used as an id.
+    // See com.intellij.vcs.log.impl.VcsLogContentUtil.selectMainLog.
+    myContent.setTabName(TAB_NAME); //NON-NLS
     updateDisplayName();
 
     myProjectLog.createLogInBackground(true);
@@ -84,17 +85,17 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
     });
   }
 
-  @CalledInAwt
+  @RequiresEdt
   private void addMainUi(@NotNull VcsLogManager logManager) {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
     if (myUi == null) {
       myUi = logManager.createLogUi(VcsLogProjectTabsProperties.MAIN_LOG_ID, VcsLogManager.LogWindowKind.TOOL_WINDOW, false);
-      VcsLogPanel panel = createPanel(logManager, myUi);
+      VcsLogPanel panel = new VcsLogPanel(logManager, myUi);
       myContainer.add(panel, BorderLayout.CENTER);
       DataManager.registerDataProvider(myContainer, panel);
 
       updateDisplayName();
-      myUi.addFilterListener(this::updateDisplayName);
+      myUi.getFilterUi().addFilterListener(this::updateDisplayName);
 
       if (myOnCreatedListener != null) myOnCreatedListener.consume(myUi);
       myOnCreatedListener = null;
@@ -107,12 +108,7 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
     }
   }
 
-  @NotNull
-  protected VcsLogPanel createPanel(@NotNull VcsLogManager logManager, @NotNull VcsLogUiEx ui) {
-    return new VcsLogPanel(logManager, ui);
-  }
-
-  @CalledInAwt
+  @RequiresEdt
   private void disposeMainUi() {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
 
@@ -132,7 +128,7 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
    *
    * @param consumer consumer to execute.
    */
-  @CalledInAwt
+  @RequiresEdt
   public void executeOnMainUiCreated(@NotNull Consumer<? super MainVcsLogUi> consumer) {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
 
@@ -159,15 +155,22 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
     return null;
   }
 
-  public static class VcsLogVisibilityPredicate implements NotNullFunction<Project, Boolean> {
-    @NotNull
+  final static class VcsLogVisibilityPredicate implements Predicate<Project> {
     @Override
-    public Boolean fun(@NotNull Project project) {
+    public boolean test(@NotNull Project project) {
       return !VcsProjectLog.getLogProviders(project).isEmpty();
     }
   }
 
-  public static class DisplayNameSupplier implements Supplier<String> {
+  final static class VcsLogContentPreloader implements ChangesViewContentProvider.Preloader {
+    @Override
+    public void preloadTabContent(@NotNull Content content) {
+      content.putUserData(ChangesViewContentManager.ORDER_WEIGHT_KEY,
+                          ChangesViewContentManager.TabOrderWeight.BRANCHES.getWeight());
+    }
+  }
+
+  final static class DisplayNameSupplier implements Supplier<String> {
     @Override
     public String get() {
       return VcsLogBundle.message("vcs.log.tab.name");

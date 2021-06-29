@@ -24,6 +24,7 @@ import com.jetbrains.python.PyUserInitiatedResolvableReference;
 import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyReferenceOwner;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.resolve.PyResolveUtil;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.pyi.PyiFile;
 import com.jetbrains.python.pyi.PyiUtil;
@@ -47,8 +48,8 @@ public final class PyGotoDeclarationHandler extends GotoDeclarationHandlerBase {
     if (sourceElement == null) {
       return null;
     }
-    final PyResolveContext context = PyResolveContext.defaultContext()
-      .withTypeEvalContext(TypeEvalContext.userInitiated(sourceElement.getProject(), sourceElement.getContainingFile()));
+    final PyResolveContext context =
+      PyResolveContext.defaultContext(TypeEvalContext.userInitiated(sourceElement.getProject(), sourceElement.getContainingFile()));
 
     PyReferenceOwner referenceOwner = null;
     final PsiElement parent = sourceElement.getParent();
@@ -59,7 +60,7 @@ public final class PyGotoDeclarationHandler extends GotoDeclarationHandlerBase {
       referenceOwner = (PyReferenceOwner)parent; //Reference expression may be parent of IDENTIFIER
     }
     if (referenceOwner != null) {
-      final PsiElement resolved = referenceOwner.getReference(context).resolve();
+      final PsiElement resolved = PyResolveUtil.resolveDeclaration(referenceOwner.getReference(context), context);
       if (resolved instanceof PyiFile) {
         final PsiElement original = PyiUtil.getOriginalElement(((PyElement)resolved));
         return ObjectUtils.chooseNotNull(original, resolved);

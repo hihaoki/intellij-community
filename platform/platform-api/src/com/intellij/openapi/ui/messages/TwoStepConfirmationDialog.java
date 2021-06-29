@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui.messages;
 
 import com.intellij.util.PairFunction;
@@ -11,11 +11,11 @@ import java.awt.*;
 
 public class TwoStepConfirmationDialog extends MessageDialog {
   private JCheckBox myCheckBox;
-  private final String myCheckboxText;
+  private final @NlsContexts.Checkbox String myCheckboxText;
   private final boolean myChecked;
   private final PairFunction<? super Integer, ? super JCheckBox, Integer> myExitFunc;
 
-  public TwoStepConfirmationDialog(@NlsContexts.DialogMessage String message,
+  public TwoStepConfirmationDialog(@NlsContexts.DialogMessage @Nullable String message,
                                    @NlsContexts.DialogTitle String title,
                                    String @NotNull [] options,
                                    @NlsContexts.Checkbox String checkboxText,
@@ -28,7 +28,7 @@ public class TwoStepConfirmationDialog extends MessageDialog {
     myChecked = checked;
     myExitFunc = exitFunc;
 
-    _init(title, message, options, defaultOptionIndexed, focusedOptionIndex, icon, null);
+    _init(title, message, options, defaultOptionIndexed, focusedOptionIndex, icon, null, null);
   }
 
   @Override

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView;
 
@@ -6,11 +6,11 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.ProjectExtensionPointName;
 import com.intellij.packageDependencies.ui.PackageDependenciesNode;
 import com.intellij.ui.ColoredTreeCellRenderer;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
  * Allows to modify the presentation of project view and package dependencies view nodes.
  *
- * @author yole
  * @see TreeStructureProvider
  */
 public interface ProjectViewNodeDecorator {
@@ -20,6 +20,7 @@ public interface ProjectViewNodeDecorator {
    * @deprecated Use {@link #EP}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   ExtensionPointName<ProjectViewNodeDecorator> EP_NAME = ExtensionPointName.create("com.intellij.projectViewNodeDecorator");
 
   /**

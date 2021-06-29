@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.editorActions;
 
@@ -19,9 +19,9 @@ import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.SlowOperations;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -58,7 +58,7 @@ public class CopyHandler extends EditorActionHandler implements CopyAction.Trans
 
     final SelectionModel selectionModel = editor.getSelectionModel();
     if (!selectionModel.hasSelection(true)) {
-      if (Registry.is(CopyAction.SKIP_COPY_AND_CUT_FOR_EMPTY_SELECTION_KEY)) {
+      if (CopyAction.isSkipCopyPasteForEmptySelection()) {
         return;
       }
       editor.getCaretModel().runForEachCaret(__ -> selectionModel.selectLineAtCaret());
@@ -87,15 +87,24 @@ public class CopyHandler extends EditorActionHandler implements CopyAction.Trans
   }
 
   private static @NotNull Transferable getSelection(@NotNull Editor editor, @NotNull Project project, @NotNull PsiFile file) {
-    PsiDocumentManager.getInstance(project).commitAllDocuments();
+    TypingActionsExtension typingActionsExtension = TypingActionsExtension.findForContext(project, editor);
+    try {
+      typingActionsExtension.startCopy(project, editor);
+      return getSelectionAction(editor, project, file);
+    }
+    finally {
+      typingActionsExtension.endCopy(project, editor);
+    }
+  }
 
+  private static @NotNull Transferable getSelectionAction(@NotNull Editor editor, @NotNull Project project, @NotNull PsiFile file) {
     SelectionModel selectionModel = editor.getSelectionModel();
     final int[] startOffsets = selectionModel.getBlockSelectionStarts();
     final int[] endOffsets = selectionModel.getBlockSelectionEnds();
 
     final List<TextBlockTransferableData> transferableDataList = new ArrayList<>();
 
-    DumbService.getInstance(project).withAlternativeResolveEnabled(() -> {
+    DumbService.getInstance(project).withAlternativeResolveEnabled(() -> SlowOperations.allowSlowOperations(() -> {
       for (CopyPastePostProcessor<? extends TextBlockTransferableData> processor : CopyPastePostProcessor.EP_NAME.getExtensionList()) {
         try {
           transferableDataList.addAll(processor.collectTransferableData(file, editor, startOffsets, endOffsets));
@@ -107,7 +116,7 @@ public class CopyHandler extends EditorActionHandler implements CopyAction.Trans
           LOG.error(e);
         }
       }
-    });
+    }));
 
     String text = editor.getCaretModel().supportsMultipleCarets()
                   ? EditorCopyPasteHelperImpl.getSelectedTextForClipboard(editor, transferableDataList)

@@ -3,20 +3,19 @@ package com.intellij.ui.mac.touchbar;
 
 import com.intellij.ui.mac.foundation.Foundation;
 import com.intellij.ui.mac.foundation.ID;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 abstract class TBItem {
   private final @NotNull String myName;
   private @Nullable String myUid;
+  private @NotNull ID myNativePeer = ID.NIL; // java wrapper holds native object
+
   final @Nullable ItemListener myListener;
-  @NotNull ID myNativePeer = ID.NIL; // java wrapper holds native object
   boolean myIsVisible = true;
 
-  @Nullable String myOptionalContextName;
-  final Object myReleaseLock = new Object();
-
-  TBItem(@NotNull String name, @Nullable ItemListener listener) { myName = name; myListener = listener; }
+  TBItem(@NotNull @NonNls String name, @Nullable ItemListener listener) { myName = name; myListener = listener; }
 
   @Override
   public String toString() { return myUid == null ? String.format("%s [null-uid]", myName) : myUid; }
@@ -29,17 +28,23 @@ abstract class TBItem {
 
   void setUid(@Nullable String uid) { myUid = uid; }
 
-  ID getNativePeer() {
+  synchronized
+  @NotNull ID createNativePeer() {
     // called from AppKit (when NSTouchBarDelegate create items)
     if (myNativePeer == ID.NIL)
       myNativePeer = _createNativePeer();
     return myNativePeer;
   }
+
+  @NotNull
+  ID getNativePeer() { return myNativePeer; }
+
+  synchronized
   void releaseNativePeer() {
-    synchronized (myReleaseLock) {
-      Foundation.invoke(myNativePeer, "release");
-      myNativePeer = ID.NIL;
-    }
+    if (myNativePeer == ID.NIL)
+      return;
+    Foundation.invoke(myNativePeer, "release");
+    myNativePeer = ID.NIL;
   }
 
   protected abstract ID _createNativePeer();    // called from AppKit

@@ -5,7 +5,6 @@ import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.config.DetectionContext
 import com.intellij.grazie.detector.chain.ChainDetectorBuilder
 import com.intellij.grazie.detector.model.Language
-import com.intellij.grazie.ide.fus.GrazieFUSCounter
 import com.intellij.grazie.ide.msg.GrazieStateLifecycle
 import com.intellij.grazie.jlanguage.Lang
 import com.intellij.grazie.utils.lazyConfig
@@ -27,8 +26,6 @@ object LangDetector : GrazieStateLifecycle {
     val detected = detector.detect(text.take(1_000))
 
     if (detected.preferred == Language.UNKNOWN) return null
-
-    GrazieFUSCounter.languageDetected(detected.preferred)
 
     return detected.preferred
   }

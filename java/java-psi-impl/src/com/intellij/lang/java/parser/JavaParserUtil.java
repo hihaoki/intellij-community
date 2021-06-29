@@ -11,6 +11,7 @@ import com.intellij.lexer.Lexer;
 import com.intellij.lexer.TokenList;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
@@ -60,7 +61,7 @@ public final class JavaParserUtil {
     }
 
     @Override
-    public int getEdgePosition(final List<IElementType> tokens, final boolean atStreamEdge, final TokenTextGetter
+    public int getEdgePosition(final List<? extends IElementType> tokens, final boolean atStreamEdge, final TokenTextGetter
       getter) {
       if (tokens.size() == 0) return 0;
 
@@ -92,7 +93,7 @@ public final class JavaParserUtil {
 
   private static class TrailingWhitespacesAndCommentsBinder implements WhitespacesAndCommentsBinder {
     @Override
-    public int getEdgePosition(final List<IElementType> tokens, final boolean atStreamEdge, final TokenTextGetter getter) {
+    public int getEdgePosition(final List<? extends IElementType> tokens, final boolean atStreamEdge, final TokenTextGetter getter) {
       if (tokens.size() == 0) return 0;
 
       int result = 0;
@@ -229,11 +230,11 @@ public final class JavaParserUtil {
   }
 
   // used instead of PsiBuilder.error() as it keeps all subsequent error messages
-  public static void error(final PsiBuilder builder, @NotNull String message) {
+  public static void error(final PsiBuilder builder, @NotNull @NlsContexts.ParsingError String message) {
     builder.mark().error(message);
   }
 
-  public static void error(final PsiBuilder builder, @NotNull String message, @Nullable final PsiBuilder.Marker before) {
+  public static void error(final PsiBuilder builder, @NotNull @NlsContexts.ParsingError String message, @Nullable final PsiBuilder.Marker before) {
     if (before == null) {
       error(builder, message);
     }

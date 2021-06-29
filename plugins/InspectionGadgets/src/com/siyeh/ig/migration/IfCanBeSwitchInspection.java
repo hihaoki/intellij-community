@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.migration;
 
 import com.intellij.codeInsight.Nullability;
@@ -8,16 +8,18 @@ import com.intellij.codeInspection.EnhancedSwitchMigrationInspection;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.dataFlow.NullabilityUtil;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.tree.java.PsiEmptyStatementImpl;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.ui.CheckBox;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -32,7 +34,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.text.Document;
-import java.awt.*;
 import java.text.NumberFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -72,7 +73,7 @@ public class IfCanBeSwitchInspection extends BaseInspection {
 
   @Override
   public JComponent createOptionsPanel() {
-    final JPanel panel = new JPanel(new GridBagLayout());
+    final MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
     final JLabel label = new JLabel(InspectionGadgetsBundle.message("if.can.be.switch.minimum.branch.option"));
     final NumberFormat formatter = NumberFormat.getIntegerInstance();
     formatter.setParseIntegerOnly(true);
@@ -93,33 +94,12 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         }
       }
     });
-    final GridBagConstraints constraints = new GridBagConstraints();
-    constraints.gridx = 0;
-    constraints.gridy = 0;
-    constraints.insets.bottom = 4;
-    constraints.weightx = 0.0;
-    constraints.anchor = GridBagConstraints.BASELINE_LEADING;
-    constraints.fill = GridBagConstraints.NONE;
-    constraints.insets.right = 10;
-    panel.add(label, constraints);
-    constraints.gridx = 1;
-    constraints.gridy = 0;
-    constraints.weightx = 1.0;
-    constraints.insets.right = 0;
-    panel.add(valueField, constraints);
-    constraints.gridx = 0;
-    constraints.gridy = 1;
-    constraints.gridwidth = 2;
-    final CheckBox checkBox1 = new CheckBox(InspectionGadgetsBundle.message("if.can.be.switch.int.option"), this, "suggestIntSwitches");
-    panel.add(checkBox1, constraints);
-    constraints.gridy = 2;
-    final CheckBox checkBox2 = new CheckBox(InspectionGadgetsBundle.message("if.can.be.switch.enum.option"), this, "suggestEnumSwitches");
-    panel.add(checkBox2, constraints);
-    constraints.gridy = 3;
-    constraints.weighty = 1.0;
-    final CheckBox checkBox3 =
-      new CheckBox(InspectionGadgetsBundle.message("if.can.be.switch.null.safe.option"), this, "onlySuggestNullSafe");
-    panel.add(checkBox3, constraints);
+
+    panel.addRow(label, valueField);
+    panel.addCheckbox(InspectionGadgetsBundle.message("if.can.be.switch.int.option"), "suggestIntSwitches");
+    panel.addCheckbox(InspectionGadgetsBundle.message("if.can.be.switch.enum.option"), "suggestEnumSwitches");
+    panel.addCheckbox(InspectionGadgetsBundle.message("if.can.be.switch.null.safe.option"), "onlySuggestNullSafe");
+
     return panel;
   }
 
@@ -197,6 +177,18 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         extractStatementComments(elseBranch, elseIfBranch);
         branches.add(elseIfBranch);
         break;
+      }
+    }
+
+    if (SwitchUtils.canBePatternSwitchCase(ifStatement.getCondition(), switchExpression)) {
+      if (! ContainerUtil.exists(branches, (branch) -> branch.isElse())){
+        branches.add(new IfStatementBranch(new PsiEmptyStatementImpl(), true));
+      }
+      if (isNullable(switchExpression) && findNullCheckedOperand(statementToReplace) == null) {
+        final IfStatementBranch defaultBranch = ContainerUtil.find(branches, (branch) -> branch.isElse());
+        final PsiElementFactory factory = PsiElementFactory.getInstance(ifStatement.getProject());
+        final PsiExpression condition = factory.createExpressionFromText("null", switchExpression.getContext());
+        if (defaultBranch != null) defaultBranch.addCaseExpression(condition);
       }
     }
 
@@ -298,6 +290,9 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         branch.addCaseExpression(argument);
       }
     }
+    else if (expression instanceof PsiInstanceOfExpression) {
+      branch.addCaseExpression(expression);
+    }
     else if (expression instanceof PsiPolyadicExpression) {
       final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;
       final PsiExpression[] operands = polyadicExpression.getOperands();
@@ -306,6 +301,8 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         for (PsiExpression operand : operands) {
           extractCaseExpressions(operand, switchExpression, branch);
         }
+      } else if (JavaTokenType.ANDAND.equals(tokenType)) {
+        branch.addCaseExpression(polyadicExpression);
       }
       else if (operands.length == 2) {
         final PsiExpression lhs = operands[0];
@@ -328,13 +325,11 @@ public class IfCanBeSwitchInspection extends BaseInspection {
   private static void dumpBranch(IfStatementBranch branch, boolean castToInt, boolean wrap, boolean renameBreaks, String breakLabelName,
                                  @NonNls StringBuilder switchStatementText) {
     dumpComments(branch.getComments(), switchStatementText);
+    for (PsiExpression caseExpression : branch.getCaseExpressions()) {
+      switchStatementText.append("case ").append(getCaseLabelText(caseExpression, castToInt)).append(": ");
+    }
     if (branch.isElse()) {
       switchStatementText.append("default: ");
-    }
-    else {
-      for (PsiExpression caseExpression : branch.getCaseExpressions()) {
-        switchStatementText.append("case ").append(getCaseLabelText(caseExpression, castToInt)).append(": ");
-      }
     }
     dumpComments(branch.getStatementComments(), switchStatementText);
     dumpBody(branch.getStatement(), wrap, renameBreaks, breakLabelName, switchStatementText);
@@ -350,6 +345,8 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         return enumConstant.getName();
       }
     }
+    final String patternCaseText = SwitchUtils.createPatternCaseText(expression);
+    if (patternCaseText != null) return patternCaseText;
     if (castToInt) {
       final PsiType type = expression.getType();
       if (!PsiType.INT.equals(type)) {
@@ -402,7 +399,7 @@ public class IfCanBeSwitchInspection extends BaseInspection {
     }
   }
 
-  private static void appendElement(PsiElement element, boolean renameBreakElements, String breakLabelString, StringBuilder switchStatementText) {
+  private static void appendElement(PsiElement element, boolean renameBreakElements, String breakLabelString, @NonNls StringBuilder switchStatementText) {
     final String text = element.getText();
     if (!renameBreakElements) {
       switchStatementText.append(text);
@@ -410,7 +407,14 @@ public class IfCanBeSwitchInspection extends BaseInspection {
     else if (element instanceof PsiBreakStatement) {
       final PsiIdentifier labelIdentifier = ((PsiBreakStatement)element).getLabelIdentifier();
       if (labelIdentifier == null) {
-        switchStatementText.append("break ").append(breakLabelString).append(';');
+        PsiElement child = element.getFirstChild();
+        switchStatementText.append(child.getText()).append(" ").append(breakLabelString);
+        child = child.getNextSibling();
+        while (child != null) {
+          switchStatementText.append(child.getText());
+          child = child.getNextSibling();
+        }
+        return;
       }
       else {
         switchStatementText.append(text);
@@ -426,18 +430,9 @@ public class IfCanBeSwitchInspection extends BaseInspection {
       switchStatementText.append(text);
     }
     final PsiElement lastChild = element.getLastChild();
-    if (isEndOfLineComment(lastChild)) {
+    if (lastChild instanceof PsiComment && ((PsiComment)lastChild).getTokenType() == JavaTokenType.END_OF_LINE_COMMENT) {
       switchStatementText.append('\n');
     }
-  }
-
-  private static boolean isEndOfLineComment(PsiElement element) {
-    if (!(element instanceof PsiComment)) {
-      return false;
-    }
-    final PsiComment comment = (PsiComment)element;
-    final IElementType tokenType = comment.getTokenType();
-    return JavaTokenType.END_OF_LINE_COMMENT.equals(tokenType);
   }
 
   @Override
@@ -466,12 +461,13 @@ public class IfCanBeSwitchInspection extends BaseInspection {
       if (switchExpression == null) {
         return;
       }
+      boolean isPatternMatch = SwitchUtils.canBePatternSwitchCase(condition, switchExpression);
       int branchCount = 0;
       final Set<Object> switchCaseValues = new HashSet<>();
       PsiIfStatement branch = statement;
       while (true) {
         branchCount++;
-        if (!SwitchUtils.canBeSwitchCase(branch.getCondition(), switchExpression, languageLevel, switchCaseValues)) {
+        if (!SwitchUtils.canBeSwitchCase(branch.getCondition(), switchExpression, languageLevel, switchCaseValues, isPatternMatch)) {
           return;
         }
         final PsiStatement elseBranch = branch.getElseBranch();
@@ -482,7 +478,7 @@ public class IfCanBeSwitchInspection extends BaseInspection {
       }
 
       final ProblemHighlightType highlightType;
-      if (shouldHighlight(switchExpression) && branchCount >= minimumBranches) {
+      if (shouldHighlight(statement, switchExpression) && branchCount >= minimumBranches) {
         highlightType = ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
       }
       else {
@@ -492,7 +488,7 @@ public class IfCanBeSwitchInspection extends BaseInspection {
       registerError(statement.getFirstChild(), highlightType);
     }
 
-    private boolean shouldHighlight(PsiExpression switchExpression) {
+    private boolean shouldHighlight(PsiIfStatement ifStatement, PsiExpression switchExpression) {
       final PsiType type = switchExpression.getType();
       if (!suggestIntSwitches) {
         if (type instanceof PsiClassType) {
@@ -511,7 +507,11 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         if (!suggestEnumSwitches && TypeConversionUtil.isEnumType(type)) {
           return false;
         }
-        if (onlySuggestNullSafe && NullabilityUtil.getExpressionNullability(switchExpression, true) != Nullability.NOT_NULL) {
+        if (onlySuggestNullSafe && isNullable(switchExpression)) {
+          final PsiExpression condition = ifStatement.getCondition();
+          if (SwitchUtils.canBePatternSwitchCase(condition, switchExpression)) {
+            return hasDefaultElse(ifStatement) || findNullCheckedOperand(ifStatement) != null;
+          }
           final PsiElement parent = ParenthesesUtils.getParentSkipParentheses(switchExpression);
           if (parent instanceof PsiExpressionList) {
             final PsiElement grandParent = parent.getParent();
@@ -527,6 +527,42 @@ public class IfCanBeSwitchInspection extends BaseInspection {
         }
       }
       return !SideEffectChecker.mayHaveSideEffects(switchExpression);
+    }
+  }
+
+  private static boolean isNullable(PsiExpression switchExpression) {
+    return NullabilityUtil.getExpressionNullability(switchExpression, false) != Nullability.NOT_NULL &&
+           NullabilityUtil.getExpressionNullability(switchExpression, true) != Nullability.NOT_NULL;
+  }
+
+  private static PsiExpression findNullCheckedOperand(PsiIfStatement ifStatement) {
+    final PsiExpression condition = PsiUtil.skipParenthesizedExprDown(ifStatement.getCondition());
+    if (condition instanceof PsiPolyadicExpression) {
+      final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)condition;
+      if (JavaTokenType.OROR.equals(polyadicExpression.getOperationTokenType())) {
+        for (PsiExpression operand : polyadicExpression.getOperands()) {
+          final PsiExpression nullCheckedExpression = SwitchUtils.findNullCheckedOperand(PsiUtil.skipParenthesizedExprDown(operand));
+          if (nullCheckedExpression != null) return nullCheckedExpression;
+        }
+      }
+    }
+    final PsiExpression nullCheckedOperand = SwitchUtils.findNullCheckedOperand(condition);
+    if (nullCheckedOperand != null) return nullCheckedOperand;
+    final PsiStatement elseBranch = ifStatement.getElseBranch();
+    if (elseBranch instanceof PsiIfStatement) {
+      return findNullCheckedOperand((PsiIfStatement)elseBranch);
+    } else {
+      return null;
+    }
+  }
+
+  private static boolean hasDefaultElse(PsiIfStatement ifStatement) {
+    final PsiStatement elseBranch = ifStatement.getElseBranch();
+    if (elseBranch == null) return false;
+    if (elseBranch instanceof PsiIfStatement) {
+      return hasDefaultElse((PsiIfStatement)elseBranch);
+    } else {
+      return true;
     }
   }
 }

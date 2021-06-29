@@ -2,6 +2,7 @@
 package com.intellij.codeInspection;
 
 import com.intellij.ide.DataManager;
+import com.intellij.lang.LangBundle;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.properties.charset.Native2AsciiCharset;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -101,7 +102,7 @@ public class LossyEncodingInspection extends LocalInspectionTool {
     }
     if (!isGoodCharset(virtualFile, charset)) {
       LocalQuickFix[] fixes = getFixes(file, virtualFile, charset);
-      descriptors.add(manager.createProblemDescriptor(file, InspectionsBundle.message("inspection.lossy.encoding.description", charset), true,
+      descriptors.add(manager.createProblemDescriptor(file, LangBundle.message("inspection.lossy.encoding.description", charset), true,
                                                       ProblemHighlightType.GENERIC_ERROR, isOnTheFly, fixes));
       return false;
     }
@@ -319,6 +320,11 @@ public class LossyEncodingInspection extends LocalInspectionTool {
       super(file);
     }
 
+    @Override
+    public boolean startInWriteAction() {
+      return false;
+    }
+
     @NotNull
     @Override
     public String getText() {
@@ -340,18 +346,20 @@ public class LossyEncodingInspection extends LocalInspectionTool {
       VirtualFile virtualFile = file.getVirtualFile();
 
       DataContext dataContext = createDataContext(editor, editor == null ? null : editor.getComponent(), virtualFile, project);
-      ListPopup popup = new ChangeFileEncodingAction().createPopup(dataContext);
+      ListPopup popup = new ChangeFileEncodingAction().createPopup(dataContext, null);
       if (popup != null) {
         popup.showInBestPositionFor(dataContext);
       }
     }
 
     @NotNull
-    static DataContext createDataContext(Editor editor, Component component, VirtualFile selectedFile, Project project) {
-      DataContext parent = DataManager.getInstance().getDataContext(component);
-      DataContext context = SimpleDataContext.getSimpleContext(PlatformDataKeys.CONTEXT_COMPONENT.getName(), editor == null ? null : editor.getComponent(), parent);
-      DataContext projectContext = SimpleDataContext.getSimpleContext(CommonDataKeys.PROJECT.getName(), project, context);
-      return SimpleDataContext.getSimpleContext(CommonDataKeys.VIRTUAL_FILE.getName(), selectedFile, projectContext);
+    static DataContext createDataContext(@Nullable Editor editor, Component component, VirtualFile selectedFile, @NotNull Project project) {
+      return SimpleDataContext.builder()
+        .setParent(DataManager.getInstance().getDataContext(component))
+        .add(PlatformDataKeys.CONTEXT_COMPONENT, editor == null ? null : editor.getComponent())
+        .add(CommonDataKeys.PROJECT, project)
+        .add(CommonDataKeys.VIRTUAL_FILE, selectedFile)
+        .build();
     }
   }
 }

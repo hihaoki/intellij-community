@@ -1,22 +1,24 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl.rules;
 
 import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.actionSystem.DataSink;
-import com.intellij.openapi.actionSystem.TypeSafeDataProvider;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiManager;
-import com.intellij.usages.*;
+import com.intellij.usageView.UsageViewBundle;
+import com.intellij.usages.CompactGroupHelper;
+import com.intellij.usages.Usage;
+import com.intellij.usages.UsageGroup;
+import com.intellij.usages.UsageTarget;
 import com.intellij.usages.rules.SingleParentUsageGroupingRule;
 import com.intellij.usages.rules.UsageGroupingRuleEx;
 import com.intellij.usages.rules.UsageInFile;
@@ -26,14 +28,12 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.io.File;
-import java.util.*;
+import java.util.List;
 
-/**
- * @author yole
- */
+
 public class DirectoryGroupingRule extends SingleParentUsageGroupingRule implements DumbAware, UsageGroupingRuleEx {
   public static DirectoryGroupingRule getInstance(Project project) {
-    return ServiceManager.getService(project, DirectoryGroupingRule.class);
+    return project.getService(DirectoryGroupingRule.class);
   }
 
   protected final Project myProject;
@@ -80,24 +80,23 @@ public class DirectoryGroupingRule extends SingleParentUsageGroupingRule impleme
   }
 
   @Override
+  public int getRank() {
+    return UsageGroupingRulesDefaultRanks.DIRECTORY_STRUCTURE.getAbsoluteRank();
+  }
+
+  @Override
   public @NotNull String getGroupingActionId() {
     return "UsageGrouping.Directory";
   }
 
-  private final class DirectoryGroup implements UsageGroup, TypeSafeDataProvider, CompactGroup {
+  private final class DirectoryGroup implements UsageGroup, DataProvider {
     private final VirtualFile myDir;
     private Icon myIcon;
-    private final String relativePathText;
+    private final @NlsSafe String relativePathText;
 
     private DirectoryGroup(@NotNull VirtualFile dir) {
       myDir = dir;
       relativePathText = myDir.getPath();
-      update();
-    }
-
-    private DirectoryGroup(@NotNull VirtualFile dir, @NotNull String relativePathText) {
-      myDir = dir;
-      this.relativePathText = relativePathText;
       update();
     }
 
@@ -109,13 +108,13 @@ public class DirectoryGroupingRule extends SingleParentUsageGroupingRule impleme
     }
 
     @Override
-    public Icon getIcon(boolean isOpen) {
+    public Icon getIcon() {
       return myIcon;
     }
 
     @Override
     @NotNull
-    public String getText(UsageView view) {
+    public String getPresentableGroupText() {
 
       if (compactMiddleDirectories) {
         List<String> parentPathList = CompactGroupHelper.pathToPathList(myDir.getPath());
@@ -178,7 +177,7 @@ public class DirectoryGroupingRule extends SingleParentUsageGroupingRule impleme
 
     @Override
     public int compareTo(@NotNull UsageGroup usageGroup) {
-      return getText(null).compareToIgnoreCase(usageGroup.getText(null));
+      return getPresentableGroupText().compareToIgnoreCase(usageGroup.getPresentableGroupText());
     }
 
     public boolean equals(Object o) {
@@ -191,98 +190,22 @@ public class DirectoryGroupingRule extends SingleParentUsageGroupingRule impleme
       return myDir.hashCode();
     }
 
+    @Nullable
     @Override
-    public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
-      if (!isValid()) return;
-      if (CommonDataKeys.VIRTUAL_FILE == key) {
-        sink.put(CommonDataKeys.VIRTUAL_FILE, myDir);
+    public Object getData(@NotNull String dataId) {
+      if (!isValid()) return null;
+      if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
+        return myDir;
       }
-      if (CommonDataKeys.PSI_ELEMENT == key) {
-        sink.put(CommonDataKeys.PSI_ELEMENT, getDirectory());
+      if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
+        return getDirectory();
       }
+      return null;
     }
 
     @Override
     public String toString() {
-      return "Directory:" + myDir.getName();
-    }
-
-    @Override
-    public boolean hasCommonParent(@NotNull CompactGroup group) {
-      if(compactMiddleDirectories) {
-        if (group instanceof DirectoryGroup) {
-          return !CompactGroupHelper.findLongestCommonParent(this.relativePathText, ((DirectoryGroup)group).relativePathText).isEmpty();
-        }
-      }
-      return false;
-    }
-
-    @Override
-    public boolean isParentOf(@NotNull CompactGroup group) {
-      if(compactMiddleDirectories) {
-        if (group instanceof DirectoryGroup) {
-          return ((DirectoryGroup)group).myDir.getPath().startsWith(this.myDir.getPath());
-        }
-      }
-      return false;
-    }
-
-    @Override
-    public CompactGroup merge(@NotNull CompactGroup group) {
-      if(compactMiddleDirectories) {
-        if (this.isParentOf(group)) {
-          return new DirectoryGroup(((DirectoryGroup)group).myDir, ((DirectoryGroup)group).relativePathText);
-        }
-      }
-      return this;
-    }
-
-    @NotNull
-    @Override
-    public List<CompactGroup> split(@NotNull CompactGroup group, boolean doNothingIfSubGroup) {
-
-      if (group instanceof DirectoryGroup && compactMiddleDirectories) {
-        if (this.isParentOf(group)) {
-          if (doNothingIfSubGroup) {
-            return new ArrayList<>();
-          }
-        }
-        VirtualFile myDir = this.myDir;
-        List<String> paths = CompactGroupHelper.findLongestCommonParent(this.relativePathText, ((DirectoryGroup)group).relativePathText);
-
-        if (!paths.isEmpty()) {
-          VirtualFile parent = myDir;
-          List<String> parentPath = CompactGroupHelper.pathToPathList(parent.getPath());
-          List<String> newCommonPath = CompactGroupHelper.pathToPathList(paths.get(0));
-          Collections.reverse(parentPath);
-          Collections.reverse(newCommonPath);
-
-          while (parent.getParent() != null && !CompactGroupHelper.listStartsWith(parentPath, newCommonPath)) {
-            parent = parent.getParent();
-            parentPath = CompactGroupHelper.pathToPathList(parent.getPath());
-            newCommonPath = CompactGroupHelper.pathToPathList(paths.get(0));
-            Collections.reverse(parentPath);
-            Collections.reverse(newCommonPath);
-          }
-
-          List<CompactGroup> newGroups = new ArrayList<>();
-          newGroups.add(new DirectoryGroup(parent, paths.get(0)));
-          if (paths.size() == 2) {
-            if (this.isParentOf(group)) {
-              newGroups.add(new DirectoryGroup(((DirectoryGroup)group).myDir, paths.get(1)));
-            }
-            else {
-              newGroups.add(new DirectoryGroup(myDir, paths.get(1)));
-            }
-          }
-          else if (paths.size() == 3) {
-            newGroups.add(new DirectoryGroup(myDir, paths.get(1)));
-            newGroups.add(new DirectoryGroup(((DirectoryGroup)group).myDir, paths.get(2)));
-          }
-          return newGroups;
-        }
-      }
-      return new ArrayList<>();
+      return UsageViewBundle.message("directory.0", myDir.getName());
     }
   }
 }

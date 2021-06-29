@@ -23,6 +23,7 @@ import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.text.ImmutableCharSequence;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NonNls;
 
 import java.util.List;
 
@@ -89,7 +90,8 @@ final class CompletionAssertions {
   }
 
   private static Attachment createAstAttachment(PsiFile fileCopy, final PsiFile originalFile) {
-    return new Attachment(originalFile.getViewProvider().getVirtualFile().getPath() + " syntactic tree.txt", DebugUtil.psiToString(fileCopy, false, true));
+    return new Attachment(originalFile.getViewProvider().getVirtualFile().getPath() + " syntactic tree.txt", DebugUtil.psiToString(fileCopy,
+                                                                                                                                   true, true));
   }
 
   private static Attachment createFileTextAttachment(PsiFile fileCopy, final PsiFile originalFile) {
@@ -149,7 +151,7 @@ final class CompletionAssertions {
     return left.toString().equals(right.toString());
   }
 
-  static void assertCorrectOriginalFile(String prefix, PsiFile file, PsiFile copy) {
+  static void assertCorrectOriginalFile(@NonNls String prefix, PsiFile file, PsiFile copy) {
     if (copy.getOriginalFile() != file) {
       throw new AssertionError(prefix + " copied file doesn't have correct original: noOriginal=" + (copy.getOriginalFile() == copy) +
                                "\n file " + fileInfo(file) +
@@ -157,7 +159,7 @@ final class CompletionAssertions {
     }
   }
 
-  private static String fileInfo(PsiFile file) {
+  private static @NonNls String fileInfo(PsiFile file) {
     return file + " of " + file.getClass() +
            " in " + file.getViewProvider() + ", languages=" + file.getViewProvider().getLanguages() +
            ", physical=" + file.isPhysical();

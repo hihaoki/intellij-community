@@ -23,6 +23,14 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
   private static final Logger LOG = Logger.getInstance(WriteAction.class);
 
   /**
+   * @deprecated Use {@link #run(ThrowableRunnable)} or {@link #compute(ThrowableComputable)} or similar method instead
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
+  public WriteAction() {
+  }
+
+  /**
    * @deprecated use {@link #run(ThrowableRunnable)}
    * or {@link #compute(ThrowableComputable)}
    * or (if really desperate) {@link #computeAndWait(ThrowableComputable)} instead
@@ -35,7 +43,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
 
     Application application = ApplicationManager.getApplication();
     if (application.isWriteThread()) {
-      AccessToken token = start(getClass());
+      AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(getClass());
       try {
         result.run();
       }
@@ -50,7 +58,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
     }
 
     WriteThread.invokeAndWait(() -> {
-      AccessToken token = start(getClass());
+      AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(getClass());
       try {
         result.run();
       }
@@ -59,10 +67,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
       }
     });
 
-    if (!isSilentExecution()) {
-      result.throwException();
-    }
-
+    result.throwException();
     return result;
   }
 
@@ -76,20 +81,8 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
   @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
   public static AccessToken start() {
     // get useful information about the write action
-    Class callerClass = ObjectUtils.notNull(ReflectionUtil.getCallerClass(3), WriteAction.class);
-    return start(callerClass);
-  }
-
-  /**
-   * @deprecated Use {@link #run(ThrowableRunnable)} or {@link #compute(ThrowableComputable)} instead
-   * @see #run(ThrowableRunnable)
-   * @see #compute(ThrowableComputable)
-   */
-  @Deprecated
-  @NotNull
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  private static AccessToken start(@NotNull Class clazz) {
-    return ApplicationManager.getApplication().acquireWriteActionLock(clazz);
+    Class<?> callerClass = ObjectUtils.notNull(ReflectionUtil.getCallerClass(3), WriteAction.class);
+    return ApplicationManager.getApplication().acquireWriteActionLock(callerClass);
   }
 
   /**
@@ -97,13 +90,10 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
    * Must be called from the EDT.
    */
   public static <E extends Throwable> void run(@NotNull ThrowableRunnable<E> action) throws E {
-    @SuppressWarnings("deprecation") AccessToken token = start(action.getClass());
-    try {
+    ApplicationManager.getApplication().runWriteAction((ThrowableComputable<Void, E>)() -> {
       action.run();
-    }
-    finally {
-      token.finish();
-    }
+      return null;
+    });
   }
 
   /**
@@ -119,7 +109,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
    */
   @Deprecated
   @Override
-  protected abstract void run(@NotNull Result<T> result) throws Throwable;
+  protected abstract void run(@NotNull Result<? super T> result) throws Throwable;
 
   /**
    * Executes {@code action} inside write action.
@@ -171,8 +161,8 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
     if (t != null) {
       t.addSuppressed(new RuntimeException()); // preserve the calling thread stacktrace
       ExceptionUtil.rethrowUnchecked(t);
-      @SuppressWarnings("unchecked") E e = (E)t;
-      throw e;
+      //noinspection unchecked
+      throw (E)t;
     }
 
     return result.get();

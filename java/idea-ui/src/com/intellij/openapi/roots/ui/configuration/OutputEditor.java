@@ -17,6 +17,7 @@
 package com.intellij.openapi.roots.ui.configuration;
 
 import com.intellij.ide.JavaUiBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
@@ -35,7 +36,7 @@ public class OutputEditor extends ModuleElementsEditor {
   private final AnnotationsEditor myAnnotationsEditor;
   private final List<ModuleElementsEditor> myEditors;
 
-  protected OutputEditor(final ModuleConfigurationState state) {
+  public OutputEditor(final ModuleConfigurationState state) {
     super(state);
     myCompilerOutputEditor = new BuildElementsEditor(state);
     myJavadocEditor = new JavadocEditor(state);
@@ -68,6 +69,7 @@ public class OutputEditor extends ModuleElementsEditor {
   }
 
   @Override
+  @NlsContexts.ConfigurableName
   public String getDisplayName() {
     return getName();
   }
@@ -92,7 +94,7 @@ public class OutputEditor extends ModuleElementsEditor {
     return "projectStructure.modules.paths";
   }
 
-  public static String getName() {
+  public static @NlsContexts.ConfigurableName String getName() {
     return JavaUiBundle.message("project.roots.path.tab.title");
   }
 }

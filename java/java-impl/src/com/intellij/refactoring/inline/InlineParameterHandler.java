@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.inline;
 
 import com.intellij.codeInsight.PsiEquivalenceUtil;
@@ -46,9 +32,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+
 public class InlineParameterHandler extends JavaInlineActionHandler {
   private static final String REFACTORING_ID = "refactoring.inline.parameter";
 
@@ -206,9 +190,9 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     }
 
     if (!ApplicationManager.getApplication().isUnitTestMode()) {
-      String occurencesString = RefactoringBundle.message("occurrences.string", occurrences.size());
+      String occurrencesString = RefactoringBundle.message("occurrences.string", occurrences.size());
       String question = JavaRefactoringBundle.message("inline.parameter.confirmation", psiParameter.getName(),
-                                                  constantExpression.getText()) + " " + occurencesString;
+                                                  constantExpression.getText()) + " " + occurrencesString;
       RefactoringMessageDialog dialog = new RefactoringMessageDialog(
         getRefactoringName(),
         question,
@@ -265,6 +249,9 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     final PsiField field1 = getReferencedFinalField(expr1);
     final PsiField field2 = getReferencedFinalField(expr2);
     if (field1 != null && field1 == field2) {
+      if (field1.hasModifierProperty(PsiModifier.STATIC)) {
+        return true;
+      }
       PsiExpression q1 = ((PsiReferenceExpression)expr1).getQualifierExpression();
       PsiExpression q2 = ((PsiReferenceExpression)expr2).getQualifierExpression();
       return q1 == null && q2 == null ||
@@ -276,7 +263,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
   }
 
   @Nullable
-  private static String getCannotInlineMessage(final PsiParameter psiParameter, final PsiMethod method) {
+  private static @NlsContexts.DialogMessage String getCannotInlineMessage(final PsiParameter psiParameter, final PsiMethod method) {
     if (psiParameter.isVarArgs()) {
       return JavaRefactoringBundle.message("inline.parameter.error.varargs");
     }
@@ -286,7 +273,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     }
 
     if (!method.getManager().isInProject(method)) {
-      return "Inline is not supported for non-project methods";
+      return JavaRefactoringBundle.message("inline.parameter.error.non.project.method");
     }
     return null;
   }
@@ -294,7 +281,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
   @Nullable
   @Override
   public String getActionName(PsiElement element) {
-    return getRefactoringName() + "...";
+    return JavaRefactoringBundle.message("inline.parameter.action.name");
   }
 
   public static @NlsContexts.DialogTitle String getRefactoringName() {

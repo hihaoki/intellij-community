@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.conversion.impl;
 
 import com.intellij.conversion.CannotConvertException;
@@ -6,7 +6,7 @@ import com.intellij.conversion.ConverterProvider;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
 import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.util.PathUtil;
+import com.intellij.util.PathUtilRt;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMaps;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
@@ -40,7 +40,9 @@ final class CachedConversionResult {
   }
 
   static @NotNull Path getConversionInfoFile(@NotNull Path projectFile) {
-    String dirName = PathUtil.suggestFileName(projectFile.getFileName().toString() + Integer.toHexString(projectFile.toAbsolutePath().hashCode()));
+    // https://youtrack.jetbrains.com/issue/IDEA-256011
+    Path projectFileFileName = projectFile.getFileName();
+    String dirName = PathUtilRt.suggestFileName((projectFileFileName == null ? "" : projectFileFileName.toString()) + Integer.toHexString(projectFile.toAbsolutePath().hashCode()));
     return Paths.get(PathManager.getSystemPath(), "conversion", dirName + ".xml");
   }
 
@@ -53,7 +55,8 @@ final class CachedConversionResult {
     point.processIdentifiableImplementations((supplier, id) -> {
       String providerId = id;
       if (providerId == null) {
-        providerId = supplier.get().getDeprecatedId();
+        ConverterProvider provider = supplier.get();
+        providerId = provider == null ? null : provider.getDeprecatedId();
       }
 
       if (providerId != null) {
@@ -64,7 +67,7 @@ final class CachedConversionResult {
     Element projectFiles = new Element("project-files");
     root.addContent(projectFiles);
 
-    String basePathWithSlash = baseDir.toString() + File.separator;
+    String basePathWithSlash = baseDir + File.separator;
     for (ObjectIterator<Object2LongMap.Entry<String>> iterator = Object2LongMaps.fastIterator(projectFilesMap); iterator.hasNext(); ) {
       Object2LongMap.Entry<String> entry = iterator.next();
       Element element = new Element("f");
@@ -88,7 +91,7 @@ final class CachedConversionResult {
 
     Object2LongMap<String> projectFilesTimestamps = createPathToLastModifiedMap();
     CachedConversionResult result = new CachedConversionResult(new HashSet<>(), projectFilesTimestamps);
-    String basePathWithSlash = baseDir.toString() + File.separator;
+    String basePathWithSlash = baseDir + File.separator;
     for (Element child : root.getChildren()) {
       if (child.getName().equals("applied-converters")) {
         for (Element element : child.getChildren()) {

@@ -17,6 +17,7 @@ package com.intellij.designer.componentTree;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.actions.DesignerActionPanel;
 import com.intellij.designer.actions.SelectAllAction;
 import com.intellij.designer.actions.StartInplaceEditing;
@@ -215,7 +216,7 @@ public final class ComponentTree extends Tree implements DataProvider {
   private void installCellRenderer() {
     setCellRenderer(new ColoredTreeCellRenderer() {
       @Override
-      public void customizeCellRenderer(JTree tree,
+      public void customizeCellRenderer(@NotNull JTree tree,
                                         Object value,
                                         boolean selected,
                                         boolean expanded,
@@ -245,7 +246,7 @@ public final class ComponentTree extends Tree implements DataProvider {
           if (myDesigner == null) {
             throw e;
           }
-          myDesigner.showError("Tree paint operation", e);
+          myDesigner.showError(DesignerBundle.message("designer.error.tree.paint.operation"), e);
         }
       }
     });

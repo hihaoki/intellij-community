@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options;
 
 import com.intellij.icons.AllIcons;
@@ -9,45 +9,39 @@ import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Splitter;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.platform.ModuleAttachProcessor;
 import com.intellij.ui.CollectionListModel;
 import com.intellij.ui.ListSpeedSearch;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBScrollPane;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author yole
- */
+
 public abstract class ModuleAwareProjectConfigurable<T extends UnnamedConfigurable> implements SearchableConfigurable,
                                                                                                Configurable.NoScroll {
   @NotNull
   private final Project myProject;
-  private final String myDisplayName;
+  private final @NlsContexts.ConfigurableName String myDisplayName;
   private final String myHelpTopic;
   private final Map<Module, T> myModuleConfigurables = new HashMap<>();
   private final static String PROJECT_ITEM_KEY = "thisisnotthemoduleyouarelookingfor";
 
-  public ModuleAwareProjectConfigurable(@NotNull Project project, String displayName, @NonNls String helpTopic) {
+  public ModuleAwareProjectConfigurable(@NotNull Project project, @NlsContexts.ConfigurableName String displayName, @NonNls String helpTopic) {
     myProject = project;
     myDisplayName = displayName;
     myHelpTopic = helpTopic;
   }
 
-  @Nls
   @Override
   public String getDisplayName() {
     return myDisplayName;
@@ -85,15 +79,7 @@ public abstract class ModuleAwareProjectConfigurable<T extends UnnamedConfigurab
     final Splitter splitter = new Splitter(false, 0.25f);
     CollectionListModel<Module> listDataModel = new CollectionListModel<>(modules);
     final JBList<Module> moduleList = new JBList<>(listDataModel);
-    new ListSpeedSearch<>(moduleList, (Function<Object, String>)o -> {
-      if (o == null) {
-        return getProjectConfigurableItemName();
-      }
-      else if (o instanceof Module) {
-        return ((Module)o).getName();
-      }
-      return null;
-    });
+    new ListSpeedSearch<>(moduleList, o -> o == null ? getProjectConfigurableItemName() : o.getName());
     moduleList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     moduleList.setCellRenderer(new ModuleListCellRenderer() {
       @Override
@@ -126,12 +112,9 @@ public abstract class ModuleAwareProjectConfigurable<T extends UnnamedConfigurab
       final JComponent component = configurable.createComponent();
       cardPanel.add(component, module.getName());
     }
-    moduleList.addListSelectionListener(new ListSelectionListener() {
-      @Override
-      public void valueChanged(ListSelectionEvent e) {
-        final Module value = moduleList.getSelectedValue();
-        layout.show(cardPanel, value == null ? PROJECT_ITEM_KEY : value.getName());
-      }
+    moduleList.addListSelectionListener(__ -> {
+      final Module value = moduleList.getSelectedValue();
+      layout.show(cardPanel, value == null ? PROJECT_ITEM_KEY : value.getName());
     });
 
     if (moduleList.getItemsCount() > 0) {
@@ -161,7 +144,7 @@ public abstract class ModuleAwareProjectConfigurable<T extends UnnamedConfigurab
    * @return Name for project-wide settings in modules list
    */
   @NotNull
-  protected String getProjectConfigurableItemName() {
+  protected @NlsContexts.Label String getProjectConfigurableItemName() {
     return myProject.getName();
   }
 

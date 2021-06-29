@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.openapi.application.ApplicationStarter;
@@ -7,7 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 public class InspectionMain implements ApplicationStarter {
-  private InspectionApplication myApplication;
+  private InspectionApplicationBase myApplication;
 
   @Override
   public String getCommandName() {
@@ -21,13 +21,16 @@ public class InspectionMain implements ApplicationStarter {
 
   @Override
   public void premain(@NotNull List<String> args) {
+    InspectionApplication.LOG.info("Command line arguments: " + args);
+    if (args.size() > 1 && "qodana".equals(args.get(1))) {
+      myApplication = InspectionApplicationFactory.getApplication("qodana", args.subList(2, args.size()));
+      return;
+    }
+    myApplication = new InspectionApplication();
     if (args.size() < 4) {
       System.err.println("invalid args:" + args);
       printHelp();
     }
-
-    //System.setProperty("idea.load.plugins.category", "inspection");
-    myApplication = new InspectionApplication();
 
     myApplication.myHelpProvider = () -> printHelp();
     myApplication.myProjectPath = args.get(1);
@@ -56,6 +59,9 @@ public class InspectionMain implements ApplicationStarter {
         else if ("-scope".equals(arg)) {
           myApplication.myScopePattern = args.get(++i);
         }
+        else if ("-targets".equals(arg)) {
+          myApplication.myTargets = args.get(++i);
+        }
         else if ("-format".equals(arg)) {
           myApplication.myOutputFormat = args.get(++i);
         }
@@ -79,6 +85,9 @@ public class InspectionMain implements ApplicationStarter {
         }
         else if ("-changes".equals(arg)) {
           myApplication.myAnalyzeChanges = true;
+        }
+        else //noinspection StatementWithEmptyBody
+          if ("-qodana".equals(arg)) {
         }
         else {
           System.err.println("unexpected argument: " + arg);

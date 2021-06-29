@@ -255,7 +255,7 @@ public class RainbowHighlighter {
     return rainbowColors.toArray(new Color[0]);
   }
 
-  private static Color resolveConflict(@NotNull final List<Pair<Color, Double>> colorCircles, @NotNull final Color sampleColor, int nestLevel) {
+  private static Color resolveConflict(final @NotNull List<? extends Pair<Color, Double>> colorCircles, @NotNull final Color sampleColor, int nestLevel) {
     if (nestLevel > 4) {
       return sampleColor;
     }
@@ -307,7 +307,7 @@ public class RainbowHighlighter {
     return new float[]{
       (float)((  0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])/256),
       (float)(( -0.169 * rgb[0] - 0.331 * rgb[1] + 0.500 * rgb[2])/256),
-      (float)(( +0.500 * rgb[0] - 0.419 * rgb[1] - 0.081 * rgb[2])/256)
+      (float)((  0.500 * rgb[0] - 0.419 * rgb[1] - 0.081 * rgb[2])/256)
     };
   } 
 

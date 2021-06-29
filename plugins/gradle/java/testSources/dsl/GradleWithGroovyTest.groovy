@@ -1,10 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.dsl
 
 import com.intellij.psi.PsiMethod
 import com.intellij.testFramework.RunAll
 import groovy.transform.CompileStatic
-import org.jetbrains.plugins.gradle.highlighting.GradleHighlightingBaseTest
+import org.jetbrains.plugins.gradle.importing.highlighting.GradleHighlightingBaseTest
 import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilityCheckInspection
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall
 import org.jetbrains.plugins.groovy.util.ResolveTest
@@ -24,16 +24,16 @@ class GradleWithGroovyTest extends GradleHighlightingBaseTest implements Resolve
 
   @Test
   void artifactsTest() {
-    importProject("apply plugin: 'java'; dependencies { compile 'org.codehaus.groovy:groovy:2.5.6' }")
-    new RunAll().append {
-      'Project#allprojects call'()
-    } append {
-      'DomainObjectCollection#all call'()
-    } append {
-      'DomainObjectCollection#withType call'()
-    } append {
-      'DGM#collect'()
-    } run()
+    importProject(script {
+      it.withJavaPlugin()
+        .addImplementationDependency("org.codehaus.groovy:groovy:2.5.6", null)
+    })
+    new RunAll(
+      { 'Project#allprojects call'() },
+      { 'DomainObjectCollection#all call'() },
+      { 'DomainObjectCollection#withType call'() },
+      { 'DGM#collect'() }
+    ).run()
   }
 
   void 'Project#allprojects call'() {

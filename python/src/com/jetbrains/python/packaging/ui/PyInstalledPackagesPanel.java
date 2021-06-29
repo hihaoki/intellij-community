@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging.ui;
 
 import com.google.common.collect.ImmutableList;
@@ -26,12 +12,14 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.ui.ToggleActionButton;
 import com.intellij.webcore.packaging.InstalledPackage;
 import com.intellij.webcore.packaging.InstalledPackagesPanel;
 import com.intellij.webcore.packaging.PackageManagementService;
 import com.intellij.webcore.packaging.PackagesNotificationPanel;
 import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PySdkBundle;
 import com.jetbrains.python.packaging.*;
 import com.jetbrains.python.sdk.PythonSdkUtil;
 import icons.PythonIcons;
@@ -44,14 +32,16 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
-/**
- * @author yole
- */
+
 public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
   private volatile boolean myHasManagement = false;
 
   public PyInstalledPackagesPanel(@NotNull Project project, @NotNull PackagesNotificationPanel area) {
     super(project, area);
+  }
+
+  public void setShowGrid(boolean v) {
+    myPackagesTable.setShowGrid(v);
   }
 
   private Sdk getSelectedSdk() {
@@ -63,7 +53,7 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
     @NotNull
     @Override
     public String getName() {
-      return "Install packaging tools";
+      return PyBundle.message("python.packaging.install.packaging.tools");
     }
 
     @Override
@@ -103,7 +93,7 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
         myHasManagement = PyPackageManager.getInstance(selectedSdk).hasManagement();
         application.invokeLater(() -> updateUninstallUpgrade(), ModalityState.any());
         if (!myHasManagement) {
-          throw new PyExecutionException("Python packaging tools not found", "pip", Collections.emptyList(), "", "", 0,
+          throw new PyExecutionException(PySdkBundle.message("python.sdk.packaging.tools.not.found"), "pip", Collections.emptyList(), "", "", 0,
                                          ImmutableList.of(new PyInstallPackageManagementFix()));
         }
       }
@@ -120,12 +110,11 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
           if (problem != null) {
             final boolean invalid = PythonSdkUtil.isInvalid(selectedSdk);
             if (!invalid) {
-              final StringBuilder builder = new StringBuilder(problem.getMessage());
-              builder.append(". ");
+              HtmlBuilder builder = new HtmlBuilder();
+              builder.append(problem.getMessage()).append(". ");
               for (final PyExecutionFix fix : problem.getFixes()) {
-                final String key = "id" + fix.hashCode();
-                final String link = "<a href=\"" + key + "\">" + fix.getName() + "</a>";
-                builder.append(link);
+                String key = "id" + fix.hashCode();
+                builder.appendLink(key, fix.getName());
                 builder.append(" ");
                 myNotificationArea.addLinkHandler(key, () -> {
                   final Sdk sdk = getSelectedSdk();

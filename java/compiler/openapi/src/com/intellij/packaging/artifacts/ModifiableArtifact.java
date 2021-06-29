@@ -15,6 +15,7 @@
  */
 package com.intellij.packaging.artifacts;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -23,11 +24,11 @@ public interface ModifiableArtifact extends Artifact {
 
   void setBuildOnMake(boolean enabled);
 
-  void setOutputPath(String outputPath);
+  void setOutputPath(@NlsSafe String outputPath);
 
-  void setName(@NotNull String name);
+  void setName(@NotNull @NlsSafe String name);
 
-  void setRootElement(CompositePackagingElement<?> root);
+  void setRootElement(@NotNull CompositePackagingElement<?> root);
 
   /**
    * Sets custom properties corresponding to {@code provider} in the artifact configuration. If {@code properties} is {@code null} custom

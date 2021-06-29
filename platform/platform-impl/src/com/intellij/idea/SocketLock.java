@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
 import com.intellij.diagnostic.Activity;
+import com.intellij.diagnostic.ActivityCategory;
 import com.intellij.diagnostic.StartUpMeasurer;
 import com.intellij.ide.CliResult;
 import com.intellij.ide.IdeBundle;
@@ -11,9 +12,8 @@ import com.intellij.notification.Notifications;
 import com.intellij.openapi.application.JetBrainsProtocolHandler;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.ExceptionUtilRt;
-import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufOutputStream;
@@ -38,13 +38,12 @@ import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+
+import static com.intellij.ide.SpecialConfigFiles.*;
 
 public final class SocketLock {
   public enum ActivationStatus {ACTIVATED, NO_INSTANCE, CANNOT_ACTIVATE}
@@ -58,16 +57,12 @@ public final class SocketLock {
    */
   public static final String LAUNCHER_INITIAL_DIRECTORY_ENV_VAR = "IDEA_INITIAL_DIRECTORY";
 
-  private static final String PORT_FILE = "port";
-  private static final String PORT_LOCK_FILE = "port.lock";
-  private static final String TOKEN_FILE = "token";
-
   private static final String ACTIVATE_COMMAND = "activate ";
   private static final String PID_COMMAND = "pid";
   private static final String OK_RESPONSE = "ok";
   private static final String PATHS_EOT_RESPONSE = "---";
 
-  private final AtomicReference<Function<List<String>, Future<CliResult>>> myCommandProcessorRef;
+  private final AtomicReference<Function<? super List<String>, ? extends Future<CliResult>>> myCommandProcessorRef;
   private final Path myConfigPath;
   private final Path mySystemPath;
   private final List<AutoCloseable> myLockedFiles = new ArrayList<>(4);
@@ -90,7 +85,7 @@ public final class SocketLock {
     return mySystemPath;
   }
 
-  public void setCommandProcessor(@Nullable Function<List<String>, Future<CliResult>> processor) {
+  public void setCommandProcessor(@Nullable Function<? super List<String>, ? extends Future<CliResult>> processor) {
     myCommandProcessorRef.set(processor);
   }
 
@@ -166,11 +161,11 @@ public final class SocketLock {
     }
 
     myBuiltinServerFuture = CompletableFuture.supplyAsync(() -> {
-      Activity activity = StartUpMeasurer.startActivity("built-in server launch");
+      Activity activity = StartUpMeasurer.startActivity("built-in server launch", ActivityCategory.DEFAULT);
 
       String token = UUID.randomUUID().toString();
       Path[] lockedPaths = {myConfigPath, mySystemPath};
-      BuiltInServer server = BuiltInServer.start(6942, 50, () -> new MyChannelInboundHandler(lockedPaths, myCommandProcessorRef, token));
+      BuiltInServer server = BuiltInServer.Companion.start(6942, 50, false, () -> new MyChannelInboundHandler(lockedPaths, myCommandProcessorRef, token));
       try {
         byte[] portBytes = Integer.toString(server.getPort()).getBytes(StandardCharsets.UTF_8);
         Files.write(myConfigPath.resolve(PORT_FILE), portBytes);
@@ -197,14 +192,14 @@ public final class SocketLock {
 
       activity.end();
       return server;
-    }, AppExecutorUtil.getAppExecutorService());
+    }, ForkJoinPool.commonPool());
 
     log("exit: lock(): succeed");
     return new AbstractMap.SimpleEntry<>(ActivationStatus.NO_INSTANCE, null);
   }
 
   /**
-   * <p>According to https://stackoverflow.com/a/12652718/3463676, file locks should be removed on process segfault.
+   * <p>According to <a href="https://stackoverflow.com/a/12652718/3463676">Stack Overflow</a>, file locks should be removed on process segfault.
    * According to {@link FileLock} documentation, file locks are marked as invalid on JVM termination.</p>
    *
    * <p>Unlocking of port files (via {@link #unlockPortFiles}) happens either after builtin server init, or on app termination.</p>
@@ -259,7 +254,7 @@ public final class SocketLock {
   private @NotNull Map.Entry<ActivationStatus, CliResult> tryActivate(int portNumber, @NotNull List<String> paths, String[] args) {
     log("trying: port=%s", portNumber);
 
-    try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), portNumber)) {
+    try (Socket socket = new Socket(InetAddress.getByName("127.0.0.1"), portNumber)) {
       socket.setSoTimeout(5000);
 
       DataInput in = new DataInputStream(socket.getInputStream());
@@ -268,10 +263,12 @@ public final class SocketLock {
       boolean result = ContainerUtil.intersects(paths, stringList);
       if (result) {
         // update property right now, without scheduling to EDT - in some cases, allows to avoid a splash flickering
-        System.setProperty(CommandLineArgs.NO_SPLASH, "true");
+        System.setProperty(CommandLineArgs.SPLASH, "false");
         EventQueue.invokeLater(() -> {
           Runnable hideSplashTask = SplashManager.getHideTask();
-          if (hideSplashTask != null) hideSplashTask.run();
+          if (hideSplashTask != null) {
+            hideSplashTask.run();
+          }
         });
 
         try {
@@ -282,13 +279,13 @@ public final class SocketLock {
           if (currentDirectory == null) {
             currentDirectory = ".";
           }
-          out.writeUTF(ACTIVATE_COMMAND + token + '\0' + Paths.get(currentDirectory).toAbsolutePath().toString() + '\0' + String.join("\0", args));
+          out.writeUTF(ACTIVATE_COMMAND + token + '\0' + Paths.get(currentDirectory).toAbsolutePath() + '\0' + String.join("\0", args));
           out.flush();
 
           socket.setSoTimeout(0);
           List<String> response = readStringSequence(in);
           log("read: response=%s", String.join(";", response));
-          if (OK_RESPONSE.equals(ContainerUtil.getFirstItem(response))) {
+          if (!response.isEmpty() && OK_RESPONSE.equals(response.get(0))) {
             if (JetBrainsProtocolHandler.isShutdownCommand()) {
               printPID(portNumber);
             }
@@ -341,11 +338,11 @@ public final class SocketLock {
     private enum State {HEADER, CONTENT}
 
     private final List<String> myLockedPaths;
-    private final AtomicReference<Function<List<String>, Future<CliResult>>> myCommandProcessorRef;
+    private final AtomicReference<? extends Function<? super List<String>, ? extends Future<CliResult>>> myCommandProcessorRef;
     private final String myToken;
     private State myState = State.HEADER;
 
-    MyChannelInboundHandler(Path[] lockedPaths, AtomicReference<Function<List<String>, Future<CliResult>>> commandProcessorRef, String token) {
+    MyChannelInboundHandler(Path[] lockedPaths, AtomicReference<? extends Function<? super List<String>, ? extends Future<CliResult>>> commandProcessorRef, String token) {
       myLockedPaths = new ArrayList<>(lockedPaths.length);
       for (Path path : lockedPaths) {
         myLockedPaths.add(path.toString());
@@ -381,7 +378,7 @@ public final class SocketLock {
               return;
             }
 
-            if (StringUtil.startsWith(command, PID_COMMAND)) {
+            if (StringUtilRt.startsWith(command, PID_COMMAND)) {
               ByteBuf buffer = context.alloc().ioBuffer();
               try (ByteBufOutputStream out = new ByteBufOutputStream(buffer)) {
                 String name = ManagementFactory.getRuntimeMXBean().getName();
@@ -390,13 +387,20 @@ public final class SocketLock {
               context.writeAndFlush(buffer);
             }
 
-            if (StringUtil.startsWith(command, ACTIVATE_COMMAND)) {
+            if (StringUtilRt.startsWith(command, ACTIVATE_COMMAND)) {
               String data = command.subSequence(ACTIVATE_COMMAND.length(), command.length()).toString();
-              List<String> args = StringUtil.split(data, data.contains("\0") ? "\0" : "\uFFFD");
-
+              StringTokenizer tokenizer = new StringTokenizer(data, data.contains("\0") ? "\0" : "\uFFFD");
               CliResult result;
-              boolean tokenOK = !args.isEmpty() && myToken.equals(args.get(0));
-              if (!tokenOK) {
+              boolean tokenOK = tokenizer.hasMoreTokens() && myToken.equals(tokenizer.nextToken());
+              if (tokenOK) {
+                List<String> list = new ArrayList<>();
+                while (tokenizer.hasMoreTokens()) {
+                  list.add(tokenizer.nextToken());
+                }
+                Future<CliResult> future = myCommandProcessorRef.get().apply(list);
+                result = CliResult.unmap(future, Main.ACTIVATE_ERROR);
+              }
+              else {
                 log(new UnsupportedOperationException("unauthorized request: " + command));
                 Notifications.Bus.notify(new Notification(
                   Notifications.SYSTEM_MESSAGES_GROUP_ID,
@@ -404,10 +408,6 @@ public final class SocketLock {
                   IdeBundle.message("activation.auth.message"),
                   NotificationType.WARNING));
                 result = new CliResult(Main.ACTIVATE_WRONG_TOKEN_CODE, IdeBundle.message("activation.auth.message"));
-              }
-              else {
-                Future<CliResult> future = myCommandProcessorRef.get().apply(args.subList(1, args.size()));
-                result = CliResult.unmap(future, Main.ACTIVATE_ERROR);
               }
 
               List<String> response = new ArrayList<>();

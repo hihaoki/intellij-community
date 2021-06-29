@@ -11,6 +11,7 @@ import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.lang.properties.psi.Property;
 import com.intellij.lang.properties.references.PropertyReference;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.xml.XmlElement;
@@ -26,16 +27,18 @@ import com.intellij.util.xml.reflect.DomAttributeChildDescription;
 import com.intellij.util.xml.reflect.DomChildrenDescription;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.devkit.DevKitBundle;
 import org.jetbrains.idea.devkit.dom.*;
 import org.jetbrains.idea.devkit.util.DescriptorI18nUtil;
 
 import java.util.List;
 import java.util.Set;
-import java.util.function.Function;
 
 public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspectionBase {
+
   @Override
   protected void checkDomElement(DomElement element, DomElementAnnotationHolder holder, DomHighlightingHelper helper) {
     if (element instanceof ActionOrGroup) {
@@ -47,6 +50,9 @@ public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspection
     else if (element instanceof Separator) {
       checkSeparator((Separator)element, holder);
     }
+    else if (element instanceof Synonym) {
+      checkSynonym((Synonym)element, holder);
+    }
     else if (element instanceof Extension) {
       checkExtension((Extension)element, holder);
     }
@@ -56,74 +62,57 @@ public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspection
   }
 
   private static void checkSeparator(Separator separator, DomElementAnnotationHolder holder) {
-    checkPropertyCapitalization(holder, separator.getKey(), Nls.Capitalization.Title, separator.getKey().getStringValue(), false);
+    if (checkCapitalization(holder, separator.getText(), Nls.Capitalization.Title)) return;
+    checkCapitalizationWithKey(holder, separator.getKey(), Nls.Capitalization.Title);
+  }
+
+  private static void checkSynonym(Synonym synonym, DomElementAnnotationHolder holder) {
+    if (checkCapitalization(holder, synonym.getText(), Nls.Capitalization.Title)) return;
+    checkCapitalizationWithKey(holder, synonym.getKey(), Nls.Capitalization.Title);
   }
 
   private static void checkOverrideText(OverrideText overrideText, DomElementAnnotationHolder holder) {
     if (checkCapitalization(holder, overrideText.getText(), Nls.Capitalization.Title)) return;
 
-    Action action = overrideText.getParentOfType(Action.class, true);
-    assert action != null;
-    final String resourceKey = "action." + action.getId().getStringValue() + "." + overrideText.getPlace().getStringValue() + ".text";
+    if (DomUtil.hasXml(overrideText.getUseTextOfPlace())) return;
+
+    ActionOrGroup actionOrGroup = overrideText.getParentOfType(ActionOrGroup.class, true);
+    assert actionOrGroup != null;
     checkPropertyCapitalization(holder, overrideText, Nls.Capitalization.Title,
-                                resourceKey, true);
+                                ActionOrGroup.TextType.TEXT.getMessageKey(actionOrGroup, overrideText), true);
   }
 
   private static void checkActionOrGroup(ActionOrGroup actionOrGroup, DomElementAnnotationHolder holder) {
-    checkActionOrGroupCapitalization(holder, actionOrGroup, ActionOrGroupText.TEXT);
-    checkActionOrGroupCapitalization(holder, actionOrGroup, ActionOrGroupText.DESCRIPTION);
-  }
-
-  enum ActionOrGroupText {
-
-    TEXT(ActionOrGroup::getText, Nls.Capitalization.Title, ".text", actionOrGroup -> {
-      if (!(actionOrGroup instanceof Action)) return false;
-      final PsiClass actionClass = ((Action)actionOrGroup).getClazz().getValue();
-      return actionClass == null || actionClass.getConstructors().length == 0;
-    }),
-
-    DESCRIPTION(ActionOrGroup::getDescription, Nls.Capitalization.Sentence, ".description", actionOrGroup -> false);
-
-    private final Function<ActionOrGroup, GenericDomValue> myGetter;
-    private final Nls.Capitalization myCapitalization;
-    private final String mySuffix;
-    private final Function<ActionOrGroup, Boolean> myRequired;
-
-    ActionOrGroupText(Function<ActionOrGroup, GenericDomValue> getter,
-                      Nls.Capitalization capitalization, String propertyKeySuffix,
-                      Function<ActionOrGroup, Boolean> required) {
-      myGetter = getter;
-      myCapitalization = capitalization;
-      mySuffix = propertyKeySuffix;
-      myRequired = required;
-    }
+    checkActionOrGroupCapitalization(holder, actionOrGroup, ActionOrGroup.TextType.TEXT);
+    checkActionOrGroupCapitalization(holder, actionOrGroup, ActionOrGroup.TextType.DESCRIPTION);
   }
 
   private static void checkActionOrGroupCapitalization(DomElementAnnotationHolder holder,
                                                        ActionOrGroup actionOrGroup,
-                                                       ActionOrGroupText actionOrGroupText) {
-    final GenericDomValue genericDomValue = actionOrGroupText.myGetter.apply(actionOrGroup);
-    final Nls.Capitalization capitalization = actionOrGroupText.myCapitalization;
+                                                       ActionOrGroup.TextType textType) {
+    final GenericDomValue<String> genericDomValue = textType.getDomValue(actionOrGroup);
+    final Nls.Capitalization capitalization = textType.getCapitalization();
     if (checkCapitalization(holder, genericDomValue, capitalization)) return;
 
     checkPropertyCapitalization(holder, actionOrGroup, capitalization,
-                                "action." + actionOrGroup.getId().getStringValue() + actionOrGroupText.mySuffix,
-                                actionOrGroupText.myRequired.apply(actionOrGroup));
+                                textType.getMessageKey(actionOrGroup),
+                                textType.isRequired(actionOrGroup));
   }
 
   private static void checkPropertyCapitalization(DomElementAnnotationHolder holder,
                                                   DomElement domElement,
                                                   Nls.Capitalization capitalization,
-                                                  @Nullable String resourceKey, boolean required) {
+                                                  @NonNls @Nullable String resourceKey, boolean required) {
     if (resourceKey == null) return;
-    
+
     final PropertiesFile bundleFile = DescriptorI18nUtil.findBundlePropertiesFile(domElement);
     if (bundleFile == null) return;
 
     final Property property = ObjectUtils.tryCast(bundleFile.findPropertyByKey(resourceKey), Property.class);
     if (property == null) {
       if (required) {
-        holder.createProblem(domElement, "Missing resource bundle key '" + resourceKey + "'");
+        holder.createProblem(domElement,
+                             DevKitBundle.message("inspections.plugin.xml.capitalization.missing.resource.bundle.key", resourceKey));
       }
     }
     else {
@@ -225,7 +214,7 @@ public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspection
                                               @Nullable Property property) {
     if (StringUtil.isEmptyOrSpaces(value)) return;
 
-    final String escapedValue = XmlUtil.unescape(value).replace("_", "");
+    @NlsSafe final String escapedValue = XmlUtil.unescape(value).replace("_", "");
     if (NlsCapitalizationUtil.isCapitalizationSatisfied(escapedValue, capitalization)) {
       return;
     }
@@ -238,12 +227,12 @@ public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspection
 
       @Override
       public @IntentionName @NotNull String getName() {
-        return "Properly capitalize '" + escapedValue + '\'';
+        return DevKitBundle.message("inspections.plugin.xml.capitalization.fix.properly.capitalize", escapedValue);
       }
 
       @Override
       public @IntentionFamilyName @NotNull String getFamilyName() {
-        return "Properly capitalize";
+        return DevKitBundle.message("inspections.plugin.xml.capitalization.fix.properly.capitalize.family.name");
       }
 
       @Override
@@ -260,8 +249,9 @@ public class PluginXmlCapitalizationInspection extends DevKitPluginXmlInspection
 
 
     holder.createProblem(domElement,
-                         "String '" + escapedValue + "' is not properly capitalized. " +
-                         "It should have " + StringUtil.toLowerCase(capitalization.toString()) + " capitalization",
+                         DevKitBundle.message("inspections.plugin.xml.capitalization.error",
+                                              escapedValue,
+                                              StringUtil.toLowerCase(capitalization.toString())),
                          quickFix);
   }
 }

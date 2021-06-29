@@ -1,24 +1,28 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.timeline
 
+import com.intellij.collaboration.async.CompletableFutureUtil.successOnEdt
+import com.intellij.collaboration.ui.codereview.timeline.TimelineItemComponentFactory
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.plugins.newui.HorizontalLayout
 import com.intellij.ide.plugins.newui.VerticalLayout
 import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.project.Project
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.labels.LinkLabel
 import com.intellij.ui.components.labels.LinkListener
 import com.intellij.ui.components.panels.HorizontalBox
 import com.intellij.ui.components.panels.NonOpaquePanel
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UI
 import com.intellij.util.ui.UIUtil
-import icons.GithubIcons
 import net.miginfocom.layout.CC
 import net.miginfocom.layout.LC
 import net.miginfocom.swing.MigLayout
 import org.intellij.lang.annotations.Language
+import org.jetbrains.plugins.github.GithubIcons
 import org.jetbrains.plugins.github.api.data.GHActor
 import org.jetbrains.plugins.github.api.data.GHGitActor
 import org.jetbrains.plugins.github.api.data.GHIssueComment
@@ -31,22 +35,23 @@ import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineEvent
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem
 import org.jetbrains.plugins.github.i18n.GithubBundle
-import org.jetbrains.plugins.github.pullrequest.avatars.GHAvatarIconsProvider
 import org.jetbrains.plugins.github.pullrequest.comment.ui.GHPRReviewThreadComponent
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRCommentsDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDetailsDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRReviewDataProvider
 import org.jetbrains.plugins.github.pullrequest.ui.GHEditableHtmlPaneHandle
 import org.jetbrains.plugins.github.pullrequest.ui.GHTextActions
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
+import org.jetbrains.plugins.github.ui.util.GHUIUtil
 import org.jetbrains.plugins.github.ui.util.HtmlEditorPane
-import org.jetbrains.plugins.github.util.GithubUIUtil
-import org.jetbrains.plugins.github.util.successOnEdt
+import java.awt.Dimension
 import java.util.*
 import javax.swing.*
 import kotlin.math.ceil
 import kotlin.math.floor
 
-class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDetailsDataProvider,
+class GHPRTimelineItemComponentFactory(private val project: Project,
+                                       private val detailsDataProvider: GHPRDetailsDataProvider,
                                        private val commentsDataProvider: GHPRCommentsDataProvider,
                                        private val reviewDataProvider: GHPRReviewDataProvider,
                                        private val avatarIconsProvider: GHAvatarIconsProvider,
@@ -54,9 +59,9 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
                                        private val reviewDiffComponentFactory: GHPRReviewThreadDiffComponentFactory,
                                        private val eventComponentFactory: GHPRTimelineEventComponentFactory<GHPRTimelineEvent>,
                                        private val selectInToolWindowHelper: GHPRSelectInToolWindowHelper,
-                                       private val currentUser: GHUser) {
+                                       private val currentUser: GHUser) : TimelineItemComponentFactory<GHPRTimelineItem> {
 
-  fun createComponent(item: GHPRTimelineItem): Item {
+  override fun createComponent(item: GHPRTimelineItem): Item {
     try {
       return when (item) {
         is GHPullRequestCommitShort -> createComponent(item)
@@ -76,10 +81,10 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
 
   private fun createComponent(commit: GHPullRequestCommitShort): Item {
     val gitCommit = commit.commit
-    val titlePanel = NonOpaquePanel(HorizontalLayout(UI.scale(8))).apply {
+    val titlePanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(8))).apply {
       add(userAvatar(gitCommit.author))
       add(HtmlEditorPane(gitCommit.messageHeadlineHTML))
-      add(LinkLabel<Any?>(gitCommit.abbreviatedOid, null) { _, _ ->
+      add(ActionLink(gitCommit.abbreviatedOid) {
         selectInToolWindowHelper.selectCommit(gitCommit.abbreviatedOid)
       })
     }
@@ -92,7 +97,8 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
     val actionsPanel: JPanel?
     if (details is GHPullRequest) {
       val textPane = HtmlEditorPane(details.bodyHTML)
-      val panelHandle = GHEditableHtmlPaneHandle(textPane,
+      val panelHandle = GHEditableHtmlPaneHandle(project,
+                                                 textPane,
                                                  { detailsDataProvider.getDescriptionMarkdownBody(EmptyProgressIndicator()) },
                                                  { newText ->
                                                    detailsDataProvider.updateDetails(EmptyProgressIndicator(),
@@ -101,7 +107,7 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
                                                    }
                                                  })
       contentPanel = panelHandle.panel
-      actionsPanel = if (details.viewerCanUpdate) NonOpaquePanel(HorizontalLayout(UI.scale(8))).apply {
+      actionsPanel = if (details.viewerCanUpdate) NonOpaquePanel(HorizontalLayout(JBUIScale.scale(8))).apply {
         add(GHTextActions.createEditButton(panelHandle))
       }
       else null
@@ -110,7 +116,7 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
       contentPanel = null
       actionsPanel = null
     }
-    val titlePanel = NonOpaquePanel(HorizontalLayout(UI.scale(12))).apply {
+    val titlePanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(12))).apply {
       add(actionTitle(details.author, GithubBundle.message("pull.request.timeline.created"), details.createdAt))
       if (actionsPanel != null && actionsPanel.componentCount > 0) add(actionsPanel)
     }
@@ -120,19 +126,20 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
 
   private fun createComponent(comment: GHIssueComment): Item {
     val textPane = HtmlEditorPane(comment.bodyHTML)
-    val panelHandle = GHEditableHtmlPaneHandle(textPane,
+    val panelHandle = GHEditableHtmlPaneHandle(project,
+                                               textPane,
                                                { commentsDataProvider.getCommentMarkdownBody(EmptyProgressIndicator(), comment.id) },
                                                { newText ->
                                                  commentsDataProvider.updateComment(EmptyProgressIndicator(), comment.id,
                                                                                     newText).successOnEdt { textPane.setBody(it) }
                                                })
-    val actionsPanel = NonOpaquePanel(HorizontalLayout(UI.scale(8))).apply {
+    val actionsPanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(8))).apply {
       if (comment.viewerCanUpdate) add(GHTextActions.createEditButton(panelHandle))
       if (comment.viewerCanDelete) add(GHTextActions.createDeleteButton {
         commentsDataProvider.deleteComment(EmptyProgressIndicator(), comment.id)
       })
     }
-    val titlePanel = NonOpaquePanel(HorizontalLayout(UI.scale(12))).apply {
+    val titlePanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(12))).apply {
       add(actionTitle(comment.author, GithubBundle.message("pull.request.timeline.commented"), comment.createdAt))
       if (actionsPanel.componentCount > 0) add(actionsPanel)
     }
@@ -146,7 +153,8 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
     if (review.bodyHTML.isNotEmpty()) {
       val editorPane = HtmlEditorPane(review.bodyHTML)
       panelHandle =
-        GHEditableHtmlPaneHandle(editorPane,
+        GHEditableHtmlPaneHandle(project,
+                                 editorPane,
                                  { reviewDataProvider.getReviewMarkdownBody(EmptyProgressIndicator(), review.id) },
                                  { newText ->
                                    reviewDataProvider.updateReviewBody(EmptyProgressIndicator(), review.id, newText).successOnEdt {
@@ -158,25 +166,25 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
       panelHandle = null
     }
 
-    val actionsPanel = NonOpaquePanel(HorizontalLayout(UI.scale(8))).apply {
+    val actionsPanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(8))).apply {
       if (panelHandle != null && review.viewerCanUpdate) add(GHTextActions.createEditButton(panelHandle))
     }
 
-    val contentPanel = NonOpaquePanel(VerticalLayout(UI.scale(12))).apply {
+    val contentPanel = NonOpaquePanel(VerticalLayout(JBUIScale.scale(12))).apply {
       border = JBUI.Borders.emptyTop(4)
       if (panelHandle != null) add(panelHandle.panel, VerticalLayout.FILL_HORIZONTAL)
       add(GHPRReviewThreadsPanel.create(reviewThreadsModel) {
-        GHPRReviewThreadComponent.createWithDiff(it, reviewDataProvider, selectInToolWindowHelper, reviewDiffComponentFactory,
+        GHPRReviewThreadComponent.createWithDiff(project, it, reviewDataProvider, selectInToolWindowHelper, reviewDiffComponentFactory,
                                                  avatarIconsProvider, currentUser)
       }, VerticalLayout.FILL_HORIZONTAL)
     }
     val actionText = when (review.state) {
       APPROVED -> GithubBundle.message("pull.request.timeline.approved.changes")
-      CHANGES_REQUESTED -> GithubBundle.message("pull.request.timeline.rejected.changes")
+      CHANGES_REQUESTED -> GithubBundle.message("pull.request.timeline.requested.changes")
       PENDING -> GithubBundle.message("pull.request.timeline.started.review")
       COMMENTED, DISMISSED -> GithubBundle.message("pull.request.timeline.reviewed")
     }
-    val titlePanel = NonOpaquePanel(HorizontalLayout(UI.scale(12))).apply {
+    val titlePanel = NonOpaquePanel(HorizontalLayout(JBUIScale.scale(12))).apply {
       add(actionTitle(avatarIconsProvider, review.author, actionText, review.createdAt))
       if (actionsPanel.componentCount > 0) add(actionsPanel)
     }
@@ -189,7 +197,7 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
       PENDING -> GithubIcons.Review
     }
 
-    return Item(icon, titlePanel, contentPanel)
+    return Item(icon, titlePanel, contentPanel, NOT_DEFINED_SIZE)
   }
 
   private fun userAvatar(user: GHActor?): JLabel {
@@ -202,25 +210,27 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
     })
   }
 
-  class Item(val marker: JLabel, title: JComponent, content: JComponent? = null) : JPanel() {
+  class Item(val marker: JLabel, title: JComponent, content: JComponent? = null, size: Dimension = getDefaultSize()) : JPanel() {
 
-    constructor(markerIcon: Icon, title: JComponent, content: JComponent? = null)
-      : this(createMarkerLabel(markerIcon), title, content)
+    constructor(markerIcon: Icon, title: JComponent, content: JComponent? = null, size: Dimension = getDefaultSize())
+      : this(createMarkerLabel(markerIcon), title, content, size)
 
     init {
       isOpaque = false
       layout = MigLayout(LC().gridGap("0", "0")
                            .insets("0", "0", "0", "0")
                            .fill()).apply {
-        columnConstraints = "[]${UI.scale(8)}[]"
+        columnConstraints = "[]${JBUIScale.scale(8)}[]"
       }
 
       add(marker, CC().pushY())
       add(title, CC().pushX())
-      if (content != null) add(content, CC().newline().skip().grow().push())
+      if (content != null) add(content, CC().newline().skip().grow().push().maxWidth(size))
     }
 
     companion object {
+      private fun CC.maxWidth(dimension: Dimension) = if (dimension.width > 0) this.maxWidth("${dimension.width}") else this
+
       private fun createMarkerLabel(markerIcon: Icon) =
         JLabel(markerIcon).apply {
           val verticalGap = if (markerIcon.iconHeight < 20) (20f - markerIcon.iconHeight) / 2 else 0f
@@ -232,6 +242,10 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
   }
 
   companion object {
+    private val NOT_DEFINED_SIZE = Dimension(-1, -1)
+
+    fun getDefaultSize() = Dimension(GHUIUtil.getPRTimelineWidth(), -1)
+
     fun userAvatar(avatarIconsProvider: GHAvatarIconsProvider, user: GHActor?): JLabel {
       return LinkLabel<Any>("", avatarIconsProvider.getIcon(user?.avatarUrl), LinkListener { _, _ ->
         user?.url?.let { BrowserUtil.browse(it) }
@@ -249,7 +263,7 @@ class GHPRTimelineItemComponentFactory(private val detailsDataProvider: GHPRDeta
 
     fun actionTitle(actor: GHActor?, actionHTML: String, date: Date): JComponent {
       //language=HTML
-      val text = """<a href='${actor?.url}'>${actor?.login ?: "unknown"}</a> $actionHTML ${GithubUIUtil.formatActionDate(date)}"""
+      val text = """<a href='${actor?.url}'>${actor?.login ?: "unknown"}</a> $actionHTML ${GHUIUtil.formatActionDate(date)}"""
 
       return HtmlEditorPane(text).apply {
         foreground = UIUtil.getContextHelpForeground()

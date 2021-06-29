@@ -15,6 +15,7 @@ import org.editorconfig.configmanagement.LineEndingsManager;
 import org.editorconfig.configmanagement.StandardEditorConfigProperties;
 import org.editorconfig.configmanagement.extended.EditorConfigIntellijNameUtil;
 import org.editorconfig.configmanagement.extended.EditorConfigPropertyKind;
+import org.editorconfig.configmanagement.extended.EditorConfigValueUtil;
 import org.editorconfig.configmanagement.extended.IntellijPropertyKindMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,6 +35,8 @@ public class EditorConfigSettingsWriter extends OutputStreamWriter {
   private final           Map<String, String> myGeneralOptions = new HashMap<>();
   private final           boolean             myAddRootFlag;
   private final           boolean             myCommentOutProperties;
+
+  private boolean myNoHeaders;
 
   private final static Comparator<OutPair> PAIR_COMPARATOR = (pair1, pair2) -> {
     EditorConfigPropertyKind pKind1 = getPropertyKind(pair1.getKey());
@@ -101,6 +104,11 @@ public class EditorConfigSettingsWriter extends OutputStreamWriter {
     return this;
   }
 
+  public EditorConfigSettingsWriter withoutHeaders() {
+    myNoHeaders = true;
+    return this;
+  }
+
   public void writeSettings() throws IOException {
     if (myAddRootFlag) {
       writeProperties(Collections.singletonList(new OutPair("root", "true")), false);
@@ -131,7 +139,9 @@ public class EditorConfigSettingsWriter extends OutputStreamWriter {
   }
 
   private void writeGeneralSection() throws IOException {
-    write("[*]\n");
+    if (!myNoHeaders) {
+      write("[*]\n");
+    }
     List<OutPair> pairs = myGeneralOptions.keySet().stream()
       .map(key -> new OutPair(key, myGeneralOptions.get(key)))
       .filter(pair -> isNameAllowed(pair.getKey()))
@@ -144,7 +154,7 @@ public class EditorConfigSettingsWriter extends OutputStreamWriter {
     if (myLanguages == null || myLanguages.contains(language)) {
       List<OutPair> optionValueList = getKeyValuePairs(mapper);
       if (!optionValueList.isEmpty()) {
-        if (pattern != null) {
+        if (pattern != null && !myNoHeaders) {
           write("\n[" + pattern + "]\n");
         }
         optionValueList.sort(PAIR_COMPARATOR);
@@ -161,13 +171,21 @@ public class EditorConfigSettingsWriter extends OutputStreamWriter {
       CodeStylePropertyAccessor accessor = mapper.getAccessor(property);
       String name = getEditorConfigName(mapper, property);
       if (isNameAllowed(name)) {
-        String value = accessor.getAsString();
+        String value = getEditorConfigValue(accessor);
         if (isValueAllowed(value) && (!(mapper instanceof LanguageCodeStylePropertyMapper && matchesGeneral(name, value)))) {
           optionValueList.add(new OutPair(name, value));
         }
       }
     }
     return optionValueList;
+  }
+
+  private static String getEditorConfigValue(@NotNull CodeStylePropertyAccessor<?> accessor) {
+    String value = accessor.getAsString();
+    if ((value == null || value.isEmpty()) && CodeStylePropertiesUtil.isAccessorAllowingEmptyList(accessor)) {
+      return EditorConfigValueUtil.EMPTY_LIST_VALUE;
+    }
+    return value;
   }
 
   private boolean matchesGeneral(@NotNull String name, @NotNull String value) {

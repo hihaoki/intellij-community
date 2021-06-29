@@ -1,7 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.action
 
+import com.intellij.collaboration.async.CompletableFutureUtil.errorOnEdt
+import com.intellij.collaboration.async.CompletableFutureUtil.successOnEdt
 import com.intellij.icons.AllIcons
+import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
@@ -12,15 +15,21 @@ import com.intellij.openapi.editor.actions.IncrementalFindAction
 import com.intellij.openapi.fileTypes.FileTypes
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.ui.ComponentContainer
-import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.IdeBorderFactory
 import com.intellij.ui.SideBorder
 import com.intellij.ui.components.panels.HorizontalBox
-import com.intellij.util.ui.*
-import icons.GithubIcons
+import com.intellij.ui.scale.JBUIScale
+import com.intellij.util.ui.JBDimension
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.JButtonAction
+import com.intellij.util.ui.UIUtil
+import com.intellij.collaboration.ui.codereview.InlineIconButton
+import icons.CollaborationToolsIcons
 import net.miginfocom.layout.CC
 import net.miginfocom.layout.LC
 import net.miginfocom.swing.MigLayout
@@ -28,11 +37,8 @@ import org.jetbrains.plugins.github.api.data.GHPullRequestReviewEvent
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestPendingReview
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRReviewDataProvider
-import org.jetbrains.plugins.github.ui.GHHtmlErrorPanel
-import org.jetbrains.plugins.github.ui.GHSimpleErrorPanelModel
-import org.jetbrains.plugins.github.ui.InlineIconButton
-import org.jetbrains.plugins.github.util.errorOnEdt
-import org.jetbrains.plugins.github.util.successOnEdt
+import org.jetbrains.plugins.github.ui.component.GHHtmlErrorPanel
+import org.jetbrains.plugins.github.ui.component.GHSimpleErrorPanelModel
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.event.ActionListener
@@ -42,16 +48,21 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
 
   override fun update(e: AnActionEvent) {
     val dataProvider = e.getData(GHPRActionKeys.PULL_REQUEST_DATA_PROVIDER)
-    val reviewData = dataProvider?.reviewData
-    val details = dataProvider?.detailsData?.loadedDetails
+    if (dataProvider == null) {
+      e.presentation.isEnabledAndVisible = false
+      return
+    }
+
+    val reviewData = dataProvider.reviewData
+    val details = dataProvider.detailsData.loadedDetails
     e.presentation.isVisible = true
-    val pendingReviewFuture = reviewData?.loadPendingReview()
-    e.presentation.isEnabled = (pendingReviewFuture?.isDone ?: false) && details != null
+    val pendingReviewFuture = reviewData.loadPendingReview()
+    e.presentation.isEnabled = pendingReviewFuture.isDone && details != null
     e.presentation.putClientProperty(PROP_PREFIX, getPrefix(e.place))
 
     if (e.presentation.isEnabledAndVisible) {
       val review = try {
-        pendingReviewFuture?.getNow(null)
+        pendingReviewFuture.getNow(null)
       }
       catch (e: Exception) {
         null
@@ -60,7 +71,7 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
       val comments = review?.comments?.totalCount
 
       e.presentation.text = getText(comments)
-      e.presentation.putClientProperty(PROP_DEFAULT, pendingReview)
+      e.presentation.putClientProperty(DarculaButtonUI.DEFAULT_STYLE_KEY, pendingReview)
     }
 
     updateButtonFromPresentation(e)
@@ -69,6 +80,7 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
   private fun getPrefix(place: String) = if (place == ActionPlaces.DIFF_TOOLBAR) GithubBundle.message("pull.request.review.submit")
   else GithubBundle.message("pull.request.review.submit.review")
 
+  @NlsSafe
   private fun getText(pendingComments: Int?): String {
     val builder = StringBuilder()
     if (pendingComments != null) builder.append(" ($pendingComments)")
@@ -165,16 +177,15 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
 
       init {
         discardButton = pendingReview?.let { review ->
-          InlineIconButton(GithubIcons.Delete, GithubIcons.DeleteHovered,
-                           tooltip = GithubBundle.message("pull.request.discard.pending.comments")).apply {
-            actionListener = ActionListener {
-              if (Messages.showConfirmationDialog(this, GithubBundle.message("pull.request.discard.pending.comments.dialog.msg"),
-                                                  GithubBundle.message("pull.request.discard.pending.comments.dialog.title"),
-                                                  Messages.getYesButton(), Messages.getNoButton()) == Messages.YES) {
-                reviewDataProvider.deleteReview(EmptyProgressIndicator(), review.id)
-              }
+          val button = InlineIconButton(icon = CollaborationToolsIcons.Delete, hoveredIcon = CollaborationToolsIcons.DeleteHovered,
+                                        tooltip = GithubBundle.message("pull.request.discard.pending.comments"))
+          button.actionListener = ActionListener {
+            if (MessageDialogBuilder.yesNo(GithubBundle.message("pull.request.discard.pending.comments.dialog.title"),
+                                           GithubBundle.message("pull.request.discard.pending.comments.dialog.msg")).ask(button)) {
+              reviewDataProvider.deleteReview(EmptyProgressIndicator(), review.id)
             }
           }
+          button
         }
       }
 
@@ -221,7 +232,7 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
           add(titlePanel, CC().growX())
           add(editor, CC().growX().growY()
             .gap("0", "0", "0", "0"))
-          add(errorPanel, CC().minHeight("${UI.scale(32)}").growY().growPrioY(0).hideMode(3)
+          add(errorPanel, CC().minHeight("${JBUIScale.scale(32)}").growY().growPrioY(0).hideMode(3)
             .gap("0", "0", "0", "0"))
           add(buttonsPanel, CC().alignX("right"))
         }
@@ -247,23 +258,14 @@ class GHPRReviewSubmitAction : JButtonAction(StringUtil.ELLIPSIS, GithubBundle.m
     }
   }
 
-  override fun createButton(): JButton {
-    return object : JButton() {
-      override fun isDefaultButton(): Boolean {
-        return getClientProperty(PROP_DEFAULT) as? Boolean ?: super.isDefaultButton()
-      }
-    }
-  }
-
   override fun updateButtonFromPresentation(button: JButton, presentation: Presentation) {
     super.updateButtonFromPresentation(button, presentation)
     val prefix = presentation.getClientProperty(PROP_PREFIX) as? String ?: GithubBundle.message("pull.request.review.submit.review")
     button.text = prefix + presentation.text
-    button.putClientProperty(PROP_DEFAULT, presentation.getClientProperty(PROP_DEFAULT))
+    UIUtil.putClientProperty(button, DarculaButtonUI.DEFAULT_STYLE_KEY, presentation.getClientProperty(DarculaButtonUI.DEFAULT_STYLE_KEY))
   }
 
   companion object {
     private const val PROP_PREFIX = "PREFIX"
-    private const val PROP_DEFAULT = "DEFAULT"
   }
 }

@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod.newImpl
 
+import com.intellij.codeInsight.AnnotationUtil
 import com.intellij.openapi.project.Project
 import com.intellij.pom.java.LanguageLevel
 import com.intellij.psi.*
@@ -35,9 +36,7 @@ class SignatureBuilder(private val project: Project) {
       factory.createConstructor("methodName", context)
     }
 
-    annotations.forEach { annotation -> method.modifierList.add(annotation) }
-
-    JavaCodeStyleManager.getInstance(method.project).shortenClassReferences(method)
+    copyNotPresentAnnotations(annotations, method)
 
     val isInInterface = anchor.containingClass?.isInterface == true
     val isJava8 = PsiUtil.getLanguageLevel(anchor) == LanguageLevel.JDK_1_8
@@ -51,7 +50,7 @@ class SignatureBuilder(private val project: Project) {
     method.modifierList.setModifierProperty(PsiModifier.DEFAULT, shouldHaveDefaultModifier)
     if (visibility != null) method.modifierList.setModifierProperty(visibility, true)
     thrownExceptions.forEach { exception -> method.throwsList.add(factory.createReferenceElementByType(exception)) }
-    return method
+    return JavaCodeStyleManager.getInstance(method.project).shortenClassReferences(method) as PsiMethod
   }
 
   private fun createParameterList(inputParameters: List<InputParameter>, scope: List<PsiElement>): PsiParameterList {
@@ -76,11 +75,24 @@ class SignatureBuilder(private val project: Project) {
     }
 
     inputParameters.forEach { inputParameter ->
-      val modifierList = parameterList.parameters.find { it.name == inputParameter.name }?.modifierList
-      inputParameter.annotations.forEach { annotation -> modifierList?.add(annotation) }
+      val parameter = parameterList.parameters.find { it.name == inputParameter.name }
+      if (parameter != null) {
+        copyNotPresentAnnotations(inputParameter.annotations, parameter)
+      }
     }
 
     return parameterList
+  }
+
+  private fun copyNotPresentAnnotations(annotations: List<PsiAnnotation>,
+                                        modifierListOwner: PsiModifierListOwner) {
+    val modifierList = modifierListOwner.modifierList
+    annotations.forEach { annotation ->
+      val qualifiedName = annotation.qualifiedName
+      if (qualifiedName != null && !AnnotationUtil.isAnnotated(modifierListOwner, qualifiedName, AnnotationUtil.CHECK_TYPE)) {
+        modifierList?.add(annotation)
+      }
+    }
   }
 
   private fun isInsideAnonymousOrLocal(element: PsiElement, scope: List<PsiElement>): Boolean {

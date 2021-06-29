@@ -8,6 +8,7 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.lang.ASTFactory;
 import com.intellij.lang.ASTNode;
+import com.intellij.model.ModelBranch;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
@@ -46,9 +47,11 @@ import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
 import com.jetbrains.python.psi.resolve.RatedResolveResult;
 import com.jetbrains.python.psi.stubs.PySetuptoolsNamespaceIndex;
 import com.jetbrains.python.psi.types.*;
+import com.jetbrains.python.pyi.PyiStubSuppressor;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
 
+import javax.swing.*;
 import java.io.File;
 import java.util.*;
 
@@ -73,8 +76,8 @@ public final class PyUtil {
   /**
    * @see PyUtil#flattenedParensAndTuples
    */
-  protected static List<PyExpression> unfoldParentheses(PyExpression[] targets, List<PyExpression> receiver,
-                                                        boolean unfoldListLiterals, boolean unfoldStarExpressions) {
+  private static List<PyExpression> unfoldParentheses(PyExpression[] targets, List<PyExpression> receiver,
+                                                      boolean unfoldListLiterals, boolean unfoldStarExpressions) {
     // NOTE: this proliferation of instanceofs is not very beautiful. Maybe rewrite using a visitor.
     for (PyExpression exp : targets) {
       if (exp instanceof PyParenthesizedExpression) {
@@ -543,6 +546,10 @@ public final class PyUtil {
     return ContainerUtil.filter(resolveResults, resolveResult -> getRate(resolveResult) >= maxRate);
   }
 
+  public static @NotNull <E extends ResolveResult> List<PsiElement> filterTopPriorityElements(@NotNull List<? extends E> resolveResults) {
+    return ContainerUtil.mapNotNull(filterTopPriorityResults(resolveResults), ResolveResult::getElement);
+  }
+
   private static int getMaxRate(@NotNull List<? extends ResolveResult> resolveResults) {
     return resolveResults
       .stream()
@@ -552,7 +559,7 @@ public final class PyUtil {
   }
 
   private static int getRate(@NotNull ResolveResult resolveResult) {
-    return resolveResult instanceof RatedResolveResult ? ((RatedResolveResult)resolveResult).getRate() : 0;
+    return resolveResult instanceof RatedResolveResult ? ((RatedResolveResult)resolveResult).getRate() : RatedResolveResult.RATE_NORMAL;
   }
 
   /**
@@ -675,7 +682,7 @@ public final class PyUtil {
    * from the write action, because in this case {@code function} will be executed right in the current thread (presumably EDT)
    * without any progress whatsoever to avoid possible deadlock.
    *
-   * @see ApplicationImpl#runProcessWithProgressSynchronously(Runnable, String, boolean, Project, JComponent, String)
+   * @see com.intellij.openapi.application.impl.ApplicationImpl#runProcessWithProgressSynchronously(Runnable, String, boolean, boolean, Project, JComponent, String)
    */
   public static void runWithProgress(@Nullable Project project, @Nls(capitalization = Nls.Capitalization.Title) @NotNull String title,
                                      boolean modal, boolean canBeCancelled, @NotNull final Consumer<? super ProgressIndicator> function) {
@@ -813,10 +820,15 @@ public final class PyUtil {
     if (directory == null) return true;
     VirtualFile vFile = directory.getVirtualFile();
     if (vFile == null) return true;
-    ProjectFileIndex fileIndex = ProjectFileIndex.SERVICE.getInstance(directory.getProject());
-    return Comparing.equal(fileIndex.getClassRootForFile(vFile), vFile) ||
-           Comparing.equal(fileIndex.getContentRootForFile(vFile), vFile) ||
-           Comparing.equal(fileIndex.getSourceRootForFile(vFile), vFile);
+    Project project = directory.getProject();
+    return isRoot(vFile, project);
+  }
+
+  public static boolean isRoot(@NotNull VirtualFile directory, @NotNull Project project) {
+    ProjectFileIndex fileIndex = ProjectFileIndex.SERVICE.getInstance(project);
+    return Comparing.equal(fileIndex.getClassRootForFile(directory), directory) ||
+           Comparing.equal(fileIndex.getContentRootForFile(directory), directory) ||
+           Comparing.equal(fileIndex.getSourceRootForFile(directory), directory);
   }
 
   /**
@@ -835,7 +847,7 @@ public final class PyUtil {
     if (!(scope instanceof PyClass) && !(scope instanceof PyFile) && !(scope instanceof PyFunction)) {
       return Collections.emptyList();
     }
-    final Set<String> variables = new HashSet<String>() {
+    final Set<String> variables = new HashSet<>() {
       @Override
       public boolean add(String s) {
         return s != null && super.add(s);
@@ -853,7 +865,7 @@ public final class PyUtil {
       }
 
       @Override
-      public void visitPyReferenceExpression(PyReferenceExpression node) {
+      public void visitPyReferenceExpression(@NotNull PyReferenceExpression node) {
         if (!node.isQualified()) {
           variables.add(node.getReferencedName());
         }
@@ -890,7 +902,7 @@ public final class PyUtil {
     if (target instanceof PsiDirectory) {
       final PsiDirectory dir = (PsiDirectory)target;
       final PsiFile initStub = dir.findFile(PyNames.INIT_DOT_PYI);
-      if (initStub != null) {
+      if (initStub != null && !PyiStubSuppressor.isIgnoredStub(initStub)) {
         return initStub;
       }
       final PsiFile initFile = dir.findFile(PyNames.INIT_DOT_PY);
@@ -964,14 +976,7 @@ public final class PyUtil {
    * @see PyNames#isIdentifier(String)
    */
   public static boolean isPackage(@NotNull PsiDirectory directory, boolean checkSetupToolsPackages, @Nullable PsiElement anchor) {
-    for (PyCustomPackageIdentifier customPackageIdentifier : PyCustomPackageIdentifier.EP_NAME.getExtensions()) {
-      if (customPackageIdentifier.isPackage(directory)) {
-        return true;
-      }
-    }
-    if (directory.findFile(PyNames.INIT_DOT_PY) != null) {
-      return true;
-    }
+    if (isExplicitPackage(directory)) return true;
     final LanguageLevel level = anchor != null ? LanguageLevel.forElement(anchor) : LanguageLevel.forElement(directory);
     if (!level.isPython2()) {
       return true;
@@ -991,6 +996,19 @@ public final class PyUtil {
   public static boolean isPackage(@NotNull PsiFileSystemItem anchor, @Nullable PsiElement location) {
     return anchor instanceof PsiFile ? isPackage((PsiFile)anchor) :
            anchor instanceof PsiDirectory && isPackage((PsiDirectory)anchor, location);
+  }
+
+  public static boolean isCustomPackage(@NotNull PsiDirectory directory) {
+    for (PyCustomPackageIdentifier customPackageIdentifier : PyCustomPackageIdentifier.EP_NAME.getExtensions()) {
+      if (customPackageIdentifier.isPackage(directory)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public static boolean isExplicitPackage(@NotNull PsiDirectory directory) {
+    return isOrdinaryPackage(directory) || isCustomPackage(directory);
   }
 
   private static boolean isSetuptoolsNamespacePackage(@NotNull PsiDirectory directory) {
@@ -1091,7 +1109,12 @@ public final class PyUtil {
   public static Collection<VirtualFile> getSourceRoots(@NotNull PsiElement foothold) {
     final Module module = ModuleUtilCore.findModuleForPsiElement(foothold);
     if (module != null) {
-      return getSourceRoots(module);
+      Collection<VirtualFile> roots = getSourceRoots(module);
+      ModelBranch branch = ModelBranch.getPsiBranch(foothold);
+      if (branch != null) {
+        return ContainerUtil.map(roots, branch::findFileCopy);
+      }
+      return roots;
     }
     return Collections.emptyList();
   }
@@ -1285,7 +1308,7 @@ public final class PyUtil {
   }
 
   @Nullable
-  public static PsiElement findPrevAtOffset(PsiFile psiFile, int caretOffset, Class... toSkip) {
+  public static PsiElement findPrevAtOffset(PsiFile psiFile, int caretOffset, @NotNull Class<? extends PsiElement> @NotNull ... toSkip) {
     PsiElement element;
     if (caretOffset < 0) {
       return null;
@@ -1323,7 +1346,7 @@ public final class PyUtil {
   }
 
   @Nullable
-  public static PsiElement findNextAtOffset(@NotNull final PsiFile psiFile, int caretOffset, Class... toSkip) {
+  public static PsiElement findNextAtOffset(@NotNull final PsiFile psiFile, int caretOffset, @NotNull Class<? extends PsiElement> @NotNull ... toSkip) {
     PsiElement element = psiFile.findElementAt(caretOffset);
     if (element == null) {
       return null;
@@ -1490,7 +1513,7 @@ public final class PyUtil {
                                              @NotNull String memberName,
                                              @Nullable PyExpression location,
                                              @NotNull TypeEvalContext context) {
-    final PyResolveContext resolveContext = PyResolveContext.defaultContext().withTypeEvalContext(context);
+    final PyResolveContext resolveContext = PyResolveContext.defaultContext(context);
     final List<? extends RatedResolveResult> resolveResults = type.resolveMember(memberName, location, AccessDirection.READ,
                                                                                  resolveContext);
 
@@ -1529,17 +1552,7 @@ public final class PyUtil {
     }
 
     if (type instanceof PyUnionType) {
-      final List<PyType> types = new ArrayList<>();
-
-      for (PyType pyType : ((PyUnionType)type).getMembers()) {
-        final PyType returnType = getReturnType(pyType, context);
-
-        if (returnType != null) {
-          types.add(returnType);
-        }
-      }
-
-      return PyUnionType.union(types);
+      return PyUnionType.toNonWeakType(((PyUnionType)type).map(member -> getReturnType(member, context)));
     }
 
     return null;
@@ -1647,6 +1660,10 @@ public final class PyUtil {
     else {
       function.addBefore(newDecorators, function.getFirstChild());
     }
+  }
+
+  public static boolean isOrdinaryPackage(@NotNull PsiDirectory directory) {
+    return directory.findFile(PyNames.INIT_DOT_PY) != null;
   }
 
   /**

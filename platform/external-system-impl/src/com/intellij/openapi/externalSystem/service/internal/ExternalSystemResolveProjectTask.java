@@ -1,7 +1,8 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.internal;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.internal.statistic.StructuredIdeActivity;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.importing.ImportSpec;
 import com.intellij.openapi.externalSystem.importing.ImportSpecImpl;
@@ -18,6 +19,7 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskState;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType;
 import com.intellij.openapi.externalSystem.service.ExternalSystemFacadeManager;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemExecutionAware;
+import com.intellij.openapi.externalSystem.service.execution.TargetEnvironmentConfigurationProvider;
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager;
 import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataManagerImpl;
 import com.intellij.openapi.externalSystem.service.remote.ExternalSystemProgressNotificationManagerImpl;
@@ -35,6 +37,10 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static com.intellij.openapi.externalSystem.statistics.ExternalSystemUsagesCollector.ExternalSystemTaskId.ResolveProject;
+import static com.intellij.openapi.externalSystem.statistics.ExternalSystemUsagesCollector.externalSystemTaskStarted;
+
 
 /**
  * Thread-safe.
@@ -66,12 +72,14 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
   @SuppressWarnings("unchecked")
   protected void doExecute() throws Exception {
     ExternalSystemProgressNotificationManagerImpl progressNotificationManager =
-      (ExternalSystemProgressNotificationManagerImpl)ServiceManager.getService(ExternalSystemProgressNotificationManager.class);
+      (ExternalSystemProgressNotificationManagerImpl)ApplicationManager.getApplication()
+        .getService(ExternalSystemProgressNotificationManager.class);
     ExternalSystemTaskId id = getId();
 
     Project ideProject;
     RemoteExternalSystemProjectResolver resolver;
     ExternalSystemExecutionSettings settings;
+    TargetEnvironmentConfigurationProvider environmentConfigurationProvider = null;
     try {
       progressNotificationManager.onStart(id, myProjectPath);
 
@@ -80,9 +88,11 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
       ExternalSystemTaskNotificationListener progressNotificationListener = wrapWithListener(progressNotificationManager);
       for (ExternalSystemExecutionAware executionAware : ExternalSystemExecutionAware.getExtensions(getExternalSystemId())) {
         executionAware.prepareExecution(this, myProjectPath, myIsPreviewMode, progressNotificationListener, ideProject);
+        if (environmentConfigurationProvider != null) continue;
+        environmentConfigurationProvider = executionAware.getEnvironmentConfigurationProvider(myProjectPath, myIsPreviewMode, ideProject);
       }
 
-      final ExternalSystemFacadeManager manager = ServiceManager.getService(ExternalSystemFacadeManager.class);
+      final ExternalSystemFacadeManager manager = ApplicationManager.getApplication().getService(ExternalSystemFacadeManager.class);
       resolver = manager.getFacade(ideProject, myProjectPath, getExternalSystemId()).getResolver();
       settings = ExternalSystemApiUtil.getExecutionSettings(ideProject, myProjectPath, getExternalSystemId());
       if (StringUtil.isNotEmpty(myVmOptions)) {
@@ -91,6 +101,7 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
       if (StringUtil.isNotEmpty(myArguments)) {
         settings.withArguments(ParametersListUtil.parse(myArguments));
       }
+      ExternalSystemExecutionAware.Companion.setEnvironmentConfigurationProvider(settings, environmentConfigurationProvider);
     }
     catch (Exception e) {
       progressNotificationManager.onFailure(id, e);
@@ -98,6 +109,8 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
       throw e;
     }
 
+    StructuredIdeActivity activity =
+      externalSystemTaskStarted(ideProject, getExternalSystemId(), ResolveProject, environmentConfigurationProvider);
     try {
       DataNode<ProjectData> project = resolver.resolveProjectInfo(id, myProjectPath, myIsPreviewMode, settings, myResolverPolicy);
       if (project != null) {
@@ -122,12 +135,13 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
     }
     finally {
       progressNotificationManager.onEnd(id);
+      activity.finished();
     }
   }
 
   @Override
   protected boolean doCancel() throws Exception {
-    final ExternalSystemFacadeManager manager = ServiceManager.getService(ExternalSystemFacadeManager.class);
+    final ExternalSystemFacadeManager manager = ApplicationManager.getApplication().getService(ExternalSystemFacadeManager.class);
     Project ideProject = getIdeProject();
     RemoteExternalSystemProjectResolver resolver = manager.getFacade(ideProject, myProjectPath, getExternalSystemId()).getResolver();
 
@@ -138,6 +152,10 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
   @NotNull
   protected String wrapProgressText(@NotNull String text) {
     return ExternalSystemBundle.message("progress.update.text", getExternalSystemId().getReadableName(), text);
+  }
+
+  public boolean isPreviewMode() {
+    return myIsPreviewMode;
   }
 
   public @Nullable ProjectResolverPolicy getResolverPolicy() {

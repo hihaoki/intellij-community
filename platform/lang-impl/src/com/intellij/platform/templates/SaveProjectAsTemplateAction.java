@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.templates;
 
 import com.intellij.CommonBundle;
@@ -22,7 +22,10 @@ import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.progress.*;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentIterator;
@@ -43,8 +46,9 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.Compressor;
 import com.intellij.util.io.PathKt;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.TIntObjectHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.serialization.PathMacroUtil;
@@ -62,9 +66,9 @@ import java.util.regex.Pattern;
  */
 public class SaveProjectAsTemplateAction extends AnAction implements DumbAware {
   private static final Logger LOG = Logger.getInstance(SaveProjectAsTemplateAction.class);
-  private static final String PROJECT_TEMPLATE_XML = "project-template.xml";
+  private static final @NonNls String PROJECT_TEMPLATE_XML = "project-template.xml";
 
-  static final String FILE_HEADER_TEMPLATE_PLACEHOLDER = "<IntelliJ_File_Header>";
+  static final @NonNls String FILE_HEADER_TEMPLATE_PLACEHOLDER = "<IntelliJ_File_Header>";
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
@@ -85,7 +89,7 @@ public class SaveProjectAsTemplateAction extends AnAction implements DumbAware {
 
       FileDocumentManager.getInstance().saveAllDocuments();
 
-      ProgressManager.getInstance().run(new Task.Backgroundable(project, LangBundle.message("progress.title.saving.project.as.template"), true, PerformInBackgroundOption.DEAF) {
+      ProgressManager.getInstance().run(new Task.Backgroundable(project, LangBundle.message("progress.title.saving.project.as.template"), true) {
         @Override
         public void run(@NotNull final ProgressIndicator indicator) {
           saveProject(project, file, moduleToSave, description, dialog.isReplaceParameters(), indicator, shouldEscape());
@@ -106,11 +110,6 @@ public class SaveProjectAsTemplateAction extends AnAction implements DumbAware {
             notification.addAction(manageAction);
           }
           notification.notify(getProject());
-        }
-
-        @Override
-        public boolean shouldStartInBackground() {
-          return true;
         }
 
         @Override
@@ -263,7 +262,7 @@ public class SaveProjectAsTemplateAction extends AnAction implements DumbAware {
     String text = VfsUtilCore.loadText(virtualFile);
     final FileTemplate template = FileTemplateManager.getInstance(project).getDefaultTemplate(fileHeaderTemplateName);
     final String templateText = template.getText();
-    final Pattern pattern = FileTemplateUtil.getTemplatePattern(template, project, new TIntObjectHashMap<>());
+    final Pattern pattern = FileTemplateUtil.getTemplatePattern(template, project, new Int2ObjectOpenHashMap<>());
     String result = convertTemplates(text, pattern, templateText, shouldEscape);
     result = ProjectTemplateFileProcessor.encodeFile(result, virtualFile, project);
     for (Map.Entry<String, String> entry : parameters.entrySet()) {

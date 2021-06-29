@@ -2,13 +2,14 @@
 package com.intellij.openapi.externalSystem.service.project.autoimport
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.components.ServiceManager
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.externalSystem.ExternalSystemAutoImportAware
 import com.intellij.openapi.externalSystem.autoimport.*
 import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListenerAdapter
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.RESOLVE_PROJECT
+import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
 import com.intellij.openapi.externalSystem.service.internal.ExternalSystemProcessingManager
 import com.intellij.openapi.externalSystem.service.internal.ExternalSystemResolveProjectTask
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
@@ -42,6 +43,10 @@ class ProjectAware(
     val importSpec = ImportSpecBuilder(project, systemId)
     if (!context.isExplicitReload) {
       importSpec.dontReportRefreshErrors()
+      importSpec.dontNavigateToError()
+    }
+    if (!ExternalSystemUtil.isTrusted(project, systemId)) {
+      importSpec.usePreviewMode()
     }
     ExternalSystemUtil.refreshProject(projectPath, importSpec)
   }
@@ -55,9 +60,11 @@ class ProjectAware(
       if (id.type != RESOLVE_PROJECT) return
       if (!FileUtil.pathsEqual(workingDir, projectPath)) return
 
-      val task = ServiceManager.getService(ExternalSystemProcessingManager::class.java).findTask(id)
+      val task = ApplicationManager.getApplication().getService(ExternalSystemProcessingManager::class.java).findTask(id)
       if (task is ExternalSystemResolveProjectTask) {
-        if (!autoImportAware.isApplicable(task.resolverPolicy)) return
+        if (!autoImportAware.isApplicable(task.resolverPolicy)) {
+          return
+        }
       }
       externalSystemTaskId.set(id)
       delegate.beforeProjectRefresh()

@@ -1,15 +1,15 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.newvfs.persistent.FlushingDaemon;
+import com.intellij.util.FlushingDaemon;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.EnumeratorStringDescriptor;
 import com.intellij.util.io.IOUtil;
@@ -35,7 +35,7 @@ public class TestStateStorage implements Disposable {
 
   private final File myFile;
 
-  public static File getTestHistoryRoot(Project project) {
+  public static File getTestHistoryRoot(@NotNull Project project) {
     return new File(TEST_HISTORY_PATH, project.getLocationHash());
   }
 
@@ -44,8 +44,8 @@ public class TestStateStorage implements Disposable {
     public final long configurationHash;
     public final Date date;
     public int failedLine;
-    public final String failedMethod;
-    public final String errorMessage;
+    public String failedMethod;
+    public final @NlsSafe String errorMessage;
     public final String topStacktraceLine;
 
     public Record(int magnitude, Date date, long configurationHash, int failLine, String method, String errorMessage, String topStacktraceLine) {
@@ -65,7 +65,7 @@ public class TestStateStorage implements Disposable {
   private volatile ScheduledFuture<?> myMapFlusher;
 
   public static TestStateStorage getInstance(@NotNull Project project) {
-    return ServiceManager.getService(project, TestStateStorage.class);
+    return project.getService(TestStateStorage.class);
   }
 
   public TestStateStorage(Project project) {

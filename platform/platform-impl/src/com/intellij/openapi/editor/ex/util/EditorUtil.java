@@ -3,11 +3,14 @@ package com.intellij.openapi.editor.ex.util;
 
 import com.intellij.diagnostic.AttachmentFactory;
 import com.intellij.diagnostic.Dumpable;
+import com.intellij.ide.DataManager;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.injected.editor.EditorWindow;
-import com.intellij.notification.NotificationGroup;
+import com.intellij.notification.NotificationGroupManager;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandEvent;
@@ -17,15 +20,14 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.event.SelectionEvent;
 import com.intellij.openapi.editor.event.SelectionListener;
 import com.intellij.openapi.editor.ex.EditorEx;
-import com.intellij.openapi.editor.impl.ComplementaryFontsRegistry;
-import com.intellij.openapi.editor.impl.EditorImpl;
-import com.intellij.openapi.editor.impl.FontInfo;
-import com.intellij.openapi.editor.impl.ScrollingModelImpl;
+import com.intellij.openapi.editor.ex.EditorInlayFoldingMapper;
+import com.intellij.openapi.editor.impl.*;
 import com.intellij.openapi.editor.impl.view.VisualLinesIterator;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.editor.textarea.TextComponentEditor;
@@ -49,6 +51,8 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.util.Arrays;
 import java.util.List;
+
+import static com.intellij.openapi.editor.impl.InlayModelImpl.showWhenFolded;
 
 public final class EditorUtil {
   private static final Logger LOG = Logger.getInstance(EditorUtil.class);
@@ -668,6 +672,129 @@ public final class EditorUtil {
     return visualPosition.line;
   }
 
+  /**
+   * First value returned is the range of {@code y} coordinates in editor coordinate space (relative to
+   * {@code editor.getContentComponent()}), corresponding to a given logical line in a document. Most often, a logical line corresponds to a
+   * single visual line, in that case the returned range has a height of {@code editor.getLineHeight()} (or a height of fold region
+   * placeholder, if the line is collapsed in a {@link CustomFoldRegion}). This will be not the case, if the
+   * line is soft-wrapped. Then the vertical range will be larger, as it will include several visual lines. Block inlays displayed on
+   * either side of the calculated range, are not included in the result.
+   * <p>
+   * The second value is a sub-range no other logical line maps to (or {@code null} if there's no such sub-range).
+   *
+   * @return EXCLUSIVE intervals [startY, endY)
+   * @see #yToLogicalLineRange(Editor, int)
+   */
+  @NotNull
+  public static Pair<@NotNull Interval, @Nullable Interval> logicalLineToYRange(@NotNull Editor editor, int logicalLine) {
+    if (logicalLine < 0) throw new IllegalArgumentException("Logical line is negative: " + logicalLine);
+    Document document = editor.getDocument();
+    int startVisualLine;
+    int endVisualLine;
+    boolean topOverlapped;
+    boolean bottomOverlapped;
+    if (logicalLine >= document.getLineCount()) {
+      startVisualLine = endVisualLine = logicalToVisualLine(editor, logicalLine);
+      topOverlapped = bottomOverlapped = false;
+    }
+    else {
+      int lineStartOffset = document.getLineStartOffset(logicalLine);
+      int lineEndOffset = document.getLineEndOffset(logicalLine);
+      FoldRegion foldRegion = editor.getFoldingModel().getCollapsedRegionAtOffset(lineStartOffset);
+      if (foldRegion != null) {
+        if (foldRegion instanceof CustomFoldRegion) {
+          int startY = editor.visualLineToY(editor.offsetToVisualLine(foldRegion.getStartOffset(), false));
+          OurInterval interval = new OurInterval(startY, startY + ((CustomFoldRegion)foldRegion).getHeightInPixels());
+          return Pair.create(interval, foldRegion.getStartOffset() == document.getLineStartOffset(logicalLine) &&
+                                       foldRegion.getEndOffset() == document.getLineEndOffset(logicalLine) ? interval : null);
+        }
+        Inlay<?> inlay = EditorInlayFoldingMapper.getInstance().getAssociatedInlay(foldRegion);
+        if (inlay != null) {
+          // special case of rendered doc comment
+          Rectangle bounds = inlay.getBounds();
+          if (bounds != null) {
+            OurInterval interval = new OurInterval(bounds.y, bounds.y + bounds.height);
+            return Pair.create(interval,
+                               foldRegion.getStartOffset() == lineStartOffset &&
+                               foldRegion.getEndOffset() == (logicalLine + 1 < document.getLineCount()
+                                                             ? document.getLineStartOffset(logicalLine + 1)
+                                                             : document.getTextLength())
+                               ? interval : null);
+          }
+        }
+      }
+      startVisualLine = editor.offsetToVisualLine(lineStartOffset, false);
+      endVisualLine = startVisualLine + editor.getSoftWrapModel().getSoftWrapsForRange(lineStartOffset + 1, lineEndOffset - 1).size();
+      topOverlapped = editor.getFoldingModel().isOffsetCollapsed(lineStartOffset - 1);
+      bottomOverlapped = logicalLine + 1 < document.getLineCount() &&
+                         editor.getFoldingModel().isOffsetCollapsed(document.getLineStartOffset(logicalLine + 1) - 1);
+    }
+    int lineHeight = editor.getLineHeight();
+    int startY = editor.visualLineToY(startVisualLine);
+    int endY = (endVisualLine == startVisualLine ? startY : editor.visualLineToY(endVisualLine)) + lineHeight;
+    int startYEx = topOverlapped ? startY + lineHeight : startY;
+    int endYEx = bottomOverlapped ? endY - lineHeight : endY;
+    return Pair.create(new OurInterval(startY, endY), startYEx < endYEx ? new OurInterval(startYEx, endYEx) : null);
+  }
+
+  /**
+   * Returns the range of logical lines corresponding to a given {@code y} coordinate in editor coordinate space (relative to
+   * {@code editor.getContentComponent()}), with both ends of the interval inclusive. Most often, a given {@code y} coordinate corresponds
+   * to only one logical line. This might be not the case due to the presence of folded regions in editor. In that case, all logical lines
+   * corresponding to the visual line will be returned.
+   *
+   * @return INCLUSIVE interval [startLogicalLine, endLogicalLine]
+   * @see #logicalLineToYRange(Editor, int)
+   */
+  @NotNull
+  public static Interval yToLogicalLineRange(@NotNull Editor editor, int y) {
+    int visualLine = editor.yToVisualLine(y);
+    int[] visualLineYRange = editor.visualLineToYRange(visualLine);
+    Inlay<?> blockInlay = null;
+    if (y < visualLineYRange[0]) {
+      List<Inlay<?>> inlays = editor.getInlayModel().getBlockElementsForVisualLine(visualLine, true);
+      int yDiff = visualLineYRange[0] - y;
+      for (int i = inlays.size() - 1; i >= 0; i--) {
+        Inlay<?> inlay = inlays.get(i);
+        int height = inlay.getHeightInPixels();
+        if (yDiff <= height) {
+          blockInlay = inlay;
+          break;
+        }
+        yDiff -= height;
+      }
+    }
+    else if (y >= visualLineYRange[1]) {
+      List<Inlay<?>> inlays = editor.getInlayModel().getBlockElementsForVisualLine(visualLine, false);
+      int yDiff = y - visualLineYRange[1];
+      for (Inlay<?> inlay : inlays) {
+        int height = inlay.getHeightInPixels();
+        if (yDiff < height) {
+          blockInlay = inlay;
+          break;
+        }
+        yDiff -= height;
+      }
+    }
+    if (blockInlay != null) {
+      FoldRegion foldRegion = EditorInlayFoldingMapper.getInstance().getAssociatedFoldRegion(blockInlay);
+      if (foldRegion != null) {
+        // special case of rendered doc comment
+        Document document = editor.getDocument();
+        return new OurInterval(document.getLineNumber(foldRegion.getStartOffset()), document.getLineNumber(foldRegion.getEndOffset() - 1));
+      }
+    }
+    if (editor instanceof EditorImpl) {
+      VisualLinesIterator iterator = new VisualLinesIterator((EditorImpl)editor, visualLine);
+      if (!iterator.atEnd()) {
+        return new OurInterval(iterator.getStartLogicalLine(), iterator.getEndLogicalLine());
+      }
+    }
+    int startLogicalLine = editor.visualToLogicalPosition(new VisualPosition(visualLine, 0, false)).line;
+    int endLogicalLine= editor.visualToLogicalPosition(new VisualPosition(visualLine, Integer.MAX_VALUE, true)).line;
+    return new OurInterval(startLogicalLine, endLogicalLine);
+  }
+
   public static int yPositionToLogicalLine(@NotNull Editor editor, @NotNull MouseEvent event) {
     return yPositionToLogicalLine(editor, event.getY());
   }
@@ -683,13 +810,22 @@ public final class EditorUtil {
 
   /**
    * Maps {@code y} to a logical line in editor (in the same way as {@link #yPositionToLogicalLine(Editor, int)} does), except that for
-   * coordinates, corresponding to block inlay locations, {@code -1} is returned.
+   * coordinates, corresponding to block inlay or custom fold region locations, {@code -1} is returned.
    */
-  public static int yToLogicalLineNoBlockInlays(@NotNull Editor editor, int y) {
+  public static int yToLogicalLineNoCustomRenderers(@NotNull Editor editor, int y) {
     int visualLine = editor.yToVisualLine(y);
     int visualLineStartY = editor.visualLineToY(visualLine);
     if (y < visualLineStartY || y >= visualLineStartY + editor.getLineHeight()) return -1;
-    return editor.visualToLogicalPosition(new VisualPosition(visualLine, 0)).line;
+    int line = editor.visualToLogicalPosition(new VisualPosition(visualLine, 0)).line;
+    Document document = editor.getDocument();
+    if (line < document.getLineCount()) {
+      int lineStartOffset = document.getLineStartOffset(line);
+      FoldRegion foldRegion = editor.getFoldingModel().getCollapsedRegionAtOffset(lineStartOffset);
+      if (foldRegion instanceof CustomFoldRegion) {
+        return -1;
+      }
+    }
+    return line;
   }
 
   public static boolean isAtLineEnd(@NotNull Editor editor, int offset) {
@@ -736,9 +872,17 @@ public final class EditorUtil {
    */
   public static Font getEditorFont() {
     EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-    int size = UISettings.getInstance().getPresentationMode()
-               ? UISettings.getInstance().getPresentationModeFontSize() - 4 : scheme.getEditorFontSize();
-    return UIUtil.getFontWithFallback(scheme.getEditorFontName(), Font.PLAIN, size);
+    Font editorFont = scheme.getFont(EditorFontType.PLAIN);
+    if (UISettings.getInstance().getPresentationMode()) {
+      editorFont = editorFont.deriveFont(UISettings.getInstance().getPresentationModeFontSize() - 4f);
+    }
+    return UIUtil.getFontWithFallback(editorFont);
+  }
+
+  public static Font getEditorFont(int size) {
+    EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
+    Font font = scheme.getFont(EditorFontType.PLAIN).deriveFont((float)size);
+    return UIUtil.getFontWithFallback(font);
   }
 
   public static int getDefaultCaretWidth() {
@@ -758,6 +902,14 @@ public final class EditorUtil {
   public static boolean attributesImpactFontStyleOrColor(@Nullable TextAttributes attributes) {
     return attributes == TextAttributes.ERASE_MARKER ||
            (attributes != null && (attributes.getFontType() != Font.PLAIN || attributes.getForegroundColor() != null));
+  }
+
+  public static boolean attributesImpactFontStyle(@Nullable TextAttributes attributes) {
+    return attributes == TextAttributes.ERASE_MARKER || (attributes != null && attributes.getFontType() != Font.PLAIN);
+  }
+
+  public static boolean attributesImpactForegroundColor(@Nullable TextAttributes attributes) {
+    return attributes == TextAttributes.ERASE_MARKER || (attributes != null && attributes.getForegroundColor() != null);
   }
 
   public static boolean isCurrentCaretPrimary(@NotNull Editor editor) {
@@ -816,8 +968,7 @@ public final class EditorUtil {
 
   @NotNull
   public static String displayCharInEditor(char c, @NotNull TextAttributesKey textAttributesKey, @NotNull String fallback) {
-    int codePoint = c;
-    if (!Character.isValidCodePoint(codePoint)) {
+    if (!Character.isValidCodePoint(c)) {
       return fallback;
     }
 
@@ -825,7 +976,7 @@ public final class EditorUtil {
     TextAttributes textAttributes = scheme.getAttributes(textAttributesKey);
     int style = textAttributes != null ? textAttributes.getFontType() : Font.PLAIN;
     FontInfo fallbackFont = ComplementaryFontsRegistry.getFontAbleToDisplay(c, style, scheme.getFontPreferences(), null);
-    return fallbackFont.canDisplay(codePoint) ? String.valueOf(c) : fallback;
+    return fallbackFont.canDisplay(c) ? String.valueOf(c) : fallback;
   }
 
   /**
@@ -836,7 +987,7 @@ public final class EditorUtil {
    * NOTE: if editor is an {@link EditorWindow}, corresponding offset is treated as an offset in injected editor, but returned position
    * is always related to host editor.
    *
-   * @see Inlay#isRelatedToPrecedingText()
+   * @see InlayProperties#relatesToPrecedingText(boolean)
    */
   @NotNull
   public static VisualPosition inlayAwareOffsetToVisualPosition(@NotNull Editor editor, int offset) {
@@ -870,6 +1021,9 @@ public final class EditorUtil {
    * Tells whether given inlay element is invisible due to folding of text in editor
    */
   public static boolean isInlayFolded(@NotNull Inlay inlay) {
+    if (showWhenFolded(inlay)) {
+      return false;
+    }
     Editor editor = inlay.getEditor();
     Inlay.Placement placement = inlay.getPlacement();
     int offset = inlay.getOffset();
@@ -879,7 +1033,10 @@ public final class EditorUtil {
     else if ((placement == Inlay.Placement.ABOVE_LINE || placement == Inlay.Placement.BELOW_LINE) && !inlay.isRelatedToPrecedingText()) {
       offset--;
     }
-    return editor.getFoldingModel().isOffsetCollapsed(offset);
+    FoldingModel foldingModel = editor.getFoldingModel();
+    return foldingModel.isOffsetCollapsed(offset) ||
+           ((placement == Inlay.Placement.INLINE || placement == Inlay.Placement.AFTER_LINE_END) &&
+            foldingModel.getCollapsedRegionAtOffset(offset - 1) instanceof CustomFoldRegion);
   }
 
   /**
@@ -893,7 +1050,7 @@ public final class EditorUtil {
    * Returns bottom Y coordinate of editor visual line's area. The latter includes visual line itself and block inlays related to it.
    */
   public static int getVisualLineAreaEndY(@NotNull Editor editor, int visualLine) {
-    return editor.visualLineToY(visualLine) + editor.getLineHeight() + getInlaysHeight(editor, visualLine, false);
+    return editor.visualLineToYRange(visualLine)[1] + getInlaysHeight(editor, visualLine, false);
   }
 
   /**
@@ -966,8 +1123,8 @@ public final class EditorUtil {
   }
 
   /**
-   * Virtual space (after line end, and after end of text), inlays and space between visual lines (where block inlays are located) is
-   * excluded
+   * Virtual space (after line end, and after end of text), inlays and space between visual lines (where block inlays are located),
+   * as well as custom fold regions, are excluded.
    */
   public static boolean isPointOverText(@NotNull Editor editor, @NotNull Point point) {
     VisualPosition visualPosition = editor.xyToVisualPosition(point);
@@ -976,6 +1133,7 @@ public final class EditorUtil {
     if (editor.getSoftWrapModel().isInsideOrBeforeSoftWrap(visualPosition)) return false; // soft wrap
     LogicalPosition logicalPosition = editor.visualToLogicalPosition(visualPosition);
     int offset = editor.logicalPositionToOffset(logicalPosition);
+    if (editor.getFoldingModel().getCollapsedRegionAtOffset(offset) instanceof CustomFoldRegion) return false;
     if (!logicalPosition.equals(editor.offsetToLogicalPosition(offset))) return false; // virtual space
     List<Inlay<?>> inlays = editor.getInlayModel().getInlineElementsInRange(offset, offset);
     if (!inlays.isEmpty()) {
@@ -996,7 +1154,7 @@ public final class EditorUtil {
     long currentTimeStamp = System.currentTimeMillis();
     if (lastTimeStamp != null && (currentTimeStamp - lastTimeStamp) < EditorNotification.MAX_CARETS_NOTIFY_INTERVAL_MS) return;
     editor.putUserData(EditorNotification.LAST_MAX_CARETS_NOTIFY_TIMESTAMP, currentTimeStamp);
-    EditorNotification.GROUP
+    NotificationGroupManager.getInstance().getNotificationGroup("Editor notifications")
             .createNotification(
                     EditorBundle.message("editor.max.carets.hint", editor.getCaretModel().getMaxCaretCount()),
                     NotificationType.INFORMATION)
@@ -1016,9 +1174,42 @@ public final class EditorUtil {
     return false;
   }
 
+  @NotNull
+  public static DataContext getEditorDataContext(@NotNull Editor editor) {
+    DataContext context = DataManager.getInstance().getDataContext(editor.getContentComponent());
+    if (CommonDataKeys.PROJECT.getData(context) == editor.getProject()) {
+      return context;
+    }
+    return dataId -> {
+      if (CommonDataKeys.PROJECT.is(dataId)) {
+        return editor.getProject();
+      }
+      return context.getData(dataId);
+    };
+  }
+
   private static class EditorNotification {
-    private static final NotificationGroup GROUP = NotificationGroup.balloonGroup("Editor notifications");
     private static final Key<Long> LAST_MAX_CARETS_NOTIFY_TIMESTAMP = Key.create("last.max.carets.notify.timestamp");
     private static final long MAX_CARETS_NOTIFY_INTERVAL_MS = 10_000;
+  }
+
+  private static class OurInterval implements Interval {
+    private final int intervalStart;
+    private final int intervalEnd;
+
+    private OurInterval(int intervalStart, int intervalEnd) {
+      this.intervalStart = intervalStart;
+      this.intervalEnd = intervalEnd;
+    }
+
+    @Override
+    public int intervalStart() {
+      return intervalStart;
+    }
+
+    @Override
+    public int intervalEnd() {
+      return intervalEnd;
+    }
   }
 }

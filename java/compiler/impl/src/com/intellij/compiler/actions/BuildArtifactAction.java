@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.actions;
 
 import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.lang.IdeLanguageCustomization;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationType;
@@ -36,6 +37,7 @@ import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.EmptyIcon;
 import gnu.trove.TIntArrayList;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -74,7 +76,7 @@ public class BuildArtifactAction extends DumbAwareAction {
 
     List<ArtifactPopupItem> items = new ArrayList<>();
     if (artifacts.size() > 1) {
-      items.add(0, new ArtifactPopupItem(null, "All Artifacts", EmptyIcon.ICON_16));
+      items.add(0, new ArtifactPopupItem(null, JavaCompilerBundle.message("artifacts.menu.item.all"), EmptyIcon.ICON_16));
     }
     Set<Artifact> selectedArtifacts = new HashSet<>(ArtifactsWorkspaceSettings.getInstance(project).getArtifactsToBuild());
     TIntArrayList selectedIndices = new TIntArrayList();
@@ -132,7 +134,7 @@ public class BuildArtifactAction extends DumbAwareAction {
 
   private static final class BuildArtifactItem extends ArtifactActionItem {
     private BuildArtifactItem(List<ArtifactPopupItem> item, Project project) {
-      super(item, project, "Build");
+      super(item, project, JavaCompilerBundle.message("artifacts.menu.item.build"));
     }
 
     @Override
@@ -143,7 +145,7 @@ public class BuildArtifactAction extends DumbAwareAction {
 
   private static final class CleanArtifactItem extends ArtifactActionItem {
     private CleanArtifactItem(@NotNull List<ArtifactPopupItem> item, @NotNull Project project) {
-      super(item, project, "Clean");
+      super(item, project, JavaCompilerBundle.message("artifacts.menu.item.clean"));
     }
 
     @Override
@@ -177,15 +179,15 @@ public class BuildArtifactAction extends DumbAwareAction {
         if (outputPathContainingSourceRoots.size() == 1 && outputPathContainingSourceRoots.values().size() == 1) {
           final String name = ContainerUtil.getFirstItem(outputPathContainingSourceRoots.keySet());
           final String output = outputPathContainingSourceRoots.get(name);
-          message = "The output directory '" + output + "' of '" + name + "' artifact contains source roots of the project. Do you want to continue and clear it?";
+          message = JavaCompilerBundle.message("dialog.message.output.dir.contains.source.roots", output, name);
         }
         else {
           StringBuilder info = new StringBuilder();
           for (String name : outputPathContainingSourceRoots.keySet()) {
-            info.append(" '").append(name).append("' artifact ('").append(outputPathContainingSourceRoots.get(name)).append("')\n");
+            info.append(JavaCompilerBundle.message("dialog.message.output.dir.artifact", name, outputPathContainingSourceRoots.get(name)))
+              .append("\n");
           }
-          message = "The output directories of the following artifacts contains source roots:\n" +
-                    info + "Do you want to continue and clear these directories?";
+          message = JavaCompilerBundle.message("dialog.message.output.dirs.contain.source.roots", info);
         }
         final int answer = Messages.showYesNoDialog(myProject, message, JavaCompilerBundle.message("clean.artifacts"), null);
         if (answer != Messages.YES) {
@@ -201,8 +203,11 @@ public class BuildArtifactAction extends DumbAwareAction {
             indicator.checkCanceled();
             File file = pair.getFirst();
             if (!FileUtil.delete(file)) {
-              Holder.NOTIFICATION_GROUP.createNotification(JavaCompilerBundle.message("cannot.clean.0.artifact", pair.getSecond().getName()),
-                                                           JavaCompilerBundle.message("cannot.delete.0", file.getAbsolutePath()), NotificationType.ERROR, null).notify(myProject);
+              Holder.NOTIFICATION_GROUP
+                .createNotification(JavaCompilerBundle.message("cannot.clean.0.artifact", pair.getSecond().getName()),
+                                    JavaCompilerBundle.message("cannot.delete.0", file.getAbsolutePath()),
+                                    NotificationType.ERROR)
+                .notify(myProject);
             }
             else {
               deleted.add(file);
@@ -216,7 +221,7 @@ public class BuildArtifactAction extends DumbAwareAction {
 
   private static final class RebuildArtifactItem extends ArtifactActionItem {
     private RebuildArtifactItem(List<ArtifactPopupItem> item, Project project) {
-      super(item, project, "Rebuild");
+      super(item, project, JavaCompilerBundle.message("artifacts.menu.item.rebuild"));
     }
 
     @Override
@@ -229,7 +234,7 @@ public class BuildArtifactAction extends DumbAwareAction {
     private final ArtifactAwareProjectSettingsService mySettingsService;
 
     private EditArtifactItem(List<ArtifactPopupItem> item, Project project, final ArtifactAwareProjectSettingsService projectSettingsService) {
-      super(item, project, "Edit...");
+      super(item, project, JavaCompilerBundle.message("artifacts.menu.item.edit"));
       mySettingsService = projectSettingsService;
     }
 
@@ -242,25 +247,27 @@ public class BuildArtifactAction extends DumbAwareAction {
   private static abstract class ArtifactActionItem implements Runnable {
     protected final List<ArtifactPopupItem> myArtifactPopupItems;
     protected final Project myProject;
+    @Nls
     private final String myActionName;
 
-    protected ArtifactActionItem(@NotNull List<ArtifactPopupItem> item, @NotNull Project project, @NotNull String name) {
+    protected ArtifactActionItem(@NotNull List<ArtifactPopupItem> item, @NotNull Project project, @NotNull @Nls String name) {
       myArtifactPopupItems = item;
       myProject = project;
       myActionName = name;
     }
 
-    public String getActionName() {
+    public @Nls String getActionName() {
       return myActionName;
     }
   }
 
   private static final class ArtifactPopupItem {
     @Nullable private final Artifact myArtifact;
+    @Nls
     private final String myText;
     private final Icon myIcon;
 
-    private ArtifactPopupItem(@Nullable Artifact artifact, String text, Icon icon) {
+    private ArtifactPopupItem(@Nullable Artifact artifact, @Nls String text, Icon icon) {
       myArtifact = artifact;
       myText = text;
       myIcon = icon;
@@ -271,6 +278,7 @@ public class BuildArtifactAction extends DumbAwareAction {
       return myArtifact;
     }
 
+    @Nls
     public String getText() {
       return myText;
     }
@@ -293,7 +301,7 @@ public class BuildArtifactAction extends DumbAwareAction {
     ChooseArtifactStep(List<ArtifactPopupItem> artifacts,
                               Artifact first,
                               Project project, final ArtifactAwareProjectSettingsService settingsService) {
-      super("Build Artifact", artifacts);
+      super(ActionsBundle.message("group.BuildArtifactsGroup.text"), artifacts);
       myFirst = first;
       myProject = project;
       mySettingsService = settingsService;
@@ -337,7 +345,8 @@ public class BuildArtifactAction extends DumbAwareAction {
       if (mySettingsService != null) {
         actions.add(new EditArtifactItem(selectedValues, myProject, mySettingsService));
       }
-      return new BaseListPopupStep<ArtifactActionItem>(selectedValues.size() == 1 ? "Action" : "Action for " + selectedValues.size() + " artifacts", actions) {
+      String title = JavaCompilerBundle.message("popup.title.chosen.artifact.action", selectedValues.size());
+      return new BaseListPopupStep<>(title, actions) {
         @NotNull
         @Override
         public String getTextFor(ArtifactActionItem value) {

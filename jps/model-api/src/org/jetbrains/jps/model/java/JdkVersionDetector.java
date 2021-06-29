@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.java;
 
 import com.intellij.openapi.util.Bitness;
@@ -15,19 +15,53 @@ public abstract class JdkVersionDetector {
     return JpsServiceManager.getInstance().getService(JdkVersionDetector.class);
   }
 
-  @Nullable
-  public abstract JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath);
+  public abstract @Nullable JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath);
 
-  @Nullable
-  public abstract JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath, @NotNull ExecutorService actionRunner);
+  public abstract @Nullable JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath, @NotNull ExecutorService actionRunner);
+
+
+  /** Known OpenJDK builds */
+  public enum Variant {
+    AdoptOpenJdk_HS("adopt", "AdoptOpenJDK (HotSpot)"),
+    AdoptOpenJdk_J9("adopt-j9", "AdoptOpenJDK (OpenJ9)"),
+    Corretto("corretto", "Amazon Corretto"),
+    GraalVM("graalvm", "GraalVM"),
+    IBM("ibm", "IBM JDK"),
+    JBR("jbr", "JetBrains Runtime"),
+    Liberica("liberica", "BellSoft Liberica"),
+    Oracle(null, "Oracle OpenJDK"),
+    SapMachine("sap", "SAP SapMachine"),
+    Zulu("zulu", "Azul Zulu"),
+    Unknown(null, null);
+
+    public final @Nullable String prefix;
+    public final @Nullable String displayName;
+
+    Variant(@Nullable String prefix, @Nullable String displayName) {
+      this.prefix = prefix;
+      this.displayName = displayName;
+    }
+  }
 
   public static final class JdkVersionInfo {
     public final JavaVersion version;
     public final Bitness bitness;
+    public final Variant variant;
 
-    public JdkVersionInfo(@NotNull JavaVersion version, @NotNull Bitness bitness) {
+    public JdkVersionInfo(@NotNull JavaVersion version, @NotNull Bitness bitness, @Nullable Variant variant) {
       this.version = version;
       this.bitness = bitness;
+      this.variant = variant != null ? variant : Variant.Unknown;
+    }
+
+    public @NotNull String suggestedName() {
+      String f = version.toFeatureString();
+      return variant.prefix != null ? variant.prefix + '-' + f : f;
+    }
+
+    public @NotNull String displayVersionString() {
+      String s = "version " + version;
+      return variant.displayName != null ? variant.displayName + ' ' + s : s;
     }
 
     @Override
@@ -36,8 +70,7 @@ public abstract class JdkVersionDetector {
     }
   }
 
-  @NotNull
-  public static String formatVersionString(@NotNull JavaVersion version) {
+  public static @NotNull String formatVersionString(@NotNull JavaVersion version) {
     return "java version \"" + version + '"';
   }
 

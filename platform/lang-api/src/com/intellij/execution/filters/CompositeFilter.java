@@ -16,6 +16,7 @@
 package com.intellij.execution.filters;
 
 import com.intellij.diagnostic.PluginException;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -26,8 +27,11 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Consumer;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,10 +53,11 @@ public class CompositeFilter implements Filter, FilterMixin, DumbAware {
   public CompositeFilter(@NotNull Project project, @NotNull List<? extends Filter> filters) {
     myDumbService = DumbService.getInstance(project);
     myFilters = new ArrayList<>(filters);
-    myFilters.forEach(filter -> myIsAnyHeavy |= filter instanceof FilterMixin);
+    myIsAnyHeavy = ContainerUtil.exists(filters, filter -> filter instanceof FilterMixin);
   }
 
-  protected CompositeFilter(@NotNull DumbService dumbService) {
+  @TestOnly
+  CompositeFilter(@NotNull DumbService dumbService) {
     myDumbService = dumbService;
     myFilters = new ArrayList<>();
   }
@@ -187,6 +192,7 @@ public class CompositeFilter implements Filter, FilterMixin, DumbAware {
 
   @NotNull
   @Override
+  @Nls
   public String getUpdateMessage() {
     List<Filter> filters = myFilters;
     final List<String> updateMessage = new ArrayList<>();
@@ -199,7 +205,7 @@ public class CompositeFilter implements Filter, FilterMixin, DumbAware {
         updateMessage.add(((FilterMixin)filter).getUpdateMessage());
       }
     }
-    return updateMessage.size() == 1 ? updateMessage.get(0) : "Updating...";
+    return updateMessage.size() == 1 ? updateMessage.get(0) : LangBundle.message("updating.filters");
   }
 
   public boolean isEmpty() {

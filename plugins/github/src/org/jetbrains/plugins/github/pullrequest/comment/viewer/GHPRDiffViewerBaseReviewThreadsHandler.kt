@@ -1,12 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.comment.viewer
 
 import com.intellij.diff.tools.util.base.DiffViewerBase
 import com.intellij.diff.tools.util.base.DiffViewerListener
 import com.intellij.diff.util.Range
-import org.jetbrains.annotations.CalledInAwt
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.plugins.github.pullrequest.comment.GHPRDiffReviewThreadMapping
-import org.jetbrains.plugins.github.ui.util.SingleValueModel
+import com.intellij.collaboration.ui.SingleValueModel
 
 abstract class GHPRDiffViewerBaseReviewThreadsHandler<T : DiffViewerBase>(private val commentableRangesModel: SingleValueModel<List<Range>?>,
                                                                           private val reviewThreadsModel: SingleValueModel<List<GHPRDiffReviewThreadMapping>?>,
@@ -21,12 +22,12 @@ abstract class GHPRDiffViewerBaseReviewThreadsHandler<T : DiffViewerBase>(privat
         update()
       }
     })
-    commentableRangesModel.addValueChangedListener {
+    commentableRangesModel.addListener {
       if (viewerReady) {
         markCommentableRanges(commentableRangesModel.value)
       }
     }
-    reviewThreadsModel.addValueChangedListener {
+    reviewThreadsModel.addListener {
       if (viewerReady) {
         showThreads(reviewThreadsModel.value)
       }
@@ -40,9 +41,19 @@ abstract class GHPRDiffViewerBaseReviewThreadsHandler<T : DiffViewerBase>(privat
     }
   }
 
-  @CalledInAwt
+  @RequiresEdt
   abstract fun markCommentableRanges(ranges: List<Range>?)
 
-  @CalledInAwt
+  @RequiresEdt
   abstract fun showThreads(threads: List<GHPRDiffReviewThreadMapping>?)
+
+  companion object {
+    internal fun getCommentLinesRange(editor: EditorEx, line: Int): Pair<Int, Int> {
+      if (!editor.selectionModel.hasSelection()) return line to line
+
+      return with(editor.selectionModel) {
+        editor.offsetToLogicalPosition(selectionStart).line to editor.offsetToLogicalPosition(selectionEnd).line
+      }
+    }
+  }
 }

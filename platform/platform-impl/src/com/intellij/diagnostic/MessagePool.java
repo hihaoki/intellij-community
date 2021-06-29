@@ -1,9 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.IdeaLoggingEvent;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -127,11 +126,14 @@ public final class MessagePool {
 
       List<Attachment> attachments = new ArrayList<>(first.getAllAttachments());
       StringBuilder stacktraces = new StringBuilder("Following exceptions happened soon after this one, most probably they are induced.");
-      SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
+      @SuppressWarnings("SpellCheckingInspection") SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
       for (int i = 1; i < myMessages.size(); i++) {
         AbstractMessage next = myMessages.get(i);
         stacktraces.append("\n\n\n").append(format.format(next.getDate())).append('\n');
-        if (!StringUtil.isEmptyOrSpaces(next.getMessage())) stacktraces.append(next.getMessage()).append('\n');
+        String message = next.getMessage();
+        if (message != null && !message.isBlank()) {
+          stacktraces.append(message).append('\n');
+        }
         stacktraces.append(next.getThrowableText());
       }
       attachments.add(new Attachment("induced.txt", stacktraces.toString()));

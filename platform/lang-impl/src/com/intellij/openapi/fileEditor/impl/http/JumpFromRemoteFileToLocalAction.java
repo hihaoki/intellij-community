@@ -57,7 +57,7 @@ class JumpFromRemoteFileToLocalAction extends AnAction {
     else {
       JBPopupFactory.getInstance()
         .createPopupChooserBuilder(new ArrayList<>(files))
-        .setRenderer(new ColoredListCellRenderer<VirtualFile>() {
+        .setRenderer(new ColoredListCellRenderer<>() {
           @Override
           protected void customizeCellRenderer(@NotNull JList<? extends VirtualFile> list,
                                                VirtualFile value,
@@ -85,7 +85,7 @@ class JumpFromRemoteFileToLocalAction extends AnAction {
       }
     }
 
-    return FilenameIndex.getVirtualFilesByName(project, fileName, GlobalSearchScope.allScope(project));
+    return FilenameIndex.getVirtualFilesByName(fileName, GlobalSearchScope.allScope(project));
   }
 
   private static void navigateToFile(Project project, @NotNull VirtualFile file) {

@@ -15,6 +15,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogBuilder;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
@@ -72,7 +74,7 @@ public class ExternalDependenciesConfigurable implements SearchableConfigurable 
   @Override
   public JComponent createComponent() {
     JBList<ProjectExternalDependency> dependenciesList = new JBList<>();
-    dependenciesList.setCellRenderer(new ColoredListCellRenderer<ProjectExternalDependency>() {
+    dependenciesList.setCellRenderer(new ColoredListCellRenderer<>() {
       @Override
       protected void customizeCellRenderer(@NotNull JList<? extends ProjectExternalDependency> list, ProjectExternalDependency dependency,
                                            int index, boolean selected, boolean hasFocus) {
@@ -81,30 +83,23 @@ public class ExternalDependenciesConfigurable implements SearchableConfigurable 
           append(getPluginNameById(value.getPluginId()), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
           String minVersion = value.getMinVersion();
           String maxVersion = value.getMaxVersion();
-          if (minVersion != null || maxVersion != null) {
-            append(", version ");
-          }
           if (minVersion != null && minVersion.equals(maxVersion)) {
-            append(minVersion, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+            append(IdeBundle.message("required.plugin.exact.version", minVersion));
           }
           else if (minVersion != null && maxVersion != null) {
-            append("between ");
-            append(minVersion, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-            append(" and ");
-            append(maxVersion, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+            append(IdeBundle.message("required.plugin.between.versions", minVersion, maxVersion));
           }
           else if (minVersion != null) {
-            append("at least ");
-            append(minVersion, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+            append(IdeBundle.message("required.plugin.at.least.versions", minVersion));
           }
           else if (maxVersion != null) {
-            append("at most ");
-            append(maxVersion, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+            append(IdeBundle.message("required.plugin.at.most.versions", maxVersion));
           }
         }
         else {
           LOG.error("Unsupported external dependency: " + dependency.getClass());
-          append(dependency.toString());
+          @NlsSafe String dependencyDescription = dependency.toString();
+          append(dependencyDescription);
         }
       }
     });
@@ -159,11 +154,11 @@ public class ExternalDependenciesConfigurable implements SearchableConfigurable 
     }
   }
 
-  private String getPluginNameById(@NotNull String pluginId) {
+  private @NlsContexts.ListItem String getPluginNameById(@NotNull @NlsSafe String pluginId) {
     return ObjectUtils.notNull(getPluginNameByIdMap().get(pluginId), pluginId);
   }
 
-  private Map<String, String> getPluginNameByIdMap() {
+  private Map<String, @NlsContexts.ListItem String> getPluginNameByIdMap() {
     if (myPluginNameById == null) {
       myPluginNameById = new HashMap<>();
       for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
@@ -200,12 +195,12 @@ public class ExternalDependenciesConfigurable implements SearchableConfigurable 
     };
     pluginChooser.setSelectedItem(original.getPluginId());
 
-    final JBTextField minVersionField = new JBTextField(StringUtil.notNullize(original.getMinVersion()));
-    final JBTextField maxVersionField = new JBTextField(StringUtil.notNullize(original.getMaxVersion()));
+    final JBTextField minVersionField = new JBTextField(StringUtil.notNullize(original.getRawMinVersion()));
+    final JBTextField maxVersionField = new JBTextField(StringUtil.notNullize(original.getRawMaxVersion()));
     minVersionField.getEmptyText().setText(IdeBundle.message("label.version.any"));
-    minVersionField.setColumns(10);
+    minVersionField.setColumns(17);
     maxVersionField.getEmptyText().setText(IdeBundle.message("label.version.any"));
-    maxVersionField.setColumns(10);
+    maxVersionField.setColumns(17);
     JPanel panel = FormBuilder.createFormBuilder()
       .addLabeledComponent(IdeBundle.message("label.plugin"), pluginChooser)
       .addLabeledComponent(IdeBundle.message("label.minimum.version"), minVersionField)

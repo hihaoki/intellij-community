@@ -1,9 +1,11 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.codeEditor.printing.ExportToHTMLSettings;
 import com.intellij.execution.configurations.ModuleBasedConfiguration;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.configurations.SimpleJavaParameters;
+import com.intellij.execution.target.java.JavaTargetParameter;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -17,8 +19,9 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.rt.coverage.data.*;
-import com.intellij.util.PathUtil;
-import org.jacoco.agent.rt.RT;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
+import org.jacoco.agent.AgentJar;
 import org.jacoco.core.analysis.*;
 import org.jacoco.core.tools.ExecFileLoader;
 import org.jacoco.report.DirectorySourceFileLocator;
@@ -37,7 +40,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.HashSet;
 
-public class JaCoCoCoverageRunner extends JavaCoverageRunner {
+public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   private static final Logger LOG = Logger.getInstance(JaCoCoCoverageRunner.class);
 
   @Override
@@ -133,10 +136,11 @@ public class JaCoCoCoverageRunner extends JavaCoverageRunner {
         for (String root : roots) {
           try {
             Path rootPath = Paths.get(new File(FileUtil.toSystemDependentName(VfsUtilCore.urlToPath(root))).toURI());
-            Files.walkFileTree(rootPath, new SimpleFileVisitor<Path>() {
+            Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
               @Override
               public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) throws IOException {
                 String vmClassName = rootPath.relativize(path).toString().replaceAll(StringUtil.escapeToRegexp(File.separator), ".");
+                vmClassName = StringUtil.trimEnd(vmClassName, ".class");
                 if (suite.isClassFiltered(vmClassName, suite.getExcludedClassNames()) ||
                     !suite.isPackageFiltered(StringUtil.getPackageName(vmClassName))) {
                   return FileVisitResult.CONTINUE;
@@ -180,7 +184,7 @@ public class JaCoCoCoverageRunner extends JavaCoverageRunner {
                                      SimpleJavaParameters parameters,
                                      boolean collectLineInfo,
                                      boolean isSampling) {
-    appendCoverageArgument(sessionDataFilePath, patterns, null, parameters, collectLineInfo, isSampling, null);
+    appendCoverageArgument(sessionDataFilePath, patterns, null, parameters, collectLineInfo, isSampling, null, null);
   }
 
   @Override
@@ -190,21 +194,51 @@ public class JaCoCoCoverageRunner extends JavaCoverageRunner {
                                      SimpleJavaParameters javaParameters,
                                      boolean collectLineInfo,
                                      boolean isSampling,
-                                     String sourceMapPath) {
-    StringBuilder argument = new StringBuilder("-javaagent:");
-    final String agentPath = handleSpacesInAgentPath(PathUtil.getJarPathForClass(RT.class));
+                                     String sourceMapPath,
+                                     @Nullable Project project) {
+    String path;
+    try {
+      path = AgentJar.extractToTempLocation().getAbsolutePath();
+    }
+    catch (IOException e) {
+      return;
+    }
+    final String agentPath = handleSpacesInAgentPath(path);
     if (agentPath == null) return;
-    argument.append(agentPath);
-    argument.append("=");
-    argument.append("destfile=").append(sessionDataFilePath);
-    argument.append(",append=false");
-    if (patterns != null) {
-      argument.append(",includes=").append(StringUtil.join(patterns, ":"));
+    javaParameters.getTargetDependentParameters().asTargetParameters().add(request -> {
+      return createArgumentTargetValue(agentPath, sessionDataFilePath, patterns, excludePatterns);
+    });
+  }
+
+  public JavaTargetParameter createArgumentTargetValue(String agentPath,
+                                                       String sessionDataFilePath,
+                                                       String @Nullable [] patterns,
+                                                       String[] excludePatterns) {
+    HashSet<String> uploadPaths = ContainerUtil.newHashSet(agentPath);
+    HashSet<String> downloadPaths = ContainerUtil.newHashSet(sessionDataFilePath);
+    var builder = new JavaTargetParameter.Builder(uploadPaths, downloadPaths);
+    return doCreateCoverageArgument(builder, patterns, excludePatterns, sessionDataFilePath, agentPath);
+  }
+
+  @NotNull
+  private static JavaTargetParameter doCreateCoverageArgument(@NotNull JavaTargetParameter.Builder builder,
+                                                              String @Nullable [] patterns,
+                                                              String[] excludePatterns,
+                                                              String sessionDataFilePath,
+                                                              String agentPath) {
+    builder
+      .fixed("-javaagent:")
+      .resolved(agentPath)
+      .fixed("=destfile=")
+      .resolved(sessionDataFilePath)
+      .fixed(",append=false");
+    if (!ArrayUtil.isEmpty(patterns)) {
+      builder.fixed(",includes=").fixed(StringUtil.join(patterns, ":"));
     }
-    if (excludePatterns != null) {
-      argument.append(",excludes=").append(StringUtil.join(excludePatterns, ":"));
+    if (!ArrayUtil.isEmpty(excludePatterns)) {
+      builder.fixed(",excludes=").fixed(StringUtil.join(excludePatterns, ":"));
     }
-    javaParameters.getVMParametersList().add(argument.toString());
+    return builder.build();
   }
 
   @Override

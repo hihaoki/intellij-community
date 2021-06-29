@@ -7,9 +7,13 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.DataInputOutputUtil;
 import com.intellij.util.io.KeyDescriptor;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -21,8 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 // Vfs invalidation will rebuild this mapping, also any exception with the mapping will cause rebuild of the vfs
 // stored data is VfsTimeStamp Version T*
 public final class VfsDependentEnum<T> {
-  private static final String DEPENDENT_PERSISTENT_LIST_START_PREFIX = "vfs_enum_";
-  private final File myFile;
+  private final Path myFile;
   private final DataExternalizer<T> myKeyDescriptor;
   private final int myVersion;
 
@@ -35,13 +38,14 @@ public final class VfsDependentEnum<T> {
   private boolean myTriedToLoadFile;
 
   public VfsDependentEnum(@NotNull String fileName, @NotNull KeyDescriptor<T> descriptor, int version) {
-    myFile = new File(FSRecords.basePath(), DEPENDENT_PERSISTENT_LIST_START_PREFIX + fileName  + FSRecords.VFS_FILES_EXTENSION);
-    myKeyDescriptor = descriptor;
-    myVersion = version;
+    this(FSRecords.getPersistentFSPaths(), fileName, descriptor, version);
   }
 
-  static @NotNull File getBaseFile() {
-    return new File(FSRecords.basePath(), DEPENDENT_PERSISTENT_LIST_START_PREFIX);
+  @ApiStatus.Internal
+  VfsDependentEnum(@NotNull PersistentFSPaths paths, @NotNull String fileName, @NotNull KeyDescriptor<T> descriptor, int version) {
+    myFile = paths.getVfsEnumFile(fileName);
+    myKeyDescriptor = descriptor;
+    myVersion = version;
   }
 
   public int getId(@NotNull T s) throws IOException {
@@ -76,29 +80,24 @@ public final class VfsDependentEnum<T> {
   }
 
   private void saveToFile(@NotNull T instance) throws IOException {
-    FileOutputStream fileOutputStream = new FileOutputStream(myFile, true);
-
-    try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(fileOutputStream))) {
-      if (myFile.length() == 0) {
+    Files.createDirectories(myFile.getParent());
+    try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(myFile,
+                                                                                                       StandardOpenOption.APPEND,
+                                                                                                       StandardOpenOption.CREATE,
+                                                                                                       StandardOpenOption.WRITE)))) {
+      if (Files.size(myFile) == 0L) {
         DataInputOutputUtil.writeTIME(output, FSRecords.getCreationTimestamp());
         DataInputOutputUtil.writeINT(output, myVersion);
       }
       myKeyDescriptor.save(output, instance);
     }
-    finally {
-      try {
-        fileOutputStream.getFD().sync();
-      }
-      catch (IOException ignored) {
-      }
-    }
   }
 
   private boolean loadFromFile() throws IOException {
-    if (!myTriedToLoadFile && myInstances.isEmpty() && myFile.exists()) {
+    if ( !myTriedToLoadFile && myInstances.isEmpty() && Files.exists(myFile)) {
       myTriedToLoadFile = true;
       boolean deleteFile = false;
-      try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(myFile)))) {
+      try (DataInputStream input = new DataInputStream(new BufferedInputStream(Files.newInputStream(myFile)))) {
         long vfsVersion = DataInputOutputUtil.readTIME(input);
 
         if (vfsVersion != FSRecords.getCreationTimestamp()) {

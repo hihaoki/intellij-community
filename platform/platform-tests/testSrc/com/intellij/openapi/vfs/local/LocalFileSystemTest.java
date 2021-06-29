@@ -6,8 +6,10 @@ import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.diagnostic.DefaultLogger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileAttributes;
+import com.intellij.openapi.util.io.FileAttributes.CaseSensitivity;
 import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -21,7 +23,6 @@ import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualDirectoryImpl;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
-import com.intellij.openapi.vfs.newvfs.persistent.RefreshWorker;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
@@ -56,7 +57,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable());
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void before(@NotNull List<? extends VFileEvent> events) {
+      public void before(@NotNull List<? extends @NotNull VFileEvent> events) {
         for (VFileEvent event : events) {
           VirtualFile file = event.getFile();
           if (file != null) {
@@ -67,7 +68,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
       }
 
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         for (VFileEvent event : events) {
           VirtualFile file = event.getFile();
           if (file != null) {
@@ -211,6 +212,19 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
   }
 
   @Test
+  public void testFindFileSeparatorNormalization() {
+    tempDir.newFile("a/b/c/f");
+    VirtualFile file = myFS.refreshAndFindFileByPath(tempDir.getRoot() + "/a\\b//c\\f");
+    assertNotNull(file);
+    assertEquals("f", file.getName());
+    assertEquals("c", file.getParent().getName());
+    assertEquals("b", file.getParent().getParent().getName());
+    assertEquals("a", file.getParent().getParent().getParent().getName());
+    assertEquals(file, myFS.refreshAndFindFileByIoFile(new File(tempDir.getRoot(), "a\\b//c\\f")));
+    assertEquals(file, myFS.refreshAndFindFileByNioFile(tempDir.getRoot().toPath().resolve("a\\b//c\\f")));
+  }
+
+  @Test
   public void testCopyFile() throws IOException {
     runInEdtAndWait(() -> {
       File fromDir = tempDir.newDirectory("from");
@@ -291,7 +305,8 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
       assertNotNull(root);
       root2 = myFS.findFileByPath("//SOME-UNC-SERVER/SOME-UNC-SHARE");
       assertSame(String.valueOf(root), root, root2);
-      RefreshQueue.getInstance().processSingleEvent(new VFileDeleteEvent(this, root, false));
+      assertEquals("\\\\some-unc-server\\some-unc-share", root.getPresentableName());
+      RefreshQueue.getInstance().processSingleEvent(false, new VFileDeleteEvent(this, root, false));
     }
     else if (SystemInfo.isUnix) {
       VirtualFile root = myFS.findFileByPath("/");
@@ -360,7 +375,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
       assertThat(uncRootFile.getChildren()).isEmpty();
     }
     finally {
-      RefreshQueue.getInstance().processSingleEvent(new VFileDeleteEvent(this, uncRootFile, false));
+      RefreshQueue.getInstance().processSingleEvent(false, new VFileDeleteEvent(this, uncRootFile, false));
       assertFalse("still valid: " + uncRootFile, uncRootFile.isValid());
     }
   }
@@ -432,8 +447,8 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     NewVirtualFileSystem fs = (NewVirtualFileSystem)virtualFile.getFileSystem();
     FileAttributes attributes = fs.getAttributes(virtualFile);
     assertNotNull(attributes);
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
-    assertEquals(FileAttributes.HIDDEN, attributes.flags);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertTrue(attributes.isHidden());
   }
 
   @Test
@@ -486,6 +501,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
 
   @Test
   public void testNoMoreFakeRoots() {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
     try {
       ManagingFS.getInstance().findRoot("", myFS);
       fail("should fail by assertion in PersistentFsImpl.findRoot()");
@@ -527,8 +543,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
       sourceFile.copy(this, parentDir, ".");
       fail("Copying a file into a '.' path should have failed");
     }
-    catch (IOException e) {
-      e.printStackTrace();
+    catch (IOException ignored) {
     }
 
     topDir.refresh(false, true);
@@ -602,7 +617,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         events.forEach(e -> processed.add(e.getFile()));
       }
     });
@@ -629,7 +644,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
 
     File target = tempDir.newDirectory("target");
     File link = new File(tempDir.getRoot(), "link");
-    Files.createSymbolicLink(link.toPath(), target.toPath()).toFile();
+    createSymbolicLink(link.toPath(), target.toPath()).toFile();
 
     VirtualFile vTop = myFS.refreshAndFindFileByIoFile(tempDir.getRoot());
     assertNotNull(vTop);
@@ -672,7 +687,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
         createTestDir(sub, "sub_" + j);
       }
     }
-    Files.walkFileTree(top.toPath(), new SimpleFileVisitor<Path>() {
+    Files.walkFileTree(top.toPath(), new SimpleFileVisitor<>() {
       @Override
       public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
         for (int k = 1; k <= 3; k++) {
@@ -693,31 +708,31 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         events.forEach(e -> processed.add(e.getFile()));
       }
     });
 
     try {
-      files.forEach(f -> updateFile(new File(f.getPath()), "+++"));
+      files.forEach(f -> writeToFile(new File(f.getPath()), "+++"));
       ((NewVirtualFile)topDir).markDirtyRecursively();
 
       RefreshSession session = RefreshQueue.getInstance().createSession(false, true, null);
       String stopAt = top.getName() + "/sub_2/file_2";
-      RefreshWorker.setTestListener(file -> {
+      RefreshQueueImpl.setTestListener(file -> {
         if (file.getPath().endsWith(stopAt)) RefreshQueue.getInstance().cancelSession(session.getId());
       });
       session.addFile(topDir);
       session.launch();
       assertThat(processed).hasSizeBetween(1, files.size() - 1);
 
-      RefreshWorker.setTestListener(null);
+      RefreshQueueImpl.setTestListener(null);
       topDir.refresh(false, true);
       assertThat(processed).isEqualTo(files);
     }
     finally {
       connection.disconnect();
-      RefreshWorker.setTestListener(null);
+      RefreshQueueImpl.setTestListener(null);
     }
   }
 
@@ -763,7 +778,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     runInEdtAndWait(() -> {
       File srcDir = tempDir.newDirectory("src");
       File link = new File(tempDir.getRoot(), "link");
-      Files.createSymbolicLink(link.toPath(), new File(tempDir.getRoot(), "missing").toPath());
+      createSymbolicLink(link.toPath(), new File(tempDir.getRoot(), "missing").toPath());
       File dstDir = tempDir.newDirectory("dst");
 
       VirtualFile file = myFS.refreshAndFindFileByIoFile(link);
@@ -790,7 +805,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable());
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         for (VFileEvent event : events) {
           if (event instanceof VFileContentChangeEvent && vFile.equals(event.getFile())) {
             updated[0]++;
@@ -897,5 +912,19 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
 
     assertEquals(file.toPath(), nioFile.toNioPath());
     assertEquals(file.toPath(), ioFile.toNioPath());
+  }
+
+  @Test
+  public void caseSensitivityNativeAPIMustWorkInSimpleCasesAndIsCachedInVirtualFileFlags() {
+    File file = tempDir.newFile("dir/0");
+    assertFalse(FileSystemUtil.isCaseToggleable(file.getName()));
+
+    VirtualDirectoryImpl dir = (VirtualDirectoryImpl)LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file.getParentFile());
+    assertEquals(CaseSensitivity.UNKNOWN, dir.getChildrenCaseSensitivity());
+
+    VfsImplUtil.generateCaseSensitivityChangedEventForUnknownCase(dir, file.getName());
+    CaseSensitivity expected = SystemInfo.isFileSystemCaseSensitive ? CaseSensitivity.SENSITIVE : CaseSensitivity.INSENSITIVE;
+    assertEquals(expected, dir.getChildrenCaseSensitivity());
+    assertEquals(expected == CaseSensitivity.SENSITIVE, dir.isCaseSensitive());
   }
 }

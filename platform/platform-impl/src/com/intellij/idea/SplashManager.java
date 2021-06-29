@@ -1,13 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
 import com.intellij.diagnostic.Activity;
+import com.intellij.diagnostic.ActivityCategory;
 import com.intellij.diagnostic.StartUpMeasurer;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.wm.impl.FrameBoundsConverter;
@@ -20,6 +19,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -30,17 +30,10 @@ import java.nio.file.Paths;
 
 public final class SplashManager {
   private static JFrame PROJECT_FRAME;
-  private static Splash SPLASH_WINDOW;
+  static Splash SPLASH_WINDOW;
 
-  public static void show(String @NotNull [] args, Boolean visible) {
-    for (String arg : args) {
-      if (CommandLineArgs.NO_SPLASH.equals(arg)) {
-        System.setProperty(CommandLineArgs.NO_SPLASH, "true");
-        return;
-      }
-    }
-
-    Activity frameActivity = StartUpMeasurer.startActivity("splash as project frame initialization");
+  public static void scheduleShow() {
+    Activity frameActivity = StartUpMeasurer.startActivity("splash as project frame initialization", ActivityCategory.DEFAULT);
     try {
       PROJECT_FRAME = createFrameIfPossible();
     }
@@ -57,13 +50,15 @@ public final class SplashManager {
     // must be out of activity measurement
     ApplicationInfoEx appInfo = ApplicationInfoImpl.getShadowInstance();
     assert SPLASH_WINDOW == null;
-    Activity activity = StartUpMeasurer.startActivity("splash initialization");
+    Activity activity = StartUpMeasurer.startActivity("splash initialization", ActivityCategory.DEFAULT);
     SPLASH_WINDOW = new Splash(appInfo);
+    Activity queueActivity = activity.startChild("splash initialization (in queue)");
     EventQueue.invokeLater(() -> {
+      queueActivity.end();
       Splash splash = SPLASH_WINDOW;
       // can be cancelled if app was started very fast
       if (splash != null) {
-        splash.initAndShow(visible);
+        splash.initAndShow(true);
       }
       activity.end();
     });
@@ -128,7 +123,7 @@ public final class SplashManager {
       return;
     }
 
-    WindowAdapter listener = new WindowAdapter() {
+    WindowListener listener = new WindowAdapter() {
       @Override
       public void windowOpened(WindowEvent e) {
         setVisible(false);
@@ -150,19 +145,6 @@ public final class SplashManager {
         splash.paint(splash.getGraphics());
       }
     }
-  }
-
-  public static @Nullable ProgressIndicator createProgressIndicator() {
-    if (SPLASH_WINDOW == null) {
-      return null;
-    }
-
-    return new EmptyProgressIndicator() {
-      @Override
-      public void setFraction(double fraction) {
-        SPLASH_WINDOW.showProgress(fraction);
-      }
-    };
   }
 
   public static @Nullable JFrame getAndUnsetProjectFrame() {

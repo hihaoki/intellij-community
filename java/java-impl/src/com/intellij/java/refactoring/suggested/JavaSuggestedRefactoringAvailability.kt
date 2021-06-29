@@ -7,13 +7,13 @@ import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.OverridingMethodsSearch
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiUtil
+import com.intellij.refactoring.RefactoringBundle
 import com.intellij.refactoring.suggested.*
 import com.intellij.refactoring.suggested.SuggestedRefactoringSupport.Parameter
 import com.intellij.refactoring.suggested.SuggestedRefactoringSupport.Signature
 
 class JavaSuggestedRefactoringAvailability(refactoringSupport: SuggestedRefactoringSupport) :
-  SuggestedRefactoringAvailability(refactoringSupport)
-{
+  SuggestedRefactoringAvailability(refactoringSupport) {
   private val HAS_OVERRIDES = Key<Boolean>("JavaSuggestedRefactoringAvailability.HAS_OVERRIDES")
   private val HAS_USAGES = Key<Boolean>("JavaSuggestedRefactoringAvailability.HAS_USAGES")
 
@@ -69,12 +69,14 @@ class JavaSuggestedRefactoringAvailability(refactoringSupport: SuggestedRefactor
     val canHaveOverrides = declaration.canHaveOverrides(oldSignature) && state.additionalData[HAS_OVERRIDES] != false
     if (state.additionalData[HAS_USAGES] == false && !canHaveOverrides) return null
 
-    val updateUsagesData = SuggestedChangeSignatureData.create(state, USAGES)
+    val updateUsagesData = SuggestedChangeSignatureData.create(state, RefactoringBundle.message("suggested.refactoring.usages"))
 
     if (hasParameterAddedRemovedOrReordered(oldSignature, newSignature)) return updateUsagesData
 
     val updateOverridesData = if (canHaveOverrides)
-      updateUsagesData.copy(nameOfStuffToUpdate = if (declaration.hasModifierProperty(PsiModifier.ABSTRACT)) IMPLEMENTATIONS else OVERRIDES)
+      updateUsagesData.copy(nameOfStuffToUpdate = if (declaration.hasModifierProperty(PsiModifier.ABSTRACT)) RefactoringBundle.message(
+        "suggested.refactoring.implementations")
+      else RefactoringBundle.message("suggested.refactoring.overrides"))
     else
       null
 

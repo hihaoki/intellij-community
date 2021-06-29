@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.Executor.cd
@@ -30,6 +31,7 @@ import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import kotlin.reflect.KMutableProperty0
 
 abstract class VcsPlatformTest : HeavyPlatformTestCase() {
   protected val testNioRoot: Path
@@ -75,22 +77,22 @@ abstract class VcsPlatformTest : HeavyPlatformTestCase() {
   }
 
   override fun tearDown() {
-    RunAll()
-      .append(ThrowableRunnable { selfTearDownRunnable() })
-      .append(ThrowableRunnable { clearFields(this) })
-      .append(ThrowableRunnable { runInEdtAndWait { super@VcsPlatformTest.tearDown() } })
-      .run()
+    RunAll(
+      ThrowableRunnable { selfTearDownRunnable() },
+      ThrowableRunnable { clearFields(this) },
+      ThrowableRunnable { runInEdtAndWait { super@VcsPlatformTest.tearDown() } }
+    ).run()
   }
 
   private fun selfTearDownRunnable() {
     var tearDownErrorDetected = false
     try {
-      RunAll()
-        .append(ThrowableRunnable { AsyncVfsEventsPostProcessorImpl.waitEventsProcessed() })
-        .append(ThrowableRunnable { changeListManager.waitEverythingDoneInTestMode() })
-        .append(ThrowableRunnable { if (::vcsNotifier.isInitialized) vcsNotifier.cleanup() })
-        .append(ThrowableRunnable { waitForPendingTasks() })
-        .run()
+      RunAll(
+        ThrowableRunnable { AsyncVfsEventsPostProcessorImpl.waitEventsProcessed() },
+        ThrowableRunnable { changeListManager.waitEverythingDoneAndStopInTestMode() },
+        ThrowableRunnable { if (::vcsNotifier.isInitialized) vcsNotifier.cleanup() },
+        ThrowableRunnable { waitForPendingTasks() }
+      ).run()
     }
     catch (e: Throwable) {
       tearDownErrorDetected = true
@@ -187,23 +189,20 @@ abstract class VcsPlatformTest : HeavyPlatformTestCase() {
   }
 
 
-  protected fun assertSuccessfulNotification(title: String, message: String) : Notification {
-    return assertNotification(NotificationType.INFORMATION, title, message, vcsNotifier.lastNotification)
+  protected fun assertSuccessfulNotification(title: String, message: String): Notification {
+    return assertHasNotification(NotificationType.INFORMATION, title, message, vcsNotifier.notifications)
   }
 
-  protected fun assertSuccessfulNotification(message: String) : Notification {
+  protected fun assertSuccessfulNotification(message: String): Notification {
     return assertSuccessfulNotification("", message)
   }
 
-  protected fun assertWarningNotification(title: String, message: String) {
-    assertNotification(NotificationType.WARNING, title, message, vcsNotifier.lastNotification)
+  protected fun assertWarningNotification(title: String, message: String): Notification {
+    return assertHasNotification(NotificationType.WARNING, title, message, vcsNotifier.notifications)
   }
 
-  protected fun assertErrorNotification(title: String, message: String) : Notification {
-    val notification = vcsNotifier.lastNotification
-    assertNotNull("No notification was shown", notification)
-    assertNotification(NotificationType.ERROR, title, message, notification)
-    return notification
+  protected fun assertErrorNotification(title: String, message: String): Notification {
+    return assertHasNotification(NotificationType.ERROR, title, message, vcsNotifier.notifications)
   }
 
   protected fun assertNoNotification() {
@@ -217,6 +216,12 @@ abstract class VcsPlatformTest : HeavyPlatformTestCase() {
     vcsNotifier.notifications.find { it.type == NotificationType.ERROR }?.let { notification ->
       fail("No error notification is expected here, but this one was shown: ${notification.title}/${notification.content}")
     }
+  }
+
+  protected fun <V> setValueForTest(property: KMutableProperty0<V>, value: V) {
+    val oldValue = property.get()
+    property.set(value)
+    Disposer.register(testRootDisposable) { property.set(oldValue) }
   }
 
   data class AsyncTask(val name: String, val indicator: ProgressIndicator, val future: Future<*>)

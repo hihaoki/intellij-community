@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase.log
 
 import com.intellij.notification.NotificationAction
@@ -10,6 +10,9 @@ import com.intellij.openapi.progress.util.BackgroundTaskUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.vcs.VcsNotifier
+import git4idea.GitNotificationIdsHolder.Companion.REBASE_COMMIT_EDIT_UNDO_ERROR
+import git4idea.GitNotificationIdsHolder.Companion.REBASE_COMMIT_EDIT_UNDO_ERROR_PROTECTED_BRANCH
+import git4idea.GitNotificationIdsHolder.Companion.REBASE_COMMIT_EDIT_UNDO_ERROR_REPO_CHANGES
 import git4idea.i18n.GitBundle
 import git4idea.rebase.log.GitCommitEditingOperationResult.Complete.UndoPossibility
 import git4idea.rebase.log.GitCommitEditingOperationResult.Complete.UndoResult
@@ -17,13 +20,13 @@ import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryChangeListener
 
 internal fun GitCommitEditingOperationResult.Complete.notifySuccess(
-  title: @NlsContexts.NotificationTitle String,
-  undoProgressTitle: @NlsContexts.ProgressTitle String,
-  undoImpossibleTitle: @NlsContexts.ProgressTitle String,
-  undoErrorTitle: @NlsContexts.ProgressTitle String
+  @NlsContexts.NotificationTitle title: String,
+  @NlsContexts.ProgressTitle undoProgressTitle: String,
+  @NlsContexts.ProgressTitle undoImpossibleTitle: String,
+  @NlsContexts.ProgressTitle undoErrorTitle: String
 ) {
   val project = repository.project
-  val notification = VcsNotifier.STANDARD_NOTIFICATION.createNotification(title, "", NotificationType.INFORMATION, null)
+  val notification = VcsNotifier.STANDARD_NOTIFICATION.createNotification(title, NotificationType.INFORMATION)
   notification.addAction(NotificationAction.createSimple(
     GitBundle.messagePointer("action.NotificationAction.GitRewordOperation.text.undo"),
     Runnable {
@@ -47,30 +50,31 @@ internal fun GitCommitEditingOperationResult.Complete.notifySuccess(
   VcsNotifier.getInstance(project).notify(notification)
 }
 
-internal fun UndoResult.Error.notifyUndoError(
-  project: Project,
-  title: @NlsContexts.NotificationTitle String
-) {
-  VcsNotifier.getInstance(project).notifyError(title, errorHtml)
+internal fun UndoResult.Error.notifyUndoError(project: Project, @NlsContexts.NotificationTitle title: String) {
+  VcsNotifier.getInstance(project).notifyError(REBASE_COMMIT_EDIT_UNDO_ERROR, title, errorHtml)
 }
 
-internal fun UndoPossibility.Impossible.notifyUndoImpossible(project: Project, title: @NlsContexts.NotificationTitle String) {
+internal fun UndoPossibility.Impossible.notifyUndoImpossible(project: Project, @NlsContexts.NotificationTitle title: String) {
   val notifier = VcsNotifier.getInstance(project)
   when (this) {
     UndoPossibility.Impossible.HeadMoved -> {
-      notifier.notifyError(title, GitBundle.getString("rebase.log.reword.action.notification.undo.not.allowed.repository.changed.message"))
+      notifier.notifyError(REBASE_COMMIT_EDIT_UNDO_ERROR_REPO_CHANGES,
+                           title,
+                           GitBundle.message("rebase.log.reword.action.notification.undo.not.allowed.repository.changed.message"))
     }
     is UndoPossibility.Impossible.PushedToProtectedBranch -> {
-      notifier.notifyError(title, GitBundle.message("rebase.log.undo.impossible.pushed.to.protected.branch.notification.text", branch))
+      notifier.notifyError(REBASE_COMMIT_EDIT_UNDO_ERROR_PROTECTED_BRANCH,
+                           title,
+                           GitBundle.message("rebase.log.undo.impossible.pushed.to.protected.branch.notification.text", branch))
     }
   }
 }
 
 private fun undoInBackground(
   project: Project,
-  undoProgressTitle: @NlsContexts.ProgressTitle String,
-  undoImpossibleTitle: @NlsContexts.ProgressTitle String,
-  undoErrorTitle: @NlsContexts.ProgressTitle String,
+  @NlsContexts.ProgressTitle undoProgressTitle: String,
+  @NlsContexts.ProgressTitle undoImpossibleTitle: String,
+  @NlsContexts.ProgressTitle undoErrorTitle: String,
   result: GitCommitEditingOperationResult.Complete
 ) {
   ProgressManager.getInstance().run(object : Task.Backgroundable(project, undoProgressTitle) {

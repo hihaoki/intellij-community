@@ -15,31 +15,13 @@ import org.jetbrains.annotations.ApiStatus
 @Deprecated("Use version from `LifetimeDisposableEx`")
 fun defineNestedLifetime(disposable: Disposable): LifetimeDefinition {
   val lifetimeDefinition = Lifetime.Eternal.createNested()
-  if (Disposer.isDisposing(disposable) || Disposer.isDisposed(disposable)) {
+  if (Disposer.isDisposed(disposable)) {
     lifetimeDefinition.terminate()
     return lifetimeDefinition
   }
 
   disposable.attach { if (lifetimeDefinition.lifetime.isAlive) lifetimeDefinition.terminate() }
   return lifetimeDefinition
-}
-
-@ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
-@Deprecated("Use version from `LifetimeDisposableEx`")
-internal fun doIfAlive(disposable: Disposable, action: (Lifetime) -> Unit) {
-  val disposableLifetime: Lifetime?
-  if (Disposer.isDisposed(disposable)) {
-    return
-  }
-  try {
-    disposableLifetime = defineNestedLifetime(disposable).lifetime
-  }
-  catch (t: Throwable) {
-    //do nothing, there is no other way to handle disposables
-    return
-  }
-
-  action(disposableLifetime)
 }
 
 @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
@@ -53,6 +35,11 @@ internal fun Lifetime.createNestedDisposable(debugName: String = "lifetimeToDisp
 }
 
 @Suppress("ObjectLiteralToLambda")
+/**
+ * Executes the given action when this disposable will be disposed
+ * @throws com.intellij.util.IncorrectOperationException if this disposable is being disposed or is already disposed
+ * @see Disposer.register
+ */
 inline fun Disposable.attach(crossinline disposable: () -> Unit) {
   Disposer.register(this, object : Disposable {
     override fun dispose() {

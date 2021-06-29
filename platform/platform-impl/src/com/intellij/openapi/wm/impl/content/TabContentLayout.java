@@ -1,14 +1,15 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
+import com.intellij.ide.ActivityTracker;
 import com.intellij.ide.dnd.DnDSupport;
 import com.intellij.ide.dnd.DnDTarget;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.MouseDragHelper;
 import com.intellij.ui.UIBundle;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.content.Content;
@@ -65,6 +66,8 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
         return myUi.window.isActive();
       }
     };
+    MouseDragHelper.setComponentDraggable(myIdLabel, true);
+
 
     for (int i = 0; i < contentManager.getContentCount(); i++) {
       contentAdded(new ContentManagerEvent(this, contentManager.getContent(i), i));
@@ -169,10 +172,10 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
 
       boolean reachedBounds = false;
       data.moreRect = null;
-      boolean toDrawTabs = isToDrawTabs();
+      TabsDrawMode toDrawTabs = isToDrawTabs();
       for (ContentTabLabel each : data.toLayout) {
-        if (!toDrawTabs) {
-          each.setBounds(0,0, 0, 0);
+        if (toDrawTabs == TabsDrawMode.HIDE) {
+          each.setBounds(0, 0, 0, 0);
           continue;
         }
         data.eachY = 0;
@@ -212,14 +215,14 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
     myUi.isResizableArea = p -> moreRect == null || !moreRect.contains(p);
     myLastLayout = data;
     if (toolbarUpdateNeeded) {
-      ActionToolbarImpl.updateAllToolbarsImmediately();
+      ActivityTracker.getInstance().inc();
     }
   }
 
   @Override
   public int getMinimumWidth() {
     int result = 0;
-    if (myIdLabel != null) {
+    if (myIdLabel != null && isIdVisible()) {
       result += myIdLabel.getPreferredSize().width;
       Insets insets = myIdLabel.getInsets();
       if (insets != null) {
@@ -238,21 +241,29 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
     return result;
   }
 
+  @Nullable ContentTabLabel findTabLabelByContent(@Nullable Content content) {
+    return myContent2Tabs.get(content);
+  }
+
   static void dropTab(final LayoutData data, final ContentTabLabel toDropLabel) {
     data.requiredWidth -= (toDropLabel.getPreferredSize().width + 1);
     data.toDrop.add(toDropLabel);
   }
 
-  boolean isToDrawTabs() {
+  @NotNull
+  TabContentLayout.TabsDrawMode isToDrawTabs() {
     int size = myTabs.size();
     if (size > 1) {
-      return true;
+      return TabsDrawMode.PAINT_ALL;
     }
     else if (size == 1) {
-      return !StringUtil.isEmpty(myTabs.get(0).getContent().getToolwindowTitle());
+      ContentTabLabel tabLabel = myTabs.get(0);
+      if (!StringUtil.isEmptyOrSpaces(tabLabel.getContent().getToolwindowTitle())) return TabsDrawMode.PAINT_ALL;
+      if (tabLabel.hasActiveIcons()) return TabsDrawMode.PAINT_SIMPLIFIED;
+      return TabsDrawMode.HIDE;
     }
     else {
-      return false;
+      return TabsDrawMode.HIDE;
     }
   }
 
@@ -281,7 +292,8 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
 
   @Override
   public void paintComponent(Graphics g) {
-    if (!isToDrawTabs()) return;
+    TabsDrawMode toDrawTabs = isToDrawTabs();
+    if (toDrawTabs == TabsDrawMode.HIDE) return;
 
     Graphics2D g2d = (Graphics2D)g.create();
     for (ContentTabLabel each : myTabs) {
@@ -291,11 +303,15 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
 
       g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-      if (each.isSelected()) {
-        tabPainter.paintSelectedTab(JBTabsPosition.top, g2d, r, borderThickness, null, myUi.window.isActive(), each.isHovered());
-      }
-      else {
-        tabPainter.paintTab(JBTabsPosition.top, g2d, r, borderThickness, null, myUi.window.isActive(), each.isHovered());
+      if (toDrawTabs == TabsDrawMode.PAINT_ALL) {
+        if (each.isSelected()) {
+          tabPainter.paintSelectedTab(JBTabsPosition.top, g2d, r, borderThickness, each.getTabColor(),
+                                      myUi.window.isActive(), each.isHovered());
+        }
+        else {
+          tabPainter.paintTab(JBTabsPosition.top, g2d, r, borderThickness, each.getTabColor(),
+                              myUi.window.isActive(), each.isHovered());
+        }
       }
     }
     g2d.dispose();
@@ -381,6 +397,7 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
   public @NlsActions.ActionText String getCloseAllButThisActionName() {
     return UIBundle.message("tabbed.pane.close.all.tabs.but.this.action.name");
   }
+
   @Override
   public @NlsActions.ActionText String getPreviousContentActionName() {
     return UIBundle.message("tabbed.pane.select.previous.tab");
@@ -389,5 +406,11 @@ final class TabContentLayout extends ContentLayout implements MorePopupAware {
   @Override
   public @NlsActions.ActionText String getNextContentActionName() {
     return UIBundle.message("tabbed.pane.select.next.tab");
+  }
+
+  enum TabsDrawMode {
+    PAINT_ALL,
+    PAINT_SIMPLIFIED,
+    HIDE
   }
 }

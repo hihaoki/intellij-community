@@ -1,12 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -37,18 +38,27 @@ public abstract class BaseDataReader {
     mySleepingPolicy = sleepingPolicy != null ? sleepingPolicy : SleepingPolicy.NON_BLOCKING;
   }
 
-  protected void start(@NotNull String presentableName) {
-    if (StringUtil.isEmptyOrSpaces(presentableName)) {
+  protected void start(@NotNull @NonNls String presentableName) {
+    if (StringUtilRt.isEmptyOrSpaces(presentableName)) {
       LOG.warn(new Throwable("Must provide not-empty presentable name"));
     }
     if (myFinishedFuture == null) {
       myFinishedFuture = executeOnPooledThread(() -> {
-        if (StringUtil.isEmptyOrSpaces(presentableName)) {
+        if (StringUtilRt.isEmptyOrSpaces(presentableName)) {
           doRun();
         }
         else {
           ConcurrencyUtil.runUnderThreadName("BaseDataReader: " + presentableName, this::doRun);
         }
+      });
+    }
+  }
+
+  @ApiStatus.Internal
+  protected void startWithoutChangingThreadName() {
+    if (myFinishedFuture == null) {
+      myFinishedFuture = executeOnPooledThread(() -> {
+        doRun();
       });
     }
   }
@@ -83,12 +93,10 @@ public abstract class BaseDataReader {
     throw new UnsupportedOperationException();
   }
 
-  @NotNull
-  protected abstract Future<?> executeOnPooledThread(@NotNull Runnable runnable);
+  protected abstract @NotNull Future<?> executeOnPooledThread(@NotNull Runnable runnable);
 
   /**
-   * <p>
-   *   <h2>Blocking</h2>
+   * <h2>Blocking</h2>
    * In Java you can only read data from child process's stdout/stderr using blocking {@link InputStream#read()}.
    * (Async approach like {@link java.nio.channels.SelectableChannel} is not supported for process's streams,
    * although some native api may be used).
@@ -98,30 +106,27 @@ public abstract class BaseDataReader {
    * This approach is good for short-living processes.
    * If you know for sure that process will end soon (i.e. helper process) you can enable this behaviour using {@link #BLOCKING} policy.
    * It is implemented in {@link #readAvailableBlocking()}
-   * </p>
-   * <p>
-   *   <h2>Non-blocking</h2>
+   *
+   * <h2>Non-blocking</h2>
    * Before reading data, you can call {@link InputStream#available()} to see how much data can be read without of blocking.
    * This gives us ability to use simple loop
    * <ol>
-   * <li>Check <{@link InputStream#available()}</li>
+   * <li>Check {@link InputStream#available()}</li>
    * <li>If not zero then {@link InputStream#read()}} which is guaranteed not to block </li>
    * <li>If <code>processTerminated</code> flag set then exit loop</li>
    * <li>Sleep for a while</li>
    * <li>Repeat</li>
    * </ol>
-   * This "busy-wait" antipattern is the only way to exit thread leaving process alive. It is required if you want to "disconnect" from
+   * This "busy-wait" anti-pattern is the only way to exit thread leaving process alive. It is required if you want to "disconnect" from
    * user process and used by {@link #NON_BLOCKING} (aka non-blocking) policy. Drawback is that process may finish (when {@link Process#waitFor()} returns)
    * leaving some data unread.
    * It is implemented in {@link #readAvailableNonBlocking()}}
-   * </p>
-   * <p>
+   *
    * <h2>Conclusion</h2>
-   * For helper (simple script that is guaranteed to finish soon) and should never be left after Idea is closed use {@link #BLOCKING}.
+   * For helper (simple script that is guaranteed to finish soon) and should never be left after IDE is closed use {@link #BLOCKING}.
    * For user process that may run forever, even after idea is closed, and user should have ability to disconnect from it
    * use {@link #NON_BLOCKING}.
    * If you see some data lost in stdout/stderr try switching to {@link #BLOCKING}.
-   * </p>
    */
   @ReviseWhenPortedToJDK("Loom")
   public interface SleepingPolicy {
@@ -150,6 +155,7 @@ public abstract class BaseDataReader {
      * @deprecated use {@link #NON_BLOCKING} instead
      */
     @Deprecated
+    @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
     SleepingPolicy SIMPLE = NON_BLOCKING;
   }
 
@@ -175,7 +181,9 @@ public abstract class BaseDataReader {
       }
     }
     catch (IOException e) {
-      LOG.info(e);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(e);
+      }
     }
     catch (Exception e) {
       LOG.error(e);

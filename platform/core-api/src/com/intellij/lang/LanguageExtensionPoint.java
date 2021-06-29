@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang;
 
 import com.intellij.openapi.extensions.CustomLoadingExtensionPointBean;
@@ -6,14 +6,13 @@ import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.serviceContainer.NonInjectable;
 import com.intellij.util.KeyedLazyInstance;
 import com.intellij.util.xmlb.annotations.Attribute;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 /**
  * Base class for {@link Language}-bound extension points.
- *
- * @author yole
  */
 public class LanguageExtensionPoint<T> extends CustomLoadingExtensionPointBean<T> implements KeyedLazyInstance<T> {
   // these must be public for scrambling compatibility
@@ -32,6 +31,7 @@ public class LanguageExtensionPoint<T> extends CustomLoadingExtensionPointBean<T
    * @deprecated You must pass plugin descriptor, use {@link LanguageExtensionPoint#LanguageExtensionPoint(String, Object)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public LanguageExtensionPoint() {
   }
 

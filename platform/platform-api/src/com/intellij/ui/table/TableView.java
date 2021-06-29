@@ -24,10 +24,12 @@ import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.ListTableModel;
 import com.intellij.util.ui.SortableColumnModel;
 import com.intellij.util.ui.TableViewModel;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.*;
 import java.awt.*;
@@ -35,7 +37,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-public class TableView<Item> extends BaseTableView implements ItemsProvider, SelectionProvider {
+public class TableView<Item> extends BaseTableView implements SelectionProvider {
 
   private boolean myInStopEditing = false;
 
@@ -58,6 +60,7 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
    * @deprecated use {@link #setModelAndUpdateColumns(ListTableModel<Item>)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setModel(final ListTableModel<Item> model) {
     setModelAndUpdateColumns(model);
   }
@@ -119,6 +122,10 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
     int varCount = 0;
 
     Icon sortIcon = UIManager.getIcon("Table.ascendingSortIcon");
+    Border border = UIManager.getBorder("Table.cellNoFocusBorder");
+    Insets borderInsets = border == null ? null : border.getBorderInsets(this);
+    int borderWidth = borderInsets == null ? 0 : borderInsets.left + borderInsets.right;
+    if (getShowVerticalLines()) borderWidth += 2;
 
     // calculate
     for (int i = 0; i < visibleColumnCount; i++) {
@@ -157,6 +164,7 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
         widths[i] = getFontMetrics(getFont()).stringWidth(preferredValue) + columnInfo.getAdditionalWidth();
         varCount ++;
       }
+      widths[i] += borderWidth;
       allColumnWidth += widths[i];
       allColumnCurrent += column.getPreferredWidth();
     }
@@ -248,7 +256,6 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
     return editor == null ? super.getCellEditor(row, column) : editor;
   }
 
-  @Override
   public List<Item> getItems() {
     return getListTableModel().getItems();
   }

@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project.impl;
 
 import com.intellij.configurationStore.StoreUtil;
+import com.intellij.diagnostic.ActivityCategory;
 import com.intellij.ide.plugins.ContainerDescriptor;
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl;
 import com.intellij.ide.plugins.PluginManagerCore;
@@ -23,12 +24,11 @@ import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.serviceContainer.ComponentManagerImpl;
 import com.intellij.util.messages.MessageBus;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 import org.picocontainer.PicoContainer;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author peter
@@ -42,7 +42,10 @@ final class DefaultProject extends UserDataHolderBase implements Project {
       LOG.assertTrue(!ApplicationManager.getApplication().isDisposed(), "Application is being disposed!");
       DefaultProjectImpl project = new DefaultProjectImpl(DefaultProject.this);
       ProjectStoreFactory componentStoreFactory = ApplicationManager.getApplication().getService(ProjectStoreFactory.class);
-      project.registerServiceInstance(IComponentStore.class, componentStoreFactory.createDefaultProjectStore(project), ComponentManagerImpl.getFakeCorePluginDescriptor());
+      project.registerServiceInstance(IComponentStore.class, componentStoreFactory.createDefaultProjectStore(project), ComponentManagerImpl.fakeCorePluginDescriptor);
+
+      // mark myDelegate as not disposed if someone cluelessly did Disposer.dispose(getDefaultProject())
+      Disposer.register(DefaultProject.this,this);
       return project;
     }
 
@@ -53,14 +56,13 @@ final class DefaultProject extends UserDataHolderBase implements Project {
   };
 
   @Override
-  public <T> @NotNull T instantiateExtensionWithPicoContainerOnlyIfNeeded(@Nullable String name,
-                                                                          @Nullable PluginDescriptor pluginDescriptor) {
-    return getDelegate().instantiateExtensionWithPicoContainerOnlyIfNeeded(name, pluginDescriptor);
+  public <T> T instantiateClass(@NotNull Class<T> aClass, @NotNull PluginId pluginId) {
+    return getDelegate().instantiateClass(aClass, pluginId);
   }
 
   @Override
-  public <T> T instantiateClass(@NotNull Class<T> aClass, @Nullable PluginId pluginId) {
-    return getDelegate().instantiateClass(aClass, pluginId);
+  public <T> @NotNull T instantiateClass(@NotNull String className, @NotNull PluginDescriptor pluginDescriptor) {
+    return getDelegate().instantiateClass(className, pluginDescriptor);
   }
 
   @Override
@@ -71,6 +73,18 @@ final class DefaultProject extends UserDataHolderBase implements Project {
   @Override
   public @NotNull RuntimeException createError(@NotNull String message, @NotNull PluginId pluginId) {
     return getDelegate().createError(message, pluginId);
+  }
+
+  @Override
+  public @NotNull RuntimeException createError(@NotNull @NonNls String message,
+                                               @NotNull PluginId pluginId,
+                                               @Nullable Map<String, String> attachments) {
+    return getDelegate().createError(message, pluginId, attachments);
+  }
+
+  @Override
+  public <T> @NotNull Class<T> loadClass(@NotNull String className, @NotNull PluginDescriptor pluginDescriptor) throws ClassNotFoundException {
+    return getDelegate().loadClass(className, pluginDescriptor);
   }
 
   @Override
@@ -88,6 +102,12 @@ final class DefaultProject extends UserDataHolderBase implements Project {
     return getDelegate().hasComponent(interfaceClass);
   }
 
+  @Override
+  public <T> T @NotNull [] getComponents(@NotNull Class<T> baseClass) {
+    //noinspection deprecation
+    return getDelegate().getComponents(baseClass);
+  }
+
   // make default project facade equal to any other default project facade
   // to enable Map<Project, T>
   @Override
@@ -102,7 +122,15 @@ final class DefaultProject extends UserDataHolderBase implements Project {
 
   @Override
   public void dispose() {
+    if (!ApplicationManager.getApplication().isDisposed()) {
+      throw new IllegalStateException("Must not dispose default project");
+    }
     Disposer.dispose(myDelegate);
+  }
+
+  @TestOnly
+  void disposeDefaultProjectAndCleanupComponentsForDynamicPluginTests() {
+    ApplicationManager.getApplication().runWriteAction(() -> Disposer.dispose(myDelegate));
   }
 
   private @NotNull Project getDelegate() {
@@ -177,10 +205,9 @@ final class DefaultProject extends UserDataHolderBase implements Project {
     return getDelegate().getComponent(name);
   }
 
-  @SuppressWarnings("deprecation")
   @Override
-  public @NotNull <T> List<T> getComponentInstancesOfType(@NotNull Class<T> baseClass, boolean createIfNotYet) {
-    return getDelegate().getComponentInstancesOfType(baseClass, createIfNotYet);
+  public @NotNull ActivityCategory getActivityCategory(boolean isExtension) {
+    return isExtension ? ActivityCategory.PROJECT_EXTENSION : ActivityCategory.PROJECT_SERVICE;
   }
 
   @Override
@@ -201,6 +228,11 @@ final class DefaultProject extends UserDataHolderBase implements Project {
   @Override
   public @NotNull PicoContainer getPicoContainer() {
     return getDelegate().getPicoContainer();
+  }
+
+  @Override
+  public boolean isInjectionForExtensionSupported() {
+    return true;
   }
 
   @Override
@@ -273,15 +305,15 @@ final class DefaultProjectImpl extends ComponentManagerImpl implements Project {
 
   @Override
   protected boolean isComponentSuitable(@NotNull ComponentConfig componentConfig) {
-    return super.isComponentSuitable(componentConfig) && componentConfig.isLoadForDefaultProject();
+    return componentConfig.loadForDefaultProject && super.isComponentSuitable(componentConfig);
   }
 
   public void init() {
     // do not leak internal delegate, use DefaultProject everywhere instead
-    registerServiceInstance(Project.class, actualContainerInstance, ComponentManagerImpl.getFakeCorePluginDescriptor());
+    registerServiceInstance(Project.class, actualContainerInstance, ComponentManagerImpl.fakeCorePluginDescriptor);
 
     //noinspection unchecked
-    registerComponents((List<IdeaPluginDescriptorImpl>)PluginManagerCore.getLoadedPlugins());
+    registerComponents((List<IdeaPluginDescriptorImpl>)PluginManagerCore.getLoadedPlugins(), ApplicationManager.getApplication(), null, null);
     createComponents(null);
     Disposer.register(actualContainerInstance, this);
   }
@@ -304,7 +336,7 @@ final class DefaultProjectImpl extends ComponentManagerImpl implements Project {
   @NotNull
   @Override
   protected ContainerDescriptor getContainerDescriptor(@NotNull IdeaPluginDescriptorImpl pluginDescriptor) {
-    return pluginDescriptor.getProject();
+    return pluginDescriptor.projectContainerDescriptor;
   }
 
   @Override

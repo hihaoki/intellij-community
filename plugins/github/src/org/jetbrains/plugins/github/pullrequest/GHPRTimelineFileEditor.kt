@@ -1,6 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest
 
+import com.intellij.collaboration.async.CompletableFutureUtil.handleOnEdt
 import com.intellij.diff.util.FileEditorBase
 import com.intellij.ide.DataManager
 import com.intellij.openapi.application.ApplicationBundle
@@ -9,13 +10,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.AnimatedIcon
 import com.intellij.util.ui.SingleComponentCenteringLayout
 import com.intellij.util.ui.UIUtil
+import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequest
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
+import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.action.GHPRActionKeys
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
-import org.jetbrains.plugins.github.pullrequest.data.GHPRIdentifier
+import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRFileEditorComponentFactory
-import org.jetbrains.plugins.github.util.GithubUIUtil
-import org.jetbrains.plugins.github.util.handleOnEdt
+import org.jetbrains.plugins.github.ui.util.GHUIUtil
 import java.awt.BorderLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -23,24 +25,20 @@ import javax.swing.JPanel
 
 internal class GHPRTimelineFileEditor(private val project: Project,
                                       private val dataContext: GHPRDataContext,
-                                      private val pullRequest: GHPRIdentifier)
+                                      private val dataProvider: GHPRDataProvider,
+                                      private val file: GHRepoVirtualFile)
   : FileEditorBase() {
 
   val securityService = dataContext.securityService
-  val avatarIconsProviderFactory = dataContext.avatarIconsProviderFactory
+  val avatarIconsProvider = dataContext.avatarIconsProvider
 
-  private val dataProvider = dataContext.dataProviderRepository.getDataProvider(pullRequest, this)
   val detailsData = dataProvider.detailsData
-  val stateData = dataProvider.stateData
-  val changesData = dataProvider.changesData
   val reviewData = dataProvider.reviewData
   val commentsData = dataProvider.commentsData
 
   val timelineLoader = dataProvider.acquireTimelineLoader(this)
 
-  val repository = dataContext.parsedRepositoryCoordinates
-
-  override fun getName() = "Pull Request Timeline"
+  override fun getName() = GithubBundle.message("pull.request.editor.timeline")
 
   private val content by lazy(LazyThreadSafetyMode.NONE, ::createContent)
 
@@ -48,7 +46,7 @@ internal class GHPRTimelineFileEditor(private val project: Project,
 
   private fun createContent(): JComponent {
     return doCreateContent().also {
-      GithubUIUtil.overrideUIDependentProperty(it) {
+      GHUIUtil.overrideUIDependentProperty(it) {
         isOpaque = true
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
       }
@@ -93,7 +91,7 @@ internal class GHPRTimelineFileEditor(private val project: Project,
 
 
   private fun getCurrentDetails(): GHPullRequestShort? {
-    return detailsData.loadedDetails ?: dataContext.listLoader.loadedData.find { it.id == pullRequest.id }
+    return detailsData.loadedDetails ?: dataContext.listLoader.loadedData.find { it.id == dataProvider.id.id }
   }
 
   override fun getPreferredFocusedComponent(): JComponent? = null
@@ -102,4 +100,6 @@ internal class GHPRTimelineFileEditor(private val project: Project,
     if (timelineLoader.loadedData.isNotEmpty())
       timelineLoader.loadMore(true)
   }
+
+  override fun getFile() = file
 }

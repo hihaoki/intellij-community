@@ -32,15 +32,15 @@ public class PyStaticCallHierarchyUtil {
 
     final PyRecursiveElementVisitor visitor = new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyParameterList(PyParameterList node) {
+      public void visitPyParameterList(@NotNull PyParameterList node) {
       }
 
       @Override
-      public void visitPyLambdaExpression(PyLambdaExpression node) {
+      public void visitPyLambdaExpression(@NotNull PyLambdaExpression node) {
       }
 
       @Override
-      public void visitPyFunction(PyFunction innerFunction) {
+      public void visitPyFunction(@NotNull PyFunction innerFunction) {
         for (PyParameter parameter : innerFunction.getParameterList().getParameters()) {
           PsiElement defaultValue = parameter.getDefaultValue();
           if (defaultValue != null) {
@@ -50,11 +50,11 @@ public class PyStaticCallHierarchyUtil {
       }
 
       @Override
-      public void visitPyCallExpression(PyCallExpression node) {
+      public void visitPyCallExpression(@NotNull PyCallExpression node) {
         super.visitPyCallExpression(node);
 
         StreamEx
-          .of(node.multiResolveCalleeFunction(PyResolveContext.implicitContext()))
+          .of(node.multiResolveCalleeFunction(PyResolveContext.implicitContext(TypeEvalContext.codeInsightFallback(node.getProject()))))
           .select(PyFunction.class)
           .forEach(callees::add);
       }

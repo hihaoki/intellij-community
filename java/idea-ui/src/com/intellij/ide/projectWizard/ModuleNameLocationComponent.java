@@ -1,16 +1,19 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectWizard;
 
+import com.intellij.core.CoreBundle;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.highlighter.ModuleFileType;
 import com.intellij.ide.util.BrowseFilesListener;
 import com.intellij.ide.util.projectWizard.*;
+import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.Comparing;
@@ -205,14 +208,17 @@ public class ModuleNameLocationComponent implements ModuleNameLocationSettings {
     final String moduleName = getModuleName();
     final Module module;
     final ProjectStructureConfigurable fromConfigurable = ProjectStructureConfigurable.getInstance(project);
-    if (fromConfigurable != null) {
-      module = fromConfigurable.getModulesConfig().getModule(moduleName);
+    ModifiableModuleModel modifiableModel = fromConfigurable != null ? fromConfigurable.getContext().getModulesConfigurator().getModuleModel()
+                                                                     : null;
+    if (modifiableModel != null) {
+      module = modifiableModel.findModuleByName(moduleName);
     }
     else {
       module = ModuleManager.getInstance(project).findModuleByName(moduleName);
     }
     if (module != null) {
-      throw new ConfigurationException("Module '" + moduleName + "' already exist in project. Please, specify another name.");
+      throw new ConfigurationException(
+        JavaUiBundle.message("module.name.location.dialog.message.module.already.exist.in.project", moduleName));
     }
   }
 
@@ -220,10 +226,10 @@ public class ModuleNameLocationComponent implements ModuleNameLocationSettings {
     String moduleName = getModuleName();
     String moduleFileDirectory = myModuleFileLocation.getText();
     if (moduleFileDirectory.isEmpty()) {
-      throw new ConfigurationException("Enter module file location");
+      throw new ConfigurationException(JavaUiBundle.message("module.name.location.dialog.message.enter.module.file.location"));
     }
     if (moduleName.isEmpty()) {
-      throw new ConfigurationException("Enter a module name");
+      throw new ConfigurationException(JavaUiBundle.message("module.name.location.dialog.message.enter.module.name"));
     }
 
     if (!ProjectWizardUtil.createDirectoryIfNotExists(JavaUiBundle.message("directory.module.file"), moduleFileDirectory,
@@ -237,9 +243,9 @@ public class ModuleNameLocationComponent implements ModuleNameLocationSettings {
 
     File moduleFile = new File(moduleFileDirectory, moduleName + ModuleFileType.DOT_DEFAULT_EXTENSION);
     if (moduleFile.exists()) {
-      int answer = Messages.showYesNoDialog(JavaUiBundle.message("prompt.overwrite.project.file", moduleFile.getAbsolutePath(),
-                                                              IdeBundle.message("project.new.wizard.module.identification")),
-                                            IdeBundle.message("title.file.already.exists"), Messages.getQuestionIcon());
+      int answer = MessageDialogBuilder.yesNo(IdeBundle.message("title.file.already.exists"),
+                                              CoreBundle.message("prompt.overwrite.project.file", moduleFile.getAbsolutePath(),
+                                                                 IdeBundle.message("project.new.wizard.module.identification"))).show();
       if (answer != Messages.YES) {
         return false;
       }

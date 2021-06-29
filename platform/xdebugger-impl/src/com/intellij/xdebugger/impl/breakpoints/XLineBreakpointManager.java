@@ -3,8 +3,9 @@ package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.AppTopics;
 import com.intellij.execution.impl.ConsoleViewUtil;
-import com.intellij.openapi.actionSystem.IdeActions;
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
+import com.intellij.ide.DataManager;
+import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.WriteAction;
@@ -43,6 +44,7 @@ import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.impl.XSourcePositionImpl;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -151,7 +153,7 @@ public final class XLineBreakpointManager {
       return;
     }
 
-    IntOpenHashSet lines = new IntOpenHashSet();
+    IntSet lines = new IntOpenHashSet();
     List<XLineBreakpoint> toRemove = new SmartList<>();
     for (XLineBreakpointImpl breakpoint : breakpoints) {
       breakpoint.updatePosition();
@@ -252,35 +254,38 @@ public final class XLineBreakpointManager {
         return;
       }
 
-      PsiDocumentManager.getInstance(myProject).commitAllDocuments();
-      final int line = EditorUtil.yToLogicalLineNoBlockInlays(editor, mouseEvent.getY());
       final Document document = editor.getDocument();
+      PsiDocumentManager.getInstance(myProject).commitDocument(document);
+      final int line = EditorUtil.yToLogicalLineNoCustomRenderers(editor, mouseEvent.getY());
       final VirtualFile file = FileDocumentManager.getInstance().getFile(document);
       if (line >= 0 && line < document.getLineCount() && file != null) {
-        ActionManagerEx.getInstanceEx().fireBeforeActionPerformed(IdeActions.ACTION_TOGGLE_LINE_BREAKPOINT, e.getMouseEvent());
-
-        XBreakpointUtil.toggleLineBreakpoint(myProject,
-                                             XSourcePositionImpl.create(file, line),
-                                             editor,
-                                             mouseEvent.isAltDown(),
-                                             false,
-                                             !mouseEvent.isShiftDown() && !Registry.is("debugger.click.disable.breakpoints"))
-          .onSuccess(breakpoint -> {
-            if (!mouseEvent.isAltDown() && mouseEvent.isShiftDown() && breakpoint != null) {
-              breakpoint.setSuspendPolicy(SuspendPolicy.NONE);
-              String selection = editor.getSelectionModel().getSelectedText();
-              if (selection != null) {
-                breakpoint.setLogExpression(selection);
+        AnAction action = ActionManager.getInstance().getAction(IdeActions.ACTION_TOGGLE_LINE_BREAKPOINT);
+        if (action == null) throw new AssertionError("'" + IdeActions.ACTION_TOGGLE_LINE_BREAKPOINT + "' action not found");
+        DataContext dataContext = DataManager.getInstance().getDataContext(mouseEvent.getComponent());
+        AnActionEvent event = AnActionEvent.createFromAnAction(action, mouseEvent, ActionPlaces.EDITOR_GUTTER, dataContext);
+        ActionUtil.performDumbAwareWithCallbacks(action, event, () ->
+          XBreakpointUtil.toggleLineBreakpoint(myProject,
+                                               XSourcePositionImpl.create(file, line),
+                                               editor,
+                                               mouseEvent.isAltDown(),
+                                               false,
+                                               !mouseEvent.isShiftDown() && !Registry.is("debugger.click.disable.breakpoints"))
+            .onSuccess(breakpoint -> {
+              if (!mouseEvent.isAltDown() && mouseEvent.isShiftDown() && breakpoint != null) {
+                breakpoint.setSuspendPolicy(SuspendPolicy.NONE);
+                String selection = editor.getSelectionModel().getSelectedText();
+                if (selection != null) {
+                  breakpoint.setLogExpression(selection);
+                }
+                else {
+                  breakpoint.setLogMessage(true);
+                }
+                // edit breakpoint
+                DebuggerUIUtil
+                  .showXBreakpointEditorBalloon(myProject, mouseEvent.getPoint(), ((EditorEx)editor).getGutterComponentEx(),
+                                                false, breakpoint);
               }
-              else {
-                breakpoint.setLogMessage(true);
-              }
-              // edit breakpoint
-              DebuggerUIUtil
-                .showXBreakpointEditorBalloon(myProject, mouseEvent.getPoint(), ((EditorEx)editor).getGutterComponentEx(),
-                                              false, breakpoint);
-            }
-          });
+            }));
       }
     }
 

@@ -14,13 +14,17 @@ import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMo
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.testFramework.ExtensionTestUtil.maskExtensions
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.RunAll
+import com.intellij.testFramework.fixtures.BuildViewTestFixture
 import com.intellij.testFramework.runInEdtAndGet
+import com.intellij.util.ThrowableRunnable
 import com.intellij.util.ui.tree.TreeUtil
 import groovy.json.StringEscapeUtils.escapeJava
 import org.assertj.core.api.Assertions.assertThat
-import org.jetbrains.plugins.gradle.importing.GradleBuildScriptBuilderEx
+import org.jetbrains.plugins.gradle.importing.GradleBuildScriptBuilder.Companion.buildscript
 import org.jetbrains.plugins.gradle.importing.GradleImportingTestCase
 import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions
 import org.jetbrains.plugins.gradle.util.GradleConstants
@@ -28,6 +32,23 @@ import org.junit.Test
 import javax.swing.tree.DefaultMutableTreeNode
 
 class GradleTestRunnerViewTest : GradleImportingTestCase() {
+
+  private lateinit var buildViewTestFixture: BuildViewTestFixture
+
+  override fun setUp() {
+    super.setUp()
+    buildViewTestFixture = BuildViewTestFixture(myProject)
+    buildViewTestFixture.setUp()
+    Registry.get("gradle.testLauncherAPI.enabled").setValue(true)
+  }
+
+  override fun tearDown() {
+    RunAll(
+      ThrowableRunnable { Registry.get("gradle.testLauncherAPI.enabled").setValue(false) },
+      ThrowableRunnable { if (::buildViewTestFixture.isInitialized) buildViewTestFixture.tearDown() },
+      ThrowableRunnable { super.tearDown() }
+    ).run()
+  }
 
   @TargetVersions("5.0+")
   @Test
@@ -46,56 +67,31 @@ class GradleTestRunnerViewTest : GradleImportingTestCase() {
                          "    }\n" +
                          "}\n")
 
-    val buildScript = GradleBuildScriptBuilderEx()
-      .withJavaPlugin()
-      .withJUnit("4.12")
-      .withTask(
-        "additionalTest",
-        types = *arrayOf("Test"),
-        content = "testClassesDirs = sourceSets.test.output.classesDirs\n" +
-                  "classpath = sourceSets.test.runtimeClasspath\n" +
-                  "jvmArgs += \"-Dprop='integ test error'\""
-      )
+    importProject(buildscript {
+      withJavaPlugin()
+      withJUnit4()
+      withTask("additionalTest", "Test") {
+        assign("testClassesDirs", code("sourceSets.test.output.classesDirs"))
+        assign("classpath", code("sourceSets.test.runtimeClasspath"))
+        plusAssign("jvmArgs", "-Dprop='integ test error'")
+      }
+    })
 
-    importProject(buildScript.generate())
-
-    var testsExecutionConsole: GradleTestsExecutionConsole? = null
-    maskExtensions(ExternalSystemExecutionConsoleManager.EP_NAME,
-                   listOf(object : GradleTestsExecutionConsoleManager() {
-                     override fun attachExecutionConsole(project: Project,
-                                                         task: ExternalSystemTask,
-                                                         env: ExecutionEnvironment?,
-                                                         processHandler: ProcessHandler?): GradleTestsExecutionConsole? {
-                       testsExecutionConsole = super.attachExecutionConsole(project, task, env, processHandler)
-                       return testsExecutionConsole
-                     }
-                   }),
-                   testRootDisposable)
-
-    val settings = ExternalSystemTaskExecutionSettings().apply {
-      externalProjectPath = projectPath
-      taskNames = listOf("clean", "test", "additionalTest")
-      externalSystemIdString = GradleConstants.SYSTEM_ID.id
-    }
-
-    ExternalSystemUtil.runTask(settings, DefaultRunExecutor.EXECUTOR_ID,
-                               myProject, GradleConstants.SYSTEM_ID, null,
-                               ProgressExecutionMode.NO_PROGRESS_SYNC)
-
-    val treeStringPresentation = runInEdtAndGet {
-      val tree = testsExecutionConsole!!.resultsViewer.treeView!!
-      TestConsoleProperties.HIDE_PASSED_TESTS.set(testsExecutionConsole!!.properties, false)
-      TreeUtil.expandAll(tree)
-      PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-      PlatformTestUtil.waitWhileBusy(tree)
-      return@runInEdtAndGet PlatformTestUtil.print(tree, false)
-    }
+    val treeStringPresentation = runTasksAndGetTestRunnerTree(listOf("clean", "test", "additionalTest"))
 
     assertEquals("-[root]\n" +
                  " -my.pack.AppTest\n" +
                  "  test\n" +
                  "  test",
                  treeStringPresentation.trim())
+
+    buildViewTestFixture.assertBuildViewTreeEquals {
+      assertThat(it)
+        .startsWith("-\n" +
+                    " -failed")
+        .containsOnlyOnce("  -:additionalTest\n" +
+                          "   There were failing tests. See the report at: ")
+    }
   }
 
   @TargetVersions("2.14+")
@@ -115,9 +111,9 @@ class GradleTestRunnerViewTest : GradleImportingTestCase() {
 
     val scriptOutputText = "script \noutput\n\ntext\n"
     val scriptOutputTextWOEol = "text w/o eol"
-    importProject(GradleBuildScriptBuilderEx()
+    importProject(createBuildScriptBuilder()
                     .withJavaPlugin()
-                    .withJUnit("4.12")
+                    .withJUnit4()
                     .addBuildScriptPrefix("print(\"${escapeJava(scriptOutputText)}\")")
                     .addPostfix("print(\"${escapeJava(scriptOutputTextWOEol)}\")")
                     .generate())
@@ -191,5 +187,77 @@ class GradleTestRunnerViewTest : GradleImportingTestCase() {
       "text w/o eol\n"
     }
     assertEquals(expectedText, consoleTextWithoutFirstTestingGreetingsLine.substringBefore(testOutputText))
+  }
+
+  @Test
+  fun `test build tw output for Gradle test runner execution`() {
+    createProjectSubFile("src/test/java/my/pack/AppTest.java",
+                         "package my.pack;\n" +
+                         "import org.junit.Test;\n" +
+                         "public class AppTest {\n" +
+                         "    @Test\n" +
+                         "    public void test() {}\n" +
+                         "}\n")
+
+    importProject(createBuildScriptBuilder()
+                    .withJavaPlugin()
+                    .withJUnit4()
+                    .generate())
+
+    val testRunnerTree = runTasksAndGetTestRunnerTree(listOf("clean", "test"))
+
+    assertEquals("-[root]\n" +
+                 " -my.pack.AppTest\n" +
+                 "  test",
+                 testRunnerTree.trim())
+
+    buildViewTestFixture.assertBuildViewTreeEquals(
+      """
+      -
+       -successful
+        :clean
+        :compileJava
+        :processResources
+        :classes
+        :compileTestJava
+        :processTestResources
+        :testClasses
+        :test
+      """.trimIndent()
+    )
+  }
+
+  private fun runTasksAndGetTestRunnerTree(tasks: List<String>): String {
+    var testsExecutionConsole: GradleTestsExecutionConsole? = null
+    maskExtensions(ExternalSystemExecutionConsoleManager.EP_NAME,
+                   listOf(object : GradleTestsExecutionConsoleManager() {
+                     override fun attachExecutionConsole(project: Project,
+                                                         task: ExternalSystemTask,
+                                                         env: ExecutionEnvironment?,
+                                                         processHandler: ProcessHandler?): GradleTestsExecutionConsole? {
+                       testsExecutionConsole = super.attachExecutionConsole(project, task, env, processHandler)
+                       return testsExecutionConsole
+                     }
+                   }),
+                   testRootDisposable)
+
+    val settings = ExternalSystemTaskExecutionSettings().apply {
+      externalProjectPath = projectPath
+      taskNames = tasks
+      externalSystemIdString = GradleConstants.SYSTEM_ID.id
+    }
+
+    ExternalSystemUtil.runTask(settings, DefaultRunExecutor.EXECUTOR_ID,
+                               myProject, GradleConstants.SYSTEM_ID, null,
+                               ProgressExecutionMode.NO_PROGRESS_SYNC)
+
+    return runInEdtAndGet {
+      val tree = testsExecutionConsole!!.resultsViewer.treeView!!
+      TestConsoleProperties.HIDE_PASSED_TESTS.set(testsExecutionConsole!!.properties, false)
+      TreeUtil.expandAll(tree)
+      PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+      PlatformTestUtil.waitWhileBusy(tree)
+      return@runInEdtAndGet PlatformTestUtil.print(tree, false)
+    }
   }
 }

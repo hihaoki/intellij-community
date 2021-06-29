@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.gotoByName
 
 import com.intellij.ide.actions.searcheverywhere.ActionSearchEverywhereContributor
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 import com.intellij.ide.ui.OptionsSearchTopHitProvider
+import com.intellij.ide.ui.OptionsTopHitProvider
 import com.intellij.ide.ui.search.BooleanOptionDescription
 import com.intellij.ide.ui.search.OptionDescription
 import com.intellij.ide.util.gotoByName.GotoActionModel.ActionWrapper
@@ -18,14 +19,11 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
-import com.intellij.psi.codeStyle.WordPrefixMatcher
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestApplicationManager
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.util.CollectConsumer
-import com.intellij.util.text.Matcher
-import gnu.trove.Equality
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.NotNull
@@ -33,6 +31,8 @@ import org.jetbrains.annotations.NotNull
 import java.awt.*
 import java.util.List
 import java.util.concurrent.TimeUnit
+import java.util.function.BiPredicate
+
 /**
  * @author peter
  */
@@ -41,12 +41,12 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
   private static final DataKey<Boolean> SHOW_HIDDEN_KEY = DataKey.create("GotoActionTest.DataKey")
   private static final Comparator<MatchedValue> MATCH_COMPARATOR =
     { MatchedValue item1, MatchedValue item2 -> return item1.compareWeights(item2) } as Comparator<MatchedValue>
-  private static final Equality<MatchedValue> MATCH_EQUALITY =
-    { MatchedValue item1, MatchedValue item2 -> item1 == item2 } as Equality<MatchedValue>
+  private static final BiPredicate<MatchedValue, MatchedValue> MATCH_EQUALITY =
+    { MatchedValue item1, MatchedValue item2 -> item1 == item2 } as BiPredicate<MatchedValue, MatchedValue>
 
   void "test shorter actions first despite ellipsis"() {
     def pattern = 'Rebas'
-    def fork = 'Rebase my GitHub fork'
+    def fork = 'Sync Fork'
     def rebase = 'Rebase...'
     def items = [matchedAction(fork, pattern),
                  matchedAction(rebase, pattern)].toSorted(MATCH_COMPARATOR)
@@ -94,7 +94,6 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
     assert actionMatches('invalidate caches', action) == MatchMode.NAME
     assert actionMatches('cache invalid', action) == MatchMode.NAME
     assert actionMatches('rebuild of all caches', action) == MatchMode.DESCRIPTION
-    assert actionMatches('restart', action) == (ApplicationManager.application.isRestartCapable() ? MatchMode.NAME : MatchMode.NONE)
     assert actionMatches('invcach', action) == MatchMode.NAME
   }
 
@@ -143,13 +142,28 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
     def action2 = createAction("Simple Name", "CamelCase description")
     def action3 = createAction("Prefix-CamelCase Name", "none")
     def action4 = createAction("Non Camel Case Name", "none")
-    def action5 = createAction("Look4CamelCase Name", "none")
+    def action5 = createAction("Dash Camel-Case Name", "none")
     def pattern = "camelcase"
-    assert actionMatches(pattern, action1, new WordPrefixMatcher(pattern)) == MatchMode.NAME
-    assert actionMatches(pattern, action2, new WordPrefixMatcher(pattern)) == MatchMode.DESCRIPTION
-    assert actionMatches(pattern, action3, new WordPrefixMatcher(pattern)) == MatchMode.NAME
-    assert actionMatches(pattern, action4, new WordPrefixMatcher(pattern)) == MatchMode.NONE
-    assert actionMatches(pattern, action5, new WordPrefixMatcher(pattern)) == MatchMode.NAME
+    assert actionMatches(pattern, action1) == MatchMode.NAME
+    assert actionMatches(pattern, action2) == MatchMode.DESCRIPTION
+    assert actionMatches(pattern, action3) == MatchMode.NAME
+    assert actionMatches(pattern, action4) == MatchMode.NAME
+    assert actionMatches(pattern, action5) == MatchMode.NAME
+  }
+
+  void "test TopHit CamelCase options found in lower case"() {
+    ExtensionTestUtil.maskExtensions(GotoActionAliasMatcher.EP_NAME, Collections.emptyList(), testRootDisposable)
+    def option1 = new OptionDescription("CamelCase Name", null, null)
+    def option2 = new OptionDescription("Simple Name", null, null)
+    def option3 = new OptionDescription("Prefix-CamelCase Name", null, null)
+    def option4 = new OptionDescription("Non Camel Case Name", null, null)
+    def option5 = new OptionDescription("Dash Camel-Case Name", null, null)
+    def pattern = "camelcase"
+    assert optionMatches(pattern, option1)
+    assert !optionMatches(pattern, option2)
+    assert optionMatches(pattern, option3)
+    assert !optionMatches(pattern, option4)
+    assert !optionMatches(pattern, option5)
   }
 
   private static class TestBooleanOption extends BooleanOptionDescription {
@@ -386,17 +400,20 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
     } as List<ActionWrapper>
   }
 
-  private def actionMatches(String pattern, AnAction action, Matcher matcher = GotoActionItemProvider.buildMatcher(pattern)) {
-    return new GotoActionModel(project, null, null).actionMatches(pattern, matcher, action)
+  private def actionMatches(String pattern, AnAction action) {
+    def matcher = GotoActionItemProvider.buildMatcher(pattern)
+    def model = new GotoActionModel(project, null, null)
+    model.buildGroupMappings()
+    return model.actionMatches(pattern, matcher, action)
   }
 
   private MatchedValue matchedAction(String text, String pattern, MatchMode mode = MatchMode.NAME, boolean isAvailable = true) {
     return createMatchedAction(project, createAction(text), pattern, mode, isAvailable)
   }
 
-  public static MatchedValue createMatchedAction(Project project, AnAction action, String pattern, MatchMode mode = MatchMode.NAME, boolean isAvailable = true) {
+  static MatchedValue createMatchedAction(Project project, AnAction action, String pattern, MatchMode mode = MatchMode.NAME, boolean isAvailable = true) {
     def model = new GotoActionModel(project, null, null)
-    def wrapper = new ActionWrapper(action, null, mode, DataContext.EMPTY_CONTEXT, model) {
+    def wrapper = new ActionWrapper(action, null, mode, model) {
       @Override
       boolean isAvailable() {
         return isAvailable
@@ -427,6 +444,11 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
     }
   }
 
+  private static boolean optionMatches(String pattern, OptionDescription optionDescription) {
+    def matcher = OptionsTopHitProvider.buildMatcher(pattern)
+    return matcher.matches(optionDescription.getOption())
+  }
+
 
   private static MatchedValue matchedOption(String text, String pattern) {
     return new MatchedValue(new OptionDescription(text), pattern)
@@ -447,10 +469,9 @@ class GotoActionTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   static SearchEverywhereContributor<?> createActionContributor(Project project, Disposable parentDisposable) {
-    def res = new TestActionContributor(project, null, null)
+    TestActionContributor res = new TestActionContributor(project, null, null)
     res.setShowDisabled(true)
     Disposer.register(parentDisposable, res)
-
     return res
   }
 

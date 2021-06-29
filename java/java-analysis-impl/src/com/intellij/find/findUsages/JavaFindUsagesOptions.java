@@ -16,14 +16,14 @@
 package com.intellij.find.findUsages;
 
 import com.intellij.analysis.AnalysisBundle;
+import com.intellij.ide.nls.NlsMessages;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.SearchScope;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author peter
@@ -83,7 +83,7 @@ public abstract class JavaFindUsagesOptions extends PersistentFindUsagesOptions 
     return result;
   }
 
-  protected void addUsageTypes(@NotNull Set<? super String> to) {
+  protected void addUsageTypes(@NotNull List<? super String> to) {
     if (isUsages) {
       to.add(AnalysisBundle.message("find.usages.panel.title.usages"));
     }
@@ -92,12 +92,11 @@ public abstract class JavaFindUsagesOptions extends PersistentFindUsagesOptions 
   @NotNull
   @Override
   public final String generateUsagesString() {
-    String separator = " " + AnalysisBundle.message("find.usages.panel.title.separator") + " ";
-    LinkedHashSet<String> strings = new LinkedHashSet<>();
+    List<String> strings = new ArrayList<>();
     addUsageTypes(strings);
     if (strings.isEmpty()) {
-      strings.add(AnalysisBundle.message("find.usages.panel.title.usages"));
+      return AnalysisBundle.message("find.usages.panel.title.usages");
     }
-    return StringUtil.join(strings, separator);
+    return NlsMessages.formatOrList(strings);
   }
 }

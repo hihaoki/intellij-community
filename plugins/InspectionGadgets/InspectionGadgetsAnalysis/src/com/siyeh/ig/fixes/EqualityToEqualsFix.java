@@ -15,9 +15,11 @@
  */
 package com.siyeh.ig.fixes;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.NullabilityUtil;
 import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -28,6 +30,7 @@ import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -53,6 +56,8 @@ public class EqualityToEqualsFix extends InspectionGadgetsFix {
   @Nullable
   public static EqualityToEqualsFix buildFix(PsiBinaryExpression expression) {
     final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
+    final Nullability nullability = NullabilityUtil.getExpressionNullability(expression.getLOperand(), true);
+    if (nullability == Nullability.NULLABLE) return null;
     if (lhs instanceof PsiReferenceExpression) {
       final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)lhs;
       final PsiElement target = referenceExpression.resolve();
@@ -107,7 +112,7 @@ public class EqualityToEqualsFix extends InspectionGadgetsFix {
       return;
     }
     CommentTracker commentTracker = new CommentTracker();
-    final StringBuilder newExpression = new StringBuilder();
+    @NonNls final StringBuilder newExpression = new StringBuilder();
     if (JavaTokenType.NE.equals(expression.getOperationTokenType())) {
       newExpression.append('!');
     }

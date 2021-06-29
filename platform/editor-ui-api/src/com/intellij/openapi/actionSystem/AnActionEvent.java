@@ -3,16 +3,14 @@ package com.intellij.openapi.actionSystem;
 
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.PlaceProvider;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.InputEvent;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Container for the information necessary to execute or update an {@link AnAction}.
@@ -20,18 +18,20 @@ import java.util.Map;
  * @see AnAction#actionPerformed(AnActionEvent)
  * @see AnAction#update(AnActionEvent)
  */
-public class AnActionEvent implements PlaceProvider<String> {
+public class AnActionEvent implements PlaceProvider {
+
   private final InputEvent myInputEvent;
-  @NotNull private final ActionManager myActionManager;
-  @NotNull private final DataContext myDataContext;
-  @NotNull private final String myPlace;
-  @NotNull private final Presentation myPresentation;
-  @JdkConstants.InputEventMask private final int myModifiers;
-  private boolean myWorksInInjected;
-  @NonNls private static final String ourInjectedPrefix = "$injected$.";
-  private static final Map<String, String> ourInjectedIds = new HashMap<>();
+  private final ActionManager myActionManager;
+  private final DataContext myDataContext;
+  private final String myPlace;
+  private final Presentation myPresentation;
+  @JdkConstants.InputEventMask
+  private final int myModifiers;
   private final boolean myIsContextMenuAction;
   private final boolean myIsActionToolbar;
+
+  private boolean myWorksInInjected;
+  private UpdateSession myUpdateSession;
 
   /**
    * @throws IllegalArgumentException if {@code dataContext} is {@code null} or
@@ -39,7 +39,7 @@ public class AnActionEvent implements PlaceProvider<String> {
    *
    * @see ActionManager#getInstance()
    */
-  public AnActionEvent(InputEvent inputEvent,
+  public AnActionEvent(@Nullable InputEvent inputEvent,
                        @NotNull DataContext dataContext,
                        @NotNull @NonNls String place,
                        @NotNull Presentation presentation,
@@ -54,7 +54,7 @@ public class AnActionEvent implements PlaceProvider<String> {
    *
    * @see ActionManager#getInstance()
    */
-  public AnActionEvent(InputEvent inputEvent,
+  public AnActionEvent(@Nullable InputEvent inputEvent,
                        @NotNull DataContext dataContext,
                        @NotNull @NonNls String place,
                        @NotNull Presentation presentation,
@@ -62,7 +62,6 @@ public class AnActionEvent implements PlaceProvider<String> {
                        @JdkConstants.InputEventMask int modifiers,
                        boolean isContextMenuAction,
                        boolean isActionToolbar) {
-    // TODO[vova,anton] make this constructor package-private. No one is allowed to create AnActionEvents
     myInputEvent = inputEvent;
     myActionManager = actionManager;
     myDataContext = dataContext;
@@ -73,11 +72,21 @@ public class AnActionEvent implements PlaceProvider<String> {
     myIsActionToolbar = isActionToolbar;
   }
 
+  @NotNull
+  public AnActionEvent withDataContext(@NotNull DataContext dataContext) {
+    if (myDataContext == dataContext) return this;
+    AnActionEvent event = new AnActionEvent(myInputEvent, dataContext, myPlace, myPresentation,
+                                            myActionManager, myModifiers, myIsContextMenuAction, myIsActionToolbar);
+    event.setInjectedContext(myWorksInInjected);
+    event.setUpdateSession(myUpdateSession);
+    return event;
+  }
 
   /**
    * @deprecated use {@link #createFromInputEvent(InputEvent, String, Presentation, DataContext, boolean, boolean)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   public static AnActionEvent createFromInputEvent(@NotNull AnAction action, @Nullable InputEvent event, @NotNull String place) {
     DataContext context = event == null ? DataManager.getInstance().getDataContext() : DataManager.getInstance().getDataContext(event.getComponent());
@@ -141,31 +150,12 @@ public class AnActionEvent implements PlaceProvider<String> {
     return getData(CommonDataKeys.PROJECT);
   }
 
-  @NonNls
   @NotNull
-  public static String injectedId(@NotNull String dataId) {
-    synchronized(ourInjectedIds) {
-      return ourInjectedIds.computeIfAbsent(dataId, i -> ourInjectedPrefix + i);
+  public static DataContext getInjectedDataContext(@NotNull DataContext dataContext) {
+    if (dataContext instanceof InjectedDataContextSupplier) {
+      return ((InjectedDataContextSupplier)dataContext).getInjectedDataContext();
     }
-  }
-
-  @NonNls
-  @NotNull
-  public static String uninjectedId(@NotNull String dataId) {
-    return StringUtil.trimStart(dataId, ourInjectedPrefix);
-  }
-
-  @NotNull
-  public static DataContext getInjectedDataContext(@NotNull DataContext context) {
-    return new DataContextWrapper(context) {
-      @Nullable
-      @Override
-      public Object getData(@NotNull @NonNls String dataId) {
-        Object injected = super.getData(injectedId(dataId));
-        if (injected != null) return injected;
-        return super.getData(dataId);
-      }
-    };
+    return dataContext instanceof InjectedDataContext ? dataContext : new InjectedDataContext(dataContext);
   }
 
   /**
@@ -236,6 +226,7 @@ public class AnActionEvent implements PlaceProvider<String> {
    * instead to get results only from context menus.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public boolean isFromContextMenu() {
     return myIsContextMenuAction;
   }
@@ -275,5 +266,30 @@ public class AnActionEvent implements PlaceProvider<String> {
 
   public void accept(@NotNull AnActionEventVisitor visitor) {
     visitor.visitEvent(this);
+  }
+
+  @Nullable
+  public UpdateSession getUpdateSession() {
+    return myUpdateSession;
+  }
+
+  public void setUpdateSession(@Nullable UpdateSession updateSession) {
+    myUpdateSession = updateSession;
+  }
+
+  @ApiStatus.Internal
+  public interface InjectedDataContextSupplier {
+    @NotNull DataContext getInjectedDataContext();
+  }
+
+  private static class InjectedDataContext extends DataContextWrapper {
+    InjectedDataContext(@NotNull DataContext context) { super(context); }
+
+    @Override
+    public @Nullable Object getData(@NotNull @NonNls String dataId) {
+      String injectedId = InjectedDataKeys.injectedId(dataId);
+      Object injected = injectedId != null ? super.getData(injectedId) : null;
+      return injected != null ? injected : super.getData(dataId);
+    }
   }
 }

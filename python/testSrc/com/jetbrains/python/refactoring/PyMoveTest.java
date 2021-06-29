@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -27,12 +14,12 @@ import com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectori
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PythonTestUtil;
 import com.jetbrains.python.codeInsight.PyCodeInsightSettings;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.formatter.PyCodeStyleSettings;
+import com.jetbrains.python.namespacePackages.PyNamespacePackagesService;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.stubs.PyClassNameIndex;
 import com.jetbrains.python.psi.stubs.PyFunctionNameIndex;
@@ -43,6 +30,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -53,25 +41,6 @@ import static com.jetbrains.python.refactoring.move.moduleMembers.PyMoveModuleMe
  * @author vlan
  */
 public class PyMoveTest extends PyTestCase {
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    SystemProperties.setTestUserName("user1");
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      SystemProperties.setTestUserName(null);
-    }
-    catch (Throwable e) {
-      addSuppressedException(e);
-    }
-    finally {
-      super.tearDown();
-    }
-  }
-
   public void testFunction() {
     doMoveSymbolTest("f", "b.py");
   }
@@ -87,17 +56,15 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-11923
   public void testMovableTopLevelAssignmentDetection() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> {
-      myFixture.configureByFile("/refactoring/move/" + getTestName(true) + ".py");
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X1")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X3")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X2")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X4")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X5")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X6")));
-      assertFalse(isMovableModuleMember(findFirstNamedElement("X7")));
-      assertTrue(isMovableModuleMember(findFirstNamedElement("X8")));
-    });
+    myFixture.configureByFile("/refactoring/move/" + getTestName(true) + ".py");
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X1")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X3")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X2")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X4")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X5")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X6")));
+    assertFalse(isMovableModuleMember(findFirstNamedElement("X7")));
+    assertTrue(isMovableModuleMember(findFirstNamedElement("X8")));
   }
 
   // PY-15348
@@ -162,7 +129,7 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-5168
   public void testModuleToNonPackage() {
-    doMoveFileTest("p1/p2/m1.py", "nonp3");
+    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> doMoveFileTest("p1/p2/m1.py", "nonp3"));
   }
 
   // PY-6432, PY-15347
@@ -222,22 +189,43 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-7378
   public void testMoveNamespacePackage1() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMoveFileTest("nspkg/nssubpkg", ""));
+    doMoveFileTest("nspkg/nssubpkg", "");
   }
 
   // PY-7378
   public void testMoveNamespacePackage2() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMoveFileTest("nspkg/nssubpkg/a.py", ""));
+    doMoveFileTest("nspkg/nssubpkg/a.py", "");
   }
 
   // PY-7378
   public void testMoveNamespacePackage3() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMoveFileTest("nspkg/nssubpkg/a.py", "nspkg"));
+    doMoveFileTest("nspkg/nssubpkg/a.py", "nspkg");
   }
 
   // PY-14384
   public void testRelativeImportInsideNamespacePackage() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMoveFileTest("nspkg/nssubpkg", ""));
+    String fileName = "nspkg/nssubpkg";
+    String toDirName = "";
+    doComparingDirectories(testDir -> {
+      PyNamespacePackagesService.getInstance(myFixture.getModule())
+        .toggleMarkingAsNamespacePackage(testDir.findFileByRelativePath("nspkg"));
+
+      final Project project = myFixture.getProject();
+      final PsiManager manager = PsiManager.getInstance(project);
+      final VirtualFile virtualFile = testDir.findFileByRelativePath(fileName);
+      assertNotNull(virtualFile);
+      PsiElement file = manager.findFile(virtualFile);
+      if (file == null) {
+        file = manager.findDirectory(virtualFile);
+      }
+      assertNotNull(file);
+      final VirtualFile toVirtualDir = testDir.findFileByRelativePath(toDirName);
+      assertNotNull(toVirtualDir);
+      final PsiDirectory toDir = manager.findDirectory(toVirtualDir);
+      new MoveFilesOrDirectoriesProcessor(project, new PsiElement[]{file}, toDir, false, false, null, null).run();
+
+      PyNamespacePackagesService.getInstance(myFixture.getModule()).setNamespacePackageFolders(new ArrayList<>());
+    });
   }
 
   // PY-14384
@@ -258,7 +246,7 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-14595
   public void testNamespacePackageUsedInMovedFunction() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMoveSymbolTest("func", "b.py"));
+    doMoveSymbolTest("func", "b.py");
   }
 
   // PY-14599
@@ -278,7 +266,7 @@ public class PyMoveTest extends PyTestCase {
       fail();
     }
     catch (IncorrectOperationException e) {
-      assertEquals("Cannot use module name 'dst-unimportable.py' in imports", e.getMessage());
+      assertEquals("Cannot use a module name 'dst-unimportable.py' in imports", e.getMessage());
     }
   }
 
@@ -305,7 +293,7 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-14617
   public void testOldStyleRelativeImport() {
-    doMoveFileTest("pkg/a.py", "");
+    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> doMoveFileTest("pkg/a.py", ""));
   }
 
   // PY-14617
@@ -315,7 +303,7 @@ public class PyMoveTest extends PyTestCase {
 
   // PY-14617
   public void testUsagesOfUnqualifiedOldStyleRelativeImportsInsideMovedModule() {
-    doMoveFileTest("pkg/m1.py", "");
+    runWithLanguageLevel(LanguageLevel.PYTHON27, () -> doMoveFileTest("pkg/m1.py", ""));
   }
 
   // PY-15324
@@ -457,7 +445,7 @@ public class PyMoveTest extends PyTestCase {
 
     final VirtualFile testDir = myFixture.copyDirectoryToProject(rootBefore, "");
     PsiDocumentManager.getInstance(myFixture.getProject()).commitAllDocuments();
-    
+
     testDirConsumer.consume(testDir);
 
     final VirtualFile expectedDir = getVirtualFileByName(PythonTestUtil.getTestDataPath() + rootAfter);
@@ -531,5 +519,13 @@ public class PyMoveTest extends PyTestCase {
   @NotNull
   private PyCodeStyleSettings getPythonCodeStyleSettings() {
     return getCodeStyleSettings().getCustomSettings(PyCodeStyleSettings.class);
+  }
+
+  public static class BranchTest extends PyMoveTest {
+    @Override
+    protected void setUp() throws Exception {
+      super.setUp();
+      Registry.get("run.refactorings.in.model.branch").setValue(true, getTestRootDisposable());
+    }
   }
 }

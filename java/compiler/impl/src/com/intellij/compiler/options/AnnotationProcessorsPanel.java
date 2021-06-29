@@ -160,8 +160,8 @@ public class AnnotationProcessorsPanel extends JPanel {
               return null;
             }
             return StringUtil.isEmpty(inputString)
-              ? "Profile name shouldn't be empty"
-              : "Profile " + inputString + " already exists";
+              ? JavaCompilerBundle.message("text.empty.profile")
+              : JavaCompilerBundle.message("text.profile.exists", inputString);
           }
         });
       if (newProfileName != null) {
@@ -291,7 +291,7 @@ public class AnnotationProcessorsPanel extends JPanel {
 
   private static class MyCellRenderer extends ColoredTreeCellRenderer {
     @Override
-    public void customizeCellRenderer(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+    public void customizeCellRenderer(@NotNull JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
       if (value instanceof ProfileNode) {
         append(((ProfileNode)value).myProfile.getName());
       }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers;
 
 import com.intellij.openapi.project.Project;
@@ -46,7 +46,6 @@ public final class GrAnnotationCollector {
         result.add(annotation);
       }
     }
-
     return result.toArray(GrAnnotation.EMPTY_ARRAY);
   }
 
@@ -80,7 +79,7 @@ public final class GrAnnotationCollector {
       final PsiClass resolved = JavaPsiFacade.getInstance(alias.getProject()).findClass(qname, alias.getResolveScope());
       if (resolved == null) continue;
 
-      final GrLightAnnotation annotation = new GrLightAnnotation(manager, alias.getLanguage(), qname, modifierList);
+      final GrLightAnnotation annotation = new GrLightAnnotation(manager, alias.getLanguage(), qname, (PsiModifierList)alias.getParent());
 
       Set<String> usedAttrs = new LinkedHashSet<>();
       for (GrAnnotationNameValuePair attr : attributes) {

@@ -7,6 +7,7 @@ import com.intellij.json.JsonBundle;
 import com.intellij.json.JsonUtil;
 import com.intellij.json.navigation.JsonQualifiedNameKind;
 import com.intellij.json.navigation.JsonQualifiedNameProvider;
+import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -34,7 +35,7 @@ public class JsonCopyPointerAction extends CopyReferenceAction {
   }
 
   @Override
-  protected String getQualifiedName(Editor editor, List<PsiElement> elements) {
+  protected String getQualifiedName(Editor editor, List<? extends PsiElement> elements) {
     if (elements.size() != 1) return null;
     return JsonQualifiedNameProvider.generateQualifiedName(elements.get(0), JsonQualifiedNameKind.JsonPointer);
   }
@@ -44,7 +45,7 @@ public class JsonCopyPointerAction extends CopyReferenceAction {
   protected List<PsiElement> getPsiElements(DataContext dataContext, Editor editor) {
     List<PsiElement> elements = super.getPsiElements(dataContext, editor);
     if (!elements.isEmpty()) return elements;
-    PsiElement location = ConfigurationContext.getFromContext(dataContext).getPsiLocation();
+    PsiElement location = ConfigurationContext.getFromContext(dataContext, ActionPlaces.UNKNOWN).getPsiLocation();
     if (location == null) return elements;
     PsiElement parent = location.getParent();
     return parent != null ? Collections.singletonList(parent) : elements;

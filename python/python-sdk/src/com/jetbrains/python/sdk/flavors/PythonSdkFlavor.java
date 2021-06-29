@@ -27,9 +27,7 @@ import java.io.File;
 import java.util.*;
 import java.util.regex.Pattern;
 
-/**
- * @author yole
- */
+
 public abstract class PythonSdkFlavor {
   public static final ExtensionPointName<PythonSdkFlavor> EP_NAME = ExtensionPointName.create("Pythonid.pythonSdkFlavor");
 
@@ -44,20 +42,9 @@ public abstract class PythonSdkFlavor {
    */
   @NotNull
   public Collection<String> suggestHomePaths(@Nullable final Module module, @Nullable final UserDataHolder context) {
-    return suggestHomePaths(module);
-  }
-
-
-  /**
-   * @deprecated use {@link #suggestHomePaths(Module, UserDataHolder)}.
-   * Will be deleted in 2020.3
-   */
-  @SuppressWarnings("unused")
-  @Deprecated
-  @NotNull
-  public Collection<String> suggestHomePaths(@Nullable final Module module) {
     return Collections.emptyList();
   }
+
 
   /**
    * Flavor is added to result in {@link #getApplicableFlavors()} if this method returns true.

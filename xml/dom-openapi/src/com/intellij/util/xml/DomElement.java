@@ -16,6 +16,7 @@
 package com.intellij.util.xml;
 
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.xml.XmlElement;
@@ -42,7 +43,7 @@ public interface DomElement extends AnnotatedElement, UserDataHolder {
   /**
    * Returns the underlying XML element/file.
    *
-   * @return {@link com.intellij.psi.xml.XmlFile}, {@link com.intellij.psi.xml.XmlTag} or {@link com.intellij.psi.xml.XmlAttribute}
+   * @return {@link com.intellij.psi.xml.XmlFile}, {@link XmlTag} or {@link com.intellij.psi.xml.XmlAttribute}
    */
   @Nullable
   XmlElement getXmlElement();
@@ -68,9 +69,9 @@ public interface DomElement extends AnnotatedElement, UserDataHolder {
   @NotNull
   DomGenericInfo getGenericInfo();
 
-  @NotNull @NonNls String getXmlElementName();
+  @NotNull @NlsSafe String getXmlElementName();
 
-  @NotNull @NonNls String getXmlElementNamespace();
+  @NotNull @NlsSafe String getXmlElementNamespace();
 
   /**
    * @return namespace key if this element or one of its ancestors is annotated with

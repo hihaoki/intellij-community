@@ -5,7 +5,6 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -26,7 +25,7 @@ public final class YAMLFileType extends LanguageFileType {
   @Override
   @NotNull
   public String getDescription() {
-    return YAMLBundle.message("filetype.description.yaml");
+    return YAMLBundle.message("filetype.yaml.description");
   }
 
   @Override
@@ -36,7 +35,7 @@ public final class YAMLFileType extends LanguageFileType {
   }
 
   @Override
-  @Nullable
+  @NotNull
   public Icon getIcon() {
     return AllIcons.FileTypes.Yaml;
   }

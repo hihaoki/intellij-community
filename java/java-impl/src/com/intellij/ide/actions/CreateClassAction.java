@@ -59,7 +59,7 @@ public class CreateClassAction extends JavaCreateTemplateInPackageAction<PsiClas
       @Override
       public String getErrorText(String inputString) {
         if (inputString.length() > 0 && !PsiNameHelper.getInstance(project).isQualifiedName(inputString)) {
-          return "This is not a valid Java qualified name";
+          return JavaErrorBundle.message("create.class.action.this.not.valid.java.qualified.name");
         }
         String shortName = StringUtil.getShortName(inputString);
         if (HighlightClassUtil.isRestrictedIdentifier(shortName, level)) {
@@ -94,7 +94,8 @@ public class CreateClassAction extends JavaCreateTemplateInPackageAction<PsiClas
 
   @Override
   protected String getActionName(PsiDirectory directory, @NotNull String newName, String templateName) {
-    return JavaBundle.message("progress.creating.class", StringUtil.getQualifiedName(JavaDirectoryService.getInstance().getPackage(directory).getQualifiedName(), newName));
+    PsiPackage psiPackage = JavaDirectoryService.getInstance().getPackage(directory);
+    return JavaBundle.message("progress.creating.class", StringUtil.getQualifiedName(psiPackage == null ? "" : psiPackage.getQualifiedName(), newName));
   }
 
   @Override

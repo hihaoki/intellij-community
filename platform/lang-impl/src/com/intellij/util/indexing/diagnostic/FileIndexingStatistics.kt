@@ -5,7 +5,9 @@ import com.intellij.openapi.fileTypes.FileType
 import com.intellij.util.indexing.ID
 
 class FileIndexingStatistics(
-  val indexingTime: TimeNano,
   val fileType: FileType,
-  val perIndexerTimes: Map<ID<*, *>, TimeNano>
-) 
+  val indexesProvidedByExtensions: Set<ID<*, *>>,
+  val wasFullyIndexedByExtensions: Boolean,
+  val perIndexerUpdateTimes: Map<ID<*, *>, TimeNano>,
+  val perIndexerDeleteTimes: Map<ID<*, *>, TimeNano>
+)

@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.util.ActionCallback;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -74,6 +75,7 @@ public abstract class ActionManager {
    * is not registered
    * @throws IllegalArgumentException if {@code action} is {@code null}
    */
+  @NonNls
   public abstract String getId(@NotNull AnAction action);
 
   /**
@@ -118,7 +120,7 @@ public abstract class ActionManager {
   /**
    * Returns the list of all registered action IDs with the specified prefix.
    */
-  public abstract @NotNull List<String> getActionIdList(@NotNull String idPrefix);
+  public abstract @NotNull List<@NonNls String> getActionIdList(@NotNull String idPrefix);
 
   /**
    * Checks if the specified action ID represents an action group and not an individual action.
@@ -136,35 +138,44 @@ public abstract class ActionManager {
    * @param actionPlace        the place where the panel will be used (see {@link ActionPlaces}).
    * @param messageActionGroup the action group from which the toolbar is created.
    * @return the created panel.
+   *
+   * @deprecated use regular Swing {@link Action},
+   *   {@link com.intellij.openapi.ui.DialogWrapper#createActions()},
+   *   {@link com.intellij.openapi.ui.DialogWrapper#createLeftSideActions()},
+   *   {@link #createActionToolbar(String, ActionGroup, boolean)}, or
+   *   {@link com.intellij.ui.ToolbarDecorator} instead.
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   public abstract JComponent createButtonToolbar(@NotNull String actionPlace, @NotNull ActionGroup messageActionGroup);
 
   @Nullable
   public abstract AnAction getActionOrStub(@NotNull @NonNls String id);
 
-  public abstract void addTimerListener(int delay, @NotNull TimerListener listener);
+  public abstract void addTimerListener(int unused, @NotNull TimerListener listener);
 
   public abstract void removeTimerListener(@NotNull TimerListener listener);
 
-  public abstract void addTransparentTimerListener(int delay, @NotNull TimerListener listener);
-
-  public abstract void removeTransparentTimerListener(@NotNull TimerListener listener);
-
   @NotNull
-  public abstract ActionCallback tryToExecute(@NotNull AnAction action, @NotNull InputEvent inputEvent, @Nullable Component contextComponent,
-                                              @Nullable String place, boolean now);
+  public abstract ActionCallback tryToExecute(@NotNull AnAction action,
+                                              @Nullable InputEvent inputEvent,
+                                              @Nullable Component contextComponent,
+                                              @Nullable String place,
+                                              boolean now);
 
   /**
    * @deprecated Use {@link AnActionListener#TOPIC}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addAnActionListener(AnActionListener listener);
 
   /**
    * @deprecated Use {@link AnActionListener#TOPIC}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void addAnActionListener(AnActionListener listener, Disposable parentDisposable) {
     ApplicationManager.getApplication().getMessageBus().connect(parentDisposable).subscribe(AnActionListener.TOPIC, listener);
   }
@@ -173,17 +184,9 @@ public abstract class ActionManager {
    * @deprecated Use {@link AnActionListener#TOPIC}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void removeAnActionListener(AnActionListener listener);
 
   @Nullable
   public abstract KeyboardShortcut getKeyboardShortcut(@NonNls @NotNull String actionId);
-
-  /**
-   * @deprecated Don't use
-   */
-  @Deprecated
-  @NotNull
-  public String getComponentName() {
-    return "ActionManager";
-  }
 }

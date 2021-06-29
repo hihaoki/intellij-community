@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diagnostic;
 
 import com.intellij.util.ArrayUtilRt;
@@ -6,9 +6,9 @@ import com.intellij.util.ExceptionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.apache.log4j.Level;
 import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.lang.reflect.Constructor;
 import java.util.Collection;
@@ -26,9 +26,10 @@ import java.util.function.Function;
  * In most non-performance tests, debug level is enabled by default, so that when a test fails the full contents of its log are printed to stdout.
  */
 public abstract class Logger {
+  private static boolean isUnitTestMode;
+
   public interface Factory {
-    @NotNull
-    Logger getLoggerInstance(@NotNull String category);
+    @NotNull Logger getLoggerInstance(@NotNull String category);
   }
 
   private static final class DefaultFactory implements Factory {
@@ -46,8 +47,7 @@ public abstract class Logger {
         return;
       }
 
-      //noinspection UseOfSystemOutOrSystemErr
-      System.out.println("Changing log factory\n" + ExceptionUtil.getThrowableText(new Throwable()));
+      logFactoryChanged(factory);
     }
 
     try {
@@ -64,11 +64,16 @@ public abstract class Logger {
 
   public static void setFactory(@NotNull Factory factory) {
     if (isInitialized()) {
-      //noinspection UseOfSystemOutOrSystemErr
-      System.out.println("Changing log factory\n" + ExceptionUtil.getThrowableText(new Throwable()));
+      logFactoryChanged(factory.getClass());
     }
 
     ourFactory = factory;
+  }
+
+  @SuppressWarnings("UseOfSystemOutOrSystemErr")
+  private static void logFactoryChanged(Class<? extends Factory> factory) {
+    System.out.println("Changing log factory from " + ourFactory.getClass().getCanonicalName() +
+                       " to " + factory.getCanonicalName() + '\n' + ExceptionUtil.getThrowableText(new Throwable()));
   }
 
   public static Factory getFactory() {
@@ -89,13 +94,13 @@ public abstract class Logger {
 
   public abstract boolean isDebugEnabled();
 
-  public abstract void debug(@NonNls String message);
+  public abstract void debug(String message);
 
   public abstract void debug(@Nullable Throwable t);
 
-  public abstract void debug(@NonNls String message, @Nullable Throwable t);
+  public abstract void debug(String message, @Nullable Throwable t);
 
-  public void debug(@NonNls @NotNull String message, Object @NotNull ... details) {
+  public void debug(@NotNull String message, Object @NotNull ... details) {
     if (isDebugEnabled()) {
       StringBuilder sb = new StringBuilder();
       sb.append(message);
@@ -106,7 +111,7 @@ public abstract class Logger {
     }
   }
 
-  public void debugValues(@NonNls @NotNull String header, @NotNull Collection<?> values) {
+  public void debugValues(@NotNull String header, @NotNull Collection<?> values) {
     if (isDebugEnabled()) {
       StringBuilder text = new StringBuilder();
       text.append(header).append(" (").append(values.size()).append(")");
@@ -121,6 +126,24 @@ public abstract class Logger {
     }
   }
 
+  public final void infoWithDebug(@NotNull Throwable t) {
+    infoWithDebug(t.toString(), t);
+  }
+
+  public final void infoWithDebug(@NotNull String message, @NotNull Throwable t) {
+    info(message);
+    debug(t);
+  }
+
+  public final void warnWithDebug(@NotNull Throwable t) {
+    warnWithDebug(t.toString(), t);
+  }
+
+  public final void warnWithDebug(@NotNull String message, @NotNull Throwable t) {
+    warn(message);
+    debug(t);
+  }
+
   public boolean isTraceEnabled() {
     return isDebugEnabled();
   }
@@ -129,7 +152,7 @@ public abstract class Logger {
    * Log a message with 'trace' level which finer-grained than 'debug' level. Use this method instead of {@link #debug(String)} for internal
    * events of a subsystem to avoid overwhelming the log if 'debug' level is enabled.
    */
-  public void trace(@NonNls String message) {
+  public void trace(String message) {
     debug(message);
   }
 
@@ -141,11 +164,11 @@ public abstract class Logger {
     info(t.getMessage(), t);
   }
 
-  public abstract void info(@NonNls String message);
+  public abstract void info(String message);
 
-  public abstract void info(@NonNls String message, @Nullable Throwable t);
+  public abstract void info(String message, @Nullable Throwable t);
 
-  public void warn(@NonNls String message) {
+  public void warn(String message) {
     warn(message, null);
   }
 
@@ -153,9 +176,9 @@ public abstract class Logger {
     warn(t.getMessage(), t);
   }
 
-  public abstract void warn(@NonNls String message, @Nullable Throwable t);
+  public abstract void warn(String message, @Nullable Throwable t);
 
-  public void error(@NonNls String message) {
+  public void error(String message) {
     error(message, new Throwable(message), ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
@@ -165,19 +188,19 @@ public abstract class Logger {
 
   static final Function<Attachment, String> ATTACHMENT_TO_STRING = attachment -> attachment.getPath() + "\n" + attachment.getDisplayText();
 
-  public void error(@NonNls String message, Attachment @NotNull ... attachments) {
+  public void error(String message, Attachment @NotNull ... attachments) {
     error(message, null, attachments);
   }
 
-  public void error(@NonNls String message, @Nullable Throwable t, Attachment @NotNull ... attachments) {
+  public void error(String message, @Nullable Throwable t, Attachment @NotNull ... attachments) {
     error(message, t, ContainerUtil.map2Array(attachments, String.class, ATTACHMENT_TO_STRING::apply));
   }
 
-  public void error(@NonNls String message, String @NotNull ... details) {
+  public void error(String message, String @NotNull ... details) {
     error(message, new Throwable(message), details);
   }
 
-  public void error(@NonNls String message, @Nullable Throwable t) {
+  public void error(String message, @Nullable Throwable t) {
     error(message, t, ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
@@ -185,10 +208,10 @@ public abstract class Logger {
     error(t.getMessage(), t, ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
-  public abstract void error(@NonNls String message, @Nullable Throwable t, String @NotNull ... details);
+  public abstract void error(String message, @Nullable Throwable t, String @NotNull ... details);
 
   @Contract("false,_->fail") // wrong, but avoid quite a few warnings in the code
-  public boolean assertTrue(boolean value, @NonNls @Nullable Object message) {
+  public boolean assertTrue(boolean value, @Nullable Object message) {
     if (!value) {
       String resultMessage = "Assertion failed";
       if (message != null) resultMessage += ": " + message;
@@ -204,10 +227,29 @@ public abstract class Logger {
     return value || assertTrue(false, null);
   }
 
-  public abstract void setLevel(Level level);
+  public abstract void setLevel(@NotNull Level level);
 
-  protected static Throwable checkException(@Nullable Throwable t) {
-    return t instanceof ControlFlowException ? new Throwable(
-      "Control-flow exceptions (like " + t.getClass().getSimpleName() + ") should never be logged", t) : t;
+  protected static Throwable ensureNotControlFlow(@Nullable Throwable t) {
+    return t instanceof ControlFlowException ?
+           new Throwable("Control-flow exceptions (like " + t.getClass().getSimpleName() + ") should never be logged: " +
+                         "ignore for explicitly started processes or rethrow to handle on the outer process level", t) :
+           t;
+  }
+
+  @TestOnly
+  public static void setUnitTestMode() {
+    isUnitTestMode = true;
+  }
+
+  /**
+   * {@link #warn} in production, {@link #error} in tests
+   */
+  public void warnInProduction(@NotNull Throwable t) {
+    if (isUnitTestMode) {
+      error(t);
+    }
+    else {
+      warn(t);
+    }
   }
 }

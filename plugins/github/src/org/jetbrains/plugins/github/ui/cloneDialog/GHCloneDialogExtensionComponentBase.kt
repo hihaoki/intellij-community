@@ -1,9 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.ui.cloneDialog
 
+import com.intellij.collaboration.auth.AccountsListener
+import com.intellij.collaboration.messages.CollaborationToolsBundle
+import com.intellij.collaboration.ui.CollaborationToolsUIUtil
 import com.intellij.dvcs.repo.ClonePathProvider
 import com.intellij.dvcs.ui.CloneDvcsValidationUtils
-import com.intellij.dvcs.ui.DvcsBundle.getString
+import com.intellij.dvcs.ui.DvcsBundle.message
 import com.intellij.dvcs.ui.SelectChildTextFieldWithBrowseButton
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
@@ -26,6 +29,7 @@ import com.intellij.openapi.vcs.ui.cloneDialog.VcsCloneDialogExtensionComponent
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.*
+import com.intellij.ui.SingleSelectionModel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.layout.*
@@ -36,14 +40,17 @@ import com.intellij.util.ui.JBEmptyBorder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBValue
 import com.intellij.util.ui.UIUtil
-import com.intellij.util.ui.cloneDialog.*
+import com.intellij.util.ui.cloneDialog.AccountMenuItem
 import com.intellij.util.ui.cloneDialog.AccountMenuItem.Account
 import com.intellij.util.ui.cloneDialog.AccountMenuItem.Action
+import com.intellij.util.ui.cloneDialog.AccountMenuPopupStep
+import com.intellij.util.ui.cloneDialog.AccountsMenuListPopup
+import com.intellij.util.ui.cloneDialog.VcsCloneDialogUiSpec
 import git4idea.GitUtil
 import git4idea.checkout.GitCheckoutProvider
 import git4idea.commands.Git
 import git4idea.remote.GitRememberedInputs
-import icons.GithubIcons
+import org.jetbrains.plugins.github.GithubIcons
 import org.jetbrains.plugins.github.api.*
 import org.jetbrains.plugins.github.api.data.GithubAuthenticatedUser
 import org.jetbrains.plugins.github.api.data.GithubRepo
@@ -51,13 +58,11 @@ import org.jetbrains.plugins.github.api.data.request.Affiliation
 import org.jetbrains.plugins.github.api.data.request.GithubRequestPagination
 import org.jetbrains.plugins.github.api.util.GithubApiPagesLoader
 import org.jetbrains.plugins.github.authentication.GithubAuthenticationManager
-import org.jetbrains.plugins.github.authentication.accounts.AccountRemovedListener
-import org.jetbrains.plugins.github.authentication.accounts.AccountTokenChangedListener
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccountInformationProvider
 import org.jetbrains.plugins.github.exceptions.GithubMissingTokenException
 import org.jetbrains.plugins.github.i18n.GithubBundle
-import org.jetbrains.plugins.github.pullrequest.avatars.CachingGithubAvatarIconsProvider
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
 import org.jetbrains.plugins.github.util.*
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
@@ -72,11 +77,9 @@ internal abstract class GHCloneDialogExtensionComponentBase(
   private val authenticationManager: GithubAuthenticationManager,
   private val executorManager: GithubApiRequestExecutorManager,
   private val accountInformationProvider: GithubAccountInformationProvider,
-  private val avatarLoader: CachingGithubUserAvatarLoader,
-  private val imageResizer: GithubImageResizer
+  private val avatarLoader: CachingGHUserAvatarLoader
 ) : VcsCloneDialogExtensionComponent(),
-    AccountRemovedListener,
-    AccountTokenChangedListener {
+    AccountsListener<GithubAccount> {
 
   private val LOG = GithubUtil.LOG
 
@@ -84,8 +87,8 @@ internal abstract class GHCloneDialogExtensionComponentBase(
   private val githubGitHelper: GithubGitHelper = GithubGitHelper.getInstance()
 
   // UI
-  private val defaultAvatar = resizeIcon(GithubIcons.DefaultAvatar, VcsCloneDialogUiSpec.Components.avatarSize)
-  private val defaultPopupAvatar = resizeIcon(GithubIcons.DefaultAvatar, VcsCloneDialogUiSpec.Components.popupMenuAvatarSize)
+  private val defaultAvatar = IconUtil.resizeSquared(GithubIcons.DefaultAvatar, VcsCloneDialogUiSpec.Components.avatarSize)
+  private val defaultPopupAvatar = IconUtil.resizeSquared(GithubIcons.DefaultAvatar, VcsCloneDialogUiSpec.Components.popupMenuAvatarSize)
   private val avatarSizeUiInt = JBValue.UIInteger("GHCloneDialogExtensionComponent.popupAvatarSize",
                                                   VcsCloneDialogUiSpec.Components.popupMenuAvatarSize)
 
@@ -108,8 +111,8 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     val fcd = FileChooserDescriptorFactory.createSingleFolderDescriptor()
     fcd.isShowFileSystemRoots = true
     fcd.isHideIgnored = false
-    addBrowseFolderListener(getString("clone.destination.directory.browser.title"),
-                            getString("clone.destination.directory.browser.description"),
+    addBrowseFolderListener(message("clone.destination.directory.browser.title"),
+                            message("clone.destination.directory.browser.description"),
                             project,
                             fcd)
   }
@@ -129,22 +132,33 @@ internal abstract class GHCloneDialogExtensionComponentBase(
   protected val content: JComponent get() = wrapper.targetComponent
 
   init {
-    val listWithSearchBundle = ListWithSearchComponent(originListModel, GHRepositoryListCellRenderer { getAccounts() })
-
-    repositoryList = listWithSearchBundle.list
-    val mouseAdapter = GHRepositoryMouseAdapter(repositoryList)
-    repositoryList.addMouseListener(mouseAdapter)
-    repositoryList.addMouseMotionListener(mouseAdapter)
-    repositoryList.addListSelectionListener {
-      if (it.valueIsAdjusting) return@addListSelectionListener
-      updateSelectedUrl()
+    repositoryList = JBList(originListModel).apply {
+      cellRenderer = GHRepositoryListCellRenderer { getAccounts() }
+      isFocusable = false
+      selectionModel = SingleSelectionModel()
+    }.also {
+      val mouseAdapter = GHRepositoryMouseAdapter(it)
+      it.addMouseListener(mouseAdapter)
+      it.addMouseMotionListener(mouseAdapter)
+      it.addListSelectionListener { evt ->
+        if (evt.valueIsAdjusting) return@addListSelectionListener
+        updateSelectedUrl()
+      }
     }
 
-    searchField = listWithSearchBundle.searchField
-    searchField.addDocumentListener(object : DocumentAdapter() {
-      override fun textChanged(e: DocumentEvent) = updateSelectedUrl()
-    })
-    createFocusFilterFieldAction(searchField)
+    searchField = SearchTextField(false).also {
+      it.addDocumentListener(object : DocumentAdapter() {
+        override fun textChanged(e: DocumentEvent) = updateSelectedUrl()
+      })
+      createFocusFilterFieldAction(it)
+    }
+
+    CollaborationToolsUIUtil.attachSearch(repositoryList, searchField) {
+      when (it) {
+        is GHRepositoryListItem.Repo -> it.repo.fullName
+        is GHRepositoryListItem.Error -> ""
+      }
+    }
 
     progressManager = object : ProgressVisibilityManager() {
       override fun setProgressVisible(visible: Boolean) = repositoryList.setPaintBusy(visible)
@@ -158,8 +172,8 @@ internal abstract class GHCloneDialogExtensionComponentBase(
       row {
         cell(isFullWidth = true) {
           searchField.textEditor(pushX, growX)
-          JSeparator(JSeparator.VERTICAL)(growY).withLargeLeftGap()
-          accountsPanel().withLargeLeftGap()
+          JSeparator(JSeparator.VERTICAL)(growY)
+          accountsPanel()
         }
       }
       row {
@@ -187,12 +201,24 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     }
   }
 
-  override fun accountRemoved(removedAccount: GithubAccount) {
-    removeAccount(removedAccount)
-    dialogStateListener.onListItemChanged()
+  override fun onAccountListChanged(old: Collection<GithubAccount>, new: Collection<GithubAccount>) {
+    val removed = old - new
+    if (removed.isNotEmpty()) {
+      removeAccounts(removed)
+      dialogStateListener.onListItemChanged()
+    }
+    val added = new - old
+    if (added.isNotEmpty()) {
+      for (account in added) {
+        if (repositoriesByAccount[account] != null) continue
+        addAccount(account)
+      }
+      switchToRepositories()
+      dialogStateListener.onListItemChanged()
+    }
   }
 
-  override fun tokenChanged(account: GithubAccount) {
+  override fun onAccountCredentialsChanged(account: GithubAccount) {
     if (repositoriesByAccount[account] != null) return
 
     dialogStateListener.onListItemChanged()
@@ -241,35 +267,35 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     }
   }
 
-  private fun removeAccount(account: GithubAccount) {
-    repositoriesByAccount.remove(account)
-    accountComponents.remove(account).let {
-      accountsPanel.remove(it)
-      accountsPanel.revalidate()
-      accountsPanel.repaint()
+  private fun removeAccounts(accounts: Collection<GithubAccount>) {
+    for (account in accounts) {
+      repositoriesByAccount.remove(account)
+      accountComponents.remove(account).let {
+        accountsPanel.remove(it)
+      }
     }
+    accountsPanel.revalidate()
+    accountsPanel.repaint()
     refillRepositories()
     if (getAccounts().isEmpty()) switchToLogin(null)
   }
 
   private fun loadUserDetails(account: GithubAccount,
                               executor: GithubApiRequestExecutor.WithTokenAuth) {
-    progressManager.run(object : Task.Backgroundable(project, "Not Visible") {
+    progressManager.run(object : Task.Backgroundable(project, GithubBundle.message("progress.title.not.visible")) {
       lateinit var user: GithubAuthenticatedUser
-      lateinit var iconProvider: CachingGithubAvatarIconsProvider
+      lateinit var iconProvider: GHAvatarIconsProvider
 
       override fun run(indicator: ProgressIndicator) {
         user = accountInformationProvider.getInformation(executor, indicator, account)
-        iconProvider = CachingGithubAvatarIconsProvider
-          .Factory(avatarLoader, imageResizer, executor)
-          .create(avatarSizeUiInt, accountsPanel)
+        iconProvider = GHAvatarIconsProvider(avatarLoader, executor)
       }
 
       override fun onSuccess() {
         userDetailsByAccount[account] = user
-        val avatar = iconProvider.getIcon(user.avatarUrl)
+        val avatar = iconProvider.getIcon(user.avatarUrl, avatarSizeUiInt.get())
         avatarsByAccount[account] = avatar
-        accountComponents[account]?.icon = resizeIcon(avatar, VcsCloneDialogUiSpec.Components.avatarSize)
+        accountComponents[account]?.icon = IconUtil.resizeSquared(avatar, VcsCloneDialogUiSpec.Components.avatarSize)
         refillRepositories()
       }
 
@@ -288,7 +314,7 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     repositoriesByAccount.remove(account)
     errorsByAccount.remove(account)
 
-    progressManager.run(object : Task.Backgroundable(project, "Not Visible") {
+    progressManager.run(object : Task.Backgroundable(project, GithubBundle.message("progress.title.not.visible")) {
       override fun run(indicator: ProgressIndicator) {
         val repoPagesRequest = GithubApiRequests.CurrentUser.Repos.pages(account.server,
                                                                          affiliation = Affiliation.combine(Affiliation.OWNER,
@@ -296,7 +322,7 @@ internal abstract class GHCloneDialogExtensionComponentBase(
                                                                          pagination = GithubRequestPagination.DEFAULT)
         val pageItemsConsumer: (List<GithubRepo>) -> Unit = {
           runInEdt {
-            repositoriesByAccount.getOrPut(account, { UpdateOrderLinkedHashSet() }).addAll(it)
+            repositoriesByAccount.getOrPut(account) { UpdateOrderLinkedHashSet() }.addAll(it)
             refillRepositories()
           }
         }
@@ -351,7 +377,9 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     val destinationValidation = CloneDvcsValidationUtils.createDestination(parent.toString())
     if (destinationValidation != null) {
       LOG.error("Unable to create destination directory", destinationValidation.message)
-      GithubNotifications.showError(project, GithubBundle.message("clone.dialog.clone.failed"),
+      GithubNotifications.showError(project,
+                                    GithubNotificationIdsHolder.CLONE_UNABLE_TO_CREATE_DESTINATION_DIR,
+                                    GithubBundle.message("clone.dialog.clone.failed"),
                                     GithubBundle.message("clone.error.unable.to.create.dest.dir"))
       return
     }
@@ -363,7 +391,9 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     }
     if (destinationParent == null) {
       LOG.error("Clone Failed. Destination doesn't exist")
-      GithubNotifications.showError(project, GithubBundle.message("clone.dialog.clone.failed"),
+      GithubNotifications.showError(project,
+                                    GithubNotificationIdsHolder.CLONE_UNABLE_TO_FIND_DESTINATION,
+                                    GithubBundle.message("clone.dialog.clone.failed"),
                                     GithubBundle.message("clone.error.unable.to.find.dest"))
       return
     }
@@ -452,11 +482,6 @@ internal abstract class GHCloneDialogExtensionComponentBase(
     }
   }
 
-  private fun resizeIcon(icon: Icon, size: Int): Icon {
-    val scale = JBUI.scale(size).toFloat() / icon.iconWidth.toFloat()
-    return IconUtil.scale(icon, null, scale)
-  }
-
   protected abstract fun createAccountMenuLoginActions(account: GithubAccount?): Collection<Action>
 
   private fun showPopupMenu() {
@@ -479,7 +504,7 @@ internal abstract class GHCloneDialogExtensionComponentBase(
       }
       else {
         if (account != authenticationManager.getDefaultAccount(project)) {
-          accountActions += Action(GithubBundle.message("accounts.set.default"),
+          accountActions += Action(CollaborationToolsBundle.message("accounts.set.default"),
                                    { authenticationManager.setDefaultAccount(project, account) })
         }
         accountActions += Action(GithubBundle.message("open.on.github.action"), { BrowserUtil.browse(user.htmlUrl) },

@@ -613,4 +613,105 @@ public class JavaEnterActionTest extends AbstractEnterActionTestCase {
       "}"
     );
   }
+
+  public void testIdea192807() {
+    doTextTest(
+      "java",
+
+      "class MyTest\n" +
+      "{\n" +
+      "    private void foo() { String a = \"a\";<caret> String b = \"b\";}\n" +
+      "}",
+
+      "class MyTest\n" +
+      "{\n" +
+      "    private void foo() { String a = \"a\";\n" +
+      "        <caret>String b = \"b\";}\n" +
+      "}"
+    );
+  }
+
+  public void testIdea188397() {
+    doTextTest(
+      "java",
+
+      "public class Test {\n" +
+      "    public static void main(String[] args) {\n" +
+      "        System.out.println(\"Hello World!\");}<caret>\n" +
+      "}",
+
+      "public class Test {\n" +
+      "    public static void main(String[] args) {\n" +
+      "        System.out.println(\"Hello World!\");}\n" +
+      "    <caret>\n" +
+      "}"
+    );
+  }
+
+  public void testIdea163806() {
+    doTextTest(
+      "java",
+
+      "public class Test {\n" +
+      "    /**\n" +
+      "     * Something<br><caret>\n" +
+      "     */\n" +
+      "    void foo() {\n" +
+      "    }\n" +
+      "}",
+
+      "public class Test {\n" +
+      "    /**\n" +
+      "     * Something<br>\n" +
+      "     * <caret>\n" +
+      "     */\n" +
+      "    void foo() {\n" +
+      "    }\n" +
+      "}"
+    );
+  }
+
+  public void testIdea205999() {
+    doTextTest(
+      "java",
+
+      "public class Test {\n" +
+      "    void foo(String a, String b, String c)\n" +
+      "    {\n" +
+      "        if(true) \n" +
+      "        {}\n" +
+      "        else<caret>{}\n" +
+      "    }\n" +
+      "}",
+
+      "public class Test {\n" +
+      "    void foo(String a, String b, String c)\n" +
+      "    {\n" +
+      "        if(true) \n" +
+      "        {}\n" +
+      "        else\n" +
+      "        <caret>{}\n" +
+      "    }\n" +
+      "}"
+    );
+  }
+
+  public void testIdea160629() {
+    CodeStyle.doWithTemporarySettings(
+      getProject(),
+      getCurrentCodeStyleSettings(),
+      settings -> {
+        settings.getCommonSettings(JavaLanguage.INSTANCE).DO_NOT_INDENT_TOP_LEVEL_CLASS_MEMBERS = true;
+        doTextTest(
+          "java",
+
+          "public class Test extends A implements B,C {<caret>\n" +
+          "}",
+
+          "public class Test extends A implements B,C {\n" +
+          "<caret>\n" +
+          "}"
+        );
+      });
+  }
 }

@@ -369,17 +369,17 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     {
       final Set<PsiField> initializedFields = fieldsToInitializers.keySet();
       Set<PsiField> unmovable = RefactoringUtil.transitiveClosure(
-              new RefactoringUtil.Graph<PsiField>() {
-                @Override
-                public Set<PsiField> getVertices() {
-                  return initializedFields;
-                }
+        new RefactoringUtil.Graph<>() {
+          @Override
+          public Set<PsiField> getVertices() {
+            return initializedFields;
+          }
 
-                @Override
-                public Set<PsiField> getTargets(PsiField source) {
-                  return fieldsToInitializers.get(source).movedFieldsUsed;
-                }
-              },
+          @Override
+          public Set<PsiField> getTargets(PsiField source) {
+            return fieldsToInitializers.get(source).movedFieldsUsed;
+          }
+        },
               object -> !initializedFields.contains(object)
       );
 
@@ -769,6 +769,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
 
     @Override
     public void visitReferenceExpression(PsiReferenceExpression expression) {
+      super.visitReferenceExpression(expression);
       if(expression.getQualifierExpression() instanceof PsiSuperExpression) {
         PsiElement resolved = expression.resolve();
         if (resolved == null || resolved instanceof PsiMethod && shouldFixSuper((PsiMethod) resolved)) {

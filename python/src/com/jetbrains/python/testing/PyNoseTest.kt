@@ -6,8 +6,8 @@ import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.Sdk
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonHelper
 import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
 
@@ -17,10 +17,8 @@ import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
 
 class PyNoseTestSettingsEditor(configuration: PyAbstractTestConfiguration) :
   PyAbstractTestSettingsEditor(
-    PyTestSharedForm.create(configuration, PyTestSharedForm.CustomOption(
-      PyNoseTestConfiguration::regexPattern.name,
-      PyBundle.message("python.testing.nose.custom.options.regex.pattern"),
-      PyRunTargetVariant.PATH)))
+    PyTestSharedForm.create(configuration, PyTestCustomOption(
+      PyNoseTestConfiguration::regexPattern, PyRunTargetVariant.PATH)))
 
 class PyNoseTestExecutionEnvironment(configuration: PyNoseTestConfiguration, environment: ExecutionEnvironment) :
   PyTestExecutionEnvironment<PyNoseTestConfiguration>(configuration, environment) {
@@ -29,9 +27,9 @@ class PyNoseTestExecutionEnvironment(configuration: PyNoseTestConfiguration, env
 
 
 class PyNoseTestConfiguration(project: Project, factory: PyNoseTestFactory) :
-  PyAbstractTestConfiguration(project, factory, PyTestFrameworkService.getSdkReadableNameByFramework(PyNames.NOSE_TEST)),
+  PyAbstractTestConfiguration(project, factory),
   PyTestConfigurationWithCustomSymbol {
-  @ConfigField
+  @ConfigField("runcfg.nosetests.config.regexPattern")
   var regexPattern: String = ""
 
   override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? =
@@ -48,14 +46,20 @@ class PyNoseTestConfiguration(project: Project, factory: PyNoseTestFactory) :
 
   override val fileSymbolSeparator get() = ":"
   override val symbolSymbolSeparator get() = "."
-
-  override fun isFrameworkInstalled(): Boolean = VFSTestFrameworkListener.getInstance().isTestFrameworkInstalled(sdk, PyNames.NOSE_TEST)
 }
 
 class PyNoseTestFactory : PyAbstractTestFactory<PyNoseTestConfiguration>() {
+  companion object {
+    const val id = "Nosetests"
+  }
+
   override fun createTemplateConfiguration(project: Project) = PyNoseTestConfiguration(project, this)
 
-  override fun getId(): String = "Nosetests"
+  override fun getId(): String = PyNoseTestFactory.id
 
-  override fun getName(): String = PyTestFrameworkService.getSdkReadableNameByFramework(PyNames.NOSE_TEST)
+  override fun getName(): String = PyBundle.message("runcfg.nosetests.display_name")
+
+  override fun onlyClassesAreSupported(sdk: Sdk): Boolean = false
+
+  override val packageRequired: String = "nose"
 }

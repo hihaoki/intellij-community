@@ -15,7 +15,7 @@ import java.util.List;
 
 public class MarkdownAnchorPathReferenceProvider implements PathReferenceProvider {
   @Override
-  public boolean createReferences(@NotNull final PsiElement psiElement, @NotNull final List<PsiReference> references, final boolean soft) {
+  public boolean createReferences(@NotNull final PsiElement psiElement, final @NotNull List<PsiReference> references, final boolean soft) {
     if (!(psiElement instanceof MarkdownPsiElement)) return false;
 
     final TextRange range = ElementManipulators.getValueTextRange(psiElement);
@@ -23,10 +23,18 @@ public class MarkdownAnchorPathReferenceProvider implements PathReferenceProvide
     final int anchorOffset = elementText.indexOf('#');
     if (anchorOffset == -1) return false;
 
-    FileReference fileReference = null;
+    PsiReference fileReference = null;
     if (range.getStartOffset() != anchorOffset) {
       fileReference = findFileReference(references);
-      if (fileReference == null || fileReference.resolve() == null) return false;
+      if (fileReference == null || fileReference.resolve() == null) {
+        for (PsiReference reference : references) {
+          if (reference instanceof MissingExtensionFileReferenceBase) {
+            fileReference = reference;
+            break;
+          }
+        }
+        if (fileReference == null || fileReference.resolve() == null) return false;
+      }
     }
 
     final String anchor;
@@ -44,7 +52,7 @@ public class MarkdownAnchorPathReferenceProvider implements PathReferenceProvide
   }
 
   @Nullable
-  private static FileReference findFileReference(final List<PsiReference> references) {
+  static FileReference findFileReference(final List<PsiReference> references) {
     FileReference fileReference = null;
     for (PsiReference reference : references) {
       if (reference instanceof FileReference) {

@@ -1,10 +1,12 @@
 package org.jetbrains.plugins.textmate.language.preferences;
 
-import gnu.trove.TIntHashSet;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.textmate.Constants;
 import org.jetbrains.plugins.textmate.language.PreferencesReadUtil;
 import org.jetbrains.plugins.textmate.language.TextMateScopeComparator;
+import org.jetbrains.plugins.textmate.language.syntax.lexer.TextMateScope;
 import org.jetbrains.plugins.textmate.plist.Plist;
 
 import java.util.Collection;
@@ -16,12 +18,12 @@ import java.util.Set;
  * Table of textmate preferences.
  * Table represents mapping from scopeNames to set of preferences {@link Preferences}
  */
-public class PreferencesRegistry {
+public final class PreferencesRegistry {
   @NotNull private final Set<Preferences> myPreferences = new HashSet<>();
-  @NotNull private final TIntHashSet myLeftHighlightingBraces = new TIntHashSet();
-  @NotNull private final TIntHashSet myRightHighlightingBraces = new TIntHashSet();
-  @NotNull private final TIntHashSet myLeftSmartTypingBraces = new TIntHashSet();
-  @NotNull private final TIntHashSet myRightSmartTypingBraces = new TIntHashSet();
+  @NotNull private final IntSet myLeftHighlightingBraces = new IntOpenHashSet();
+  @NotNull private final IntSet myRightHighlightingBraces = new IntOpenHashSet();
+  @NotNull private final IntSet myLeftSmartTypingBraces = new IntOpenHashSet();
+  @NotNull private final IntSet myRightSmartTypingBraces = new IntOpenHashSet();
 
   public PreferencesRegistry() {
     fillHighlightingBraces(Constants.DEFAULT_HIGHLIGHTING_BRACE_PAIRS);
@@ -60,11 +62,11 @@ public class PreferencesRegistry {
   }
 
   public boolean isPossibleLeftHighlightingBrace(char c) {
-    return myLeftHighlightingBraces.contains(c) || myLeftSmartTypingBraces.contains(c);
+    return myLeftHighlightingBraces.contains(c) || (c != ' ' && myLeftSmartTypingBraces.contains(c));
   }
 
   public boolean isPossibleRightHighlightingBrace(char c) {
-    return myRightHighlightingBraces.contains(c) || myRightSmartTypingBraces.contains(c);
+    return myRightHighlightingBraces.contains(c) || (c != ' ' && myRightSmartTypingBraces.contains(c));
   }
 
   public boolean isPossibleLeftSmartTypingBrace(char c) {
@@ -78,13 +80,13 @@ public class PreferencesRegistry {
   /**
    * Returns preferences by scope selector.
    *
-   * @param scopeSelector selector of current context.
+   * @param scope selector of current context.
    * @return preferences from table for given scope sorted by descending weigh
    * of rule selector relative to scope selector.
    */
   @NotNull
-  public List<Preferences> getPreferences(@NotNull CharSequence scopeSelector) {
-    return new TextMateScopeComparator<>(scopeSelector, Preferences::getScopeSelector).sortAndFilter(myPreferences);
+  public List<Preferences> getPreferences(@NotNull TextMateScope scope) {
+    return new TextMateScopeComparator<>(scope, Preferences::getScopeSelector).sortAndFilter(myPreferences);
   }
 
   public void clear() {

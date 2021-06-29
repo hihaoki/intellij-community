@@ -26,7 +26,9 @@ import java.util.List;
 
 public interface ProviderBinding {
   class ProviderInfo<Context> {
+    @NotNull
     public final PsiReferenceProvider provider;
+    @NotNull
     public final Context processingContext;
     public final double priority;
 
@@ -34,6 +36,11 @@ public interface ProviderBinding {
       this.provider = provider;
       this.processingContext = processingContext;
       this.priority = priority;
+    }
+
+    @Override
+    public String toString() {
+      return "ProviderInfo{provider=" + provider + ", priority=" + priority + '}';
     }
   }
   void addAcceptableReferenceProviders(@NotNull PsiElement position,

@@ -1,8 +1,11 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+@file:Suppress("HardCodedStringLiteral")
+
 package org.jetbrains.builtInWebServer
 
-import com.google.common.cache.CacheBuilder
+import com.github.benmanes.caffeine.cache.Caffeine
 import com.google.common.net.InetAddresses
+import com.intellij.ide.SpecialConfigFiles.USER_WEB_TOKEN
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationType
@@ -39,6 +42,7 @@ import org.jetbrains.io.send
 import java.awt.datatransfer.StringSelection
 import java.io.IOException
 import java.net.InetAddress
+import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -49,9 +53,6 @@ import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
 
 internal val LOG = logger<BuiltInWebServer>()
-
-// name is duplicated in the ConfigImportHelper
-private const val IDE_TOKEN_FILE = "user.web.token"
 
 private val notificationManager by lazy {
   SingletonNotificationManager(BuiltInServerManagerImpl.NOTIFICATION_GROUP.value, NotificationType.INFORMATION, null)
@@ -100,7 +101,7 @@ const val TOKEN_HEADER_NAME = "x-ijt"
 private val STANDARD_COOKIE by lazy {
   val productName = ApplicationNamesInfo.getInstance().lowercaseProductName
   val configPath = PathManager.getConfigPath()
-  val file = Paths.get(configPath, IDE_TOKEN_FILE)
+  val file = Paths.get(configPath, USER_WEB_TOKEN)
   var token: String? = null
   if (file.exists()) {
     try {
@@ -127,7 +128,7 @@ private val STANDARD_COOKIE by lazy {
 }
 
 // expire after access because we reuse tokens
-private val tokens = CacheBuilder.newBuilder().expireAfterAccess(1, TimeUnit.MINUTES).build<String, Boolean>()
+private val tokens = Caffeine.newBuilder().expireAfterAccess(1, TimeUnit.MINUTES).build<String, Boolean>()
 
 fun acquireToken(): String {
   var token = tokens.asMap().keys.firstOrNull()
@@ -156,7 +157,27 @@ private fun doProcess(urlDecoder: QueryStringDecoder, request: FullHttpRequest, 
     isEmptyPath = offset == -1
   }
 
+  val referer = request.headers().get(HttpHeaderNames.REFERER)
+  val projectNameFromReferer =
+    if (!isCustomHost && referer != null) {
+      try {
+        val uri = URI.create(referer)
+        val refererPath = uri.path
+        if (refererPath != null && refererPath.startsWith('/')) {
+          val secondSlashOffset = refererPath.indexOf('/', 1)
+          if (secondSlashOffset > 1) refererPath.substring(1, secondSlashOffset)
+          else null
+        }
+        else null
+      }
+      catch (t: Throwable) {
+        null
+      }
+    }
+    else null
+
   var candidateByDirectoryName: Project? = null
+  var isCandidateFromReferer = false
   val project = ProjectManager.getInstance().openProjects.firstOrNull(fun(project: Project): Boolean {
     if (project.isDisposed) {
       return false
@@ -189,12 +210,24 @@ private fun doProcess(urlDecoder: QueryStringDecoder, request: FullHttpRequest, 
     if (candidateByDirectoryName == null && compareNameAndProjectBasePath(projectName, project)) {
       candidateByDirectoryName = project
     }
+    if (candidateByDirectoryName == null &&
+        projectNameFromReferer != null &&
+        (projectNameFromReferer == name || compareNameAndProjectBasePath(projectNameFromReferer, project))) {
+      candidateByDirectoryName = project
+      isCandidateFromReferer = true
+    }
     return false
   }) ?: candidateByDirectoryName ?: return false
 
   if (isActivatable() && !PropertiesComponent.getInstance().getBoolean("ide.built.in.web.server.active")) {
     notificationManager.notify(BuiltInServerBundle.message("notification.content.built.in.web.server.is.deactivated"), null)
     return false
+  }
+
+  if (isCandidateFromReferer) {
+    projectName = projectNameFromReferer!!
+    offset = 0
+    isEmptyPath = false
   }
 
   if (isEmptyPath) {
@@ -263,7 +296,7 @@ fun validateToken(request: HttpRequest, channel: Channel, isSignedRequest: Boole
           .yesNo("", BuiltInServerBundle.message("dialog.message.page", StringUtil.trimMiddle(url, 50)))
           .icon(Messages.getWarningIcon())
           .yesText(BuiltInServerBundle.message("dialog.button.copy.authorization.url.to.clipboard"))
-          .show() == Messages.YES) {
+          .guessWindowAndAsk()) {
         CopyPasteManager.getInstance().setContents(StringSelection(url + "?" + TOKEN_PARAM_NAME + "=" + acquireToken()))
       }
     }

@@ -8,6 +8,7 @@ import com.intellij.lang.properties.ResourceBundle;
 import com.intellij.lang.properties.ResourceBundleImpl;
 import com.intellij.lang.properties.customizeActions.DissociateResourceBundleAction;
 import com.intellij.lang.properties.psi.PropertiesFile;
+import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidator;
 import com.intellij.openapi.ui.Messages;
@@ -22,6 +23,7 @@ import com.intellij.ui.CollectionListModel;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.UI;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,7 +36,7 @@ import java.util.*;
 
 public class SuspiciousLocalesLanguagesInspection extends LocalInspectionTool {
   private static final String ADDITIONAL_LANGUAGES_ATTR_NAME = "additionalLanguages";
-  private final static SoftLazyValue<Set<String>> JAVA_LOCALES = new SoftLazyValue<Set<String>>() {
+  private final static SoftLazyValue<Set<String>> JAVA_LOCALES = new SoftLazyValue<>() {
     @NotNull
     @Override
     protected Set<String> compute() {
@@ -141,7 +143,6 @@ public class SuspiciousLocalesLanguagesInspection extends LocalInspectionTool {
 
     public JPanel getComponent() {
       final JPanel panel = new JPanel(new BorderLayout());
-      panel.add(new JLabel(JavaI18nBundle.message("dissociate.resource.bundle.quick.fix.options.label")), BorderLayout.NORTH);
       panel.add(
         ToolbarDecorator.createDecorator(myAdditionalLocalesList)
           .setAddAction(new AnActionButtonRunnable() {
@@ -177,9 +178,14 @@ public class SuspiciousLocalesLanguagesInspection extends LocalInspectionTool {
           })
           .setPreferredSize(new Dimension(-1, 100))
           .disableUpDownActions()
-          .createPanel(),
-        BorderLayout.CENTER);
-      return panel;
+          .setToolbarPosition(ActionToolbarPosition.RIGHT)
+          .createPanel());
+      return UI.PanelFactory
+        .panel(panel)
+        .withLabel(JavaI18nBundle.message("dissociate.resource.bundle.quick.fix.options.label"))
+        .moveLabelOnTop()
+        .resizeY(true)
+        .createPanel();
     }
   }
 }

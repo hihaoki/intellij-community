@@ -17,6 +17,7 @@ package com.intellij.refactoring.introduceVariable;
 
 import com.intellij.codeInsight.intention.impl.TypeExpression;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.application.ApplicationManager;
@@ -39,6 +40,7 @@ import com.intellij.psi.scope.processor.VariablesProcessor;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringActionHandler;
@@ -248,8 +250,9 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
   @Override
   @Nullable
   protected JComponent getComponent() {
-    if (getVariable() instanceof PsiPatternVariable) return null;
-    if (myCantChangeFinalModifier && !(myCanBeVarType && getVariable() instanceof PsiLocalVariable)) return null;
+    final PsiVariable variable = getVariable();
+    if (variable instanceof PsiPatternVariable && !PsiUtil.isLanguageLevel16OrHigher(variable)) return null;
+    if (myCantChangeFinalModifier && !(myCanBeVarType && variable instanceof PsiLocalVariable)) return null;
     if (!myCantChangeFinalModifier) {
       myCanBeFinalCb = new NonFocusableCheckBox(JavaRefactoringBundle.message("declare.final"));
       myCanBeFinalCb.setSelected(createFinals());
@@ -269,7 +272,7 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
       });
     }
 
-    if (myCanBeVarType && getVariable() instanceof PsiLocalVariable) {
+    if (myCanBeVarType && variable instanceof PsiLocalVariable) {
       myCanBeVarTypeCb = new NonFocusableCheckBox(JavaRefactoringBundle.message("declare.var.type"));
       myCanBeVarTypeCb.setSelected(IntroduceVariableBase.createVarType());
       myCanBeVarTypeCb.addActionListener(new ActionListener() {
@@ -367,7 +370,8 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
             final PsiExpression initializer = psiVariable.getInitializer();
             LOG.assertTrue(initializer != null);
             final PsiType type = initializer.getType();
-            if (((PsiReferenceExpression)parent).resolve() == null && type != null && !type.equals(psiVariable.getType())) {
+            if (((PsiReferenceExpression)parent).resolve() == null && type != null && !type.equals(psiVariable.getType()) &&
+                !LambdaUtil.notInferredType(type) && !PsiType.NULL.equals(type)) {
               final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
               final PsiExpression castedExpr =
                 elementFactory.createExpressionFromText("((" + type.getCanonicalText() + ")" + referenceExpression.getText() + ")", parent);
@@ -398,20 +402,20 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
   }
 
   @Nullable
-  private static String getAdvertisementText(final PsiDeclarationStatement declaration,
-                                             final PsiType type,
-                                             final boolean hasTypeSuggestion) {
+  private static @NlsContexts.PopupAdvertisement String getAdvertisementText(final PsiDeclarationStatement declaration,
+                                                                             final PsiType type,
+                                                                             final boolean hasTypeSuggestion) {
     final VariablesProcessor processor = ReassignVariableUtil.findVariablesOfType(declaration, type);
     if (processor.size() > 0) {
       final Shortcut shortcut = KeymapUtil.getPrimaryShortcut("IntroduceVariable");
       if (shortcut != null) {
-        return "Press " + KeymapUtil.getShortcutText(shortcut) + " to reassign existing variable";
+        return JavaBundle.message("introduce.variable.reassign.adv", KeymapUtil.getShortcutText(shortcut));
       }
     }
     if (hasTypeSuggestion) {
       final Shortcut shortcut = KeymapUtil.getPrimaryShortcut("PreviousTemplateVariable");
       if (shortcut != null) {
-        return "Press " + KeymapUtil.getShortcutText(shortcut) + " to change type";
+        return JavaBundle.message("introduce.variable.change.type.adv", KeymapUtil.getShortcutText(shortcut));
       }
     }
     return null;
@@ -463,7 +467,6 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     finally {
       myDeleteSelf = true;
     }
-    PsiDocumentManager.getInstance(myProject).doPostponedOperationsAndUnblockDocument(myEditor.getDocument());
     initOccurrencesMarkers();
     return variable;
   }

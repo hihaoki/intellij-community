@@ -3,7 +3,7 @@ package org.jetbrains.plugins.gradle.dsl
 
 import com.intellij.testFramework.RunAll
 import groovy.transform.CompileStatic
-import org.jetbrains.plugins.gradle.highlighting.GradleHighlightingBaseTest
+import org.jetbrains.plugins.gradle.importing.highlighting.GradleHighlightingBaseTest
 import org.junit.Test
 import org.junit.runners.Parameterized
 
@@ -18,7 +18,6 @@ class GradleActionTest extends GradleHighlightingBaseTest {
     return [[BASE_GRADLE_VERSION].toArray()]
   }
 
-
   @Override
   protected List<String> getParentCalls() {
     return []
@@ -27,11 +26,10 @@ class GradleActionTest extends GradleHighlightingBaseTest {
   @Test
   void test() {
     importProject("apply plugin:'java'")
-    new RunAll().append {
-      'domain collection forEach'()
-    }.append {
-      'nested version block'
-    } run()
+    new RunAll(
+      { 'domain collection forEach'() },
+      { 'nested version block'() }
+    ).run()
   }
 
   void 'domain collection forEach'() {
@@ -42,13 +40,12 @@ class GradleActionTest extends GradleHighlightingBaseTest {
     }
   }
 
-
   void 'nested version block'() {
     doTest('dependencies {' +
            ' implementation("group:artifact") {\n' +
            '  version { <caret> }\n' +
            '}') {
-      closureDelegateTest(GRADLE_API_TASKS_JAVADOC_JAVADOC, 1)
+      closureDelegateTest("org.gradle.api.artifacts.MutableVersionConstraint", 1)
     }
   }
 }

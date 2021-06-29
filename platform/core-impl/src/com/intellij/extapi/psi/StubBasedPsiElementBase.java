@@ -73,7 +73,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   private volatile SubstrateRef mySubstrateRef;
   private final IElementType myElementType;
 
-  public StubBasedPsiElementBase(@NotNull T stub, @NotNull IStubElementType nodeType) {
+  public StubBasedPsiElementBase(@NotNull T stub, @NotNull IStubElementType<?,?> nodeType) {
     mySubstrateRef = new SubstrateRef.StubRef(stub);
     myElementType = nodeType;
   }
@@ -139,7 +139,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
     StubTree stubTree = file.getStubTree();
     final String stubString = stubTree != null ? ((PsiFileStubImpl<?>)stubTree.getRoot()).printTree() : null;
     final String astString = RecursionManager.doPreventingRecursion("failedToBindStubToAst", true,
-                                                                    () -> DebugUtil.treeToString(fileElement, true));
+                                                                    () -> DebugUtil.treeToString(fileElement, false));
 
     @NonNls final String message = "Failed to bind stub to AST for element " + getClass() + " in " +
                                    (vFile == null ? "<unknown file>" : vFile.getPath()) +
@@ -163,7 +163,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
 
   @NotNull
   private String dumpCreationTraces(@NotNull FileElement fileElement) {
-    final StringBuilder traces = new StringBuilder("\nNow " + Thread.currentThread() + "\n");
+    @NonNls StringBuilder traces = new StringBuilder("\nNow " + Thread.currentThread() + "\n");
     traces.append("My creation trace:\n").append(getUserData(CREATION_TRACE));
     traces.append("AST creation traces:\n");
     fileElement.acceptTree(new RecursiveTreeElementWalkingVisitor(false) {
@@ -185,7 +185,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
 
   @SuppressWarnings({"NonConstantStringShouldBeStringBuffer", "StringConcatenationInLoop"})
   private ASTNode notBoundInExistingAst(@NotNull PsiFileImpl file, @NotNull FileElement treeElement) {
-    String message = "file=" + file + "; tree=" + treeElement;
+    @NonNls String message = "file=" + file + "; tree=" + treeElement;
     PsiElement each = this;
     while (each != null) {
       message += "\n each of class " + each.getClass() + "; valid=" + each.isValid();
@@ -241,9 +241,8 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
     catch (PsiInvalidElementAccessException e) {
       if (PsiInvalidElementAccessException.getInvalidationTrace(this) != null) {
         throw new PsiInvalidElementAccessException(this, e);
-      } else {
-        throw e;
       }
+      throw e;
     }
   }
 
@@ -303,14 +302,6 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
       return stub.getParentStub().getPsi();
     }
 
-    return SharedImplUtil.getParent(getNode());
-  }
-
-  /**
-   * @deprecated use {@link #getParent()} instead
-   */
-  @Deprecated
-  protected final PsiElement getParentByTree() {
     return SharedImplUtil.getParent(getNode());
   }
 
@@ -391,7 +382,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   public <S extends StubElement<?>, Psi extends PsiElement> Psi getRequiredStubOrPsiChild(@NotNull IStubElementType<S, Psi> elementType) {
     Psi result = getStubOrPsiChild(elementType);
     if (result == null) {
-      throw new AssertionError("Missing required child of type " + elementType + "; tree: " + DebugUtil.psiToString(this, false));
+      throw new AssertionError("Missing required child of type " + elementType + "; tree: " + DebugUtil.psiToString(this, true));
     }
     return result;
   }

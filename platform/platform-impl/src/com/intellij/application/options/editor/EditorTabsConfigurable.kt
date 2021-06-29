@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.editor
 
 import com.intellij.ide.ui.UISettings
@@ -22,7 +22,7 @@ class EditorTabsConfigurable : BoundSearchableConfigurable(
   ID
 ), EditorOptionsProvider {
   private lateinit var myEditorTabPlacement: JComboBox<Int>
-  private lateinit var myScrollTabLayoutInEditorCheckBox: JCheckBox
+  private lateinit var myOneRowCheckbox: JCheckBox
 
   override fun createPanel(): DialogPanel {
     return panel {
@@ -52,7 +52,6 @@ class EditorTabsConfigurable : BoundSearchableConfigurable(
           })
         }
         else {
-
           row {
             cell {
               label(TAB_PLACEMENT + ":")
@@ -60,15 +59,18 @@ class EditorTabsConfigurable : BoundSearchableConfigurable(
             }
           }
           row {
-            myScrollTabLayoutInEditorCheckBox =
-              checkBox(scrollTabLayoutInEditor).enableIf(myEditorTabPlacement.selectedValueIs(SwingConstants.TOP)).component
+            myOneRowCheckbox = checkBox(showTabsInOneRow)
+              .enableIf(myEditorTabPlacement.selectedValueIs(SwingConstants.TOP)).component
             row {
-              checkBox(hideTabsIfNeeded).enableIf(
-                myEditorTabPlacement.selectedValueMatches { it == SwingConstants.TOP || it == SwingConstants.BOTTOM }
-                                                    and myScrollTabLayoutInEditorCheckBox.selected).component
+              cell(false, false, {
+                checkBox(hideTabsIfNeeded).enableIf(
+                  myEditorTabPlacement.selectedValueMatches { it == SwingConstants.TOP || it == SwingConstants.BOTTOM }
+                    and myOneRowCheckbox.selected).component
+              })
             }
           }
         }
+        row { checkBox(showPinnedTabsInASeparateRow).enableIf(myEditorTabPlacement.selectedValueIs(SwingConstants.TOP)) }
         row { checkBox(useSmallFont).enableIfTabsVisible() }
         row { checkBox(showFileIcon).enableIfTabsVisible() }
         row { checkBox(showFileExtension).enableIfTabsVisible() }
@@ -85,6 +87,11 @@ class EditorTabsConfigurable : BoundSearchableConfigurable(
       titledRow(message("group.tab.order")) {
         row { checkBox(sortTabsAlphabetically) }
         row { checkBox(openTabsAtTheEnd) }
+      }
+      titledRow(message("group.tab.opening.policy")) {
+        row {
+          checkBox(openInPreviewTabIfPossible)
+        }
       }
       titledRow(message("group.tab.closing.policy")) {
         row {
@@ -111,9 +118,6 @@ class EditorTabsConfigurable : BoundSearchableConfigurable(
             row { radioButton(message("radio.activate.right.neighbouring.tab"), ui::activeRightEditorOnClose) }
             row { radioButton(message("radio.activate.most.recently.opened.tab"), ui::activeMruEditorOnClose) }.largeGapAfter()
           }
-        }
-        row {
-          checkBox(reuseNotModifiedTabs)
         }
       }
     }

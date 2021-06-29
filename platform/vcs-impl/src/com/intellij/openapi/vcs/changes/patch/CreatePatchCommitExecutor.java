@@ -44,6 +44,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+import static com.intellij.openapi.vcs.VcsNotificationIdsHolder.PATCH_COPIED_TO_CLIPBOARD;
+
 public final class CreatePatchCommitExecutor extends LocalCommitExecutor {
   private static final Logger LOG = Logger.getInstance(CreatePatchCommitExecutor.class);
   private static final String VCS_PATCH_PATH_KEY = "vcs.patch.path"; //NON-NLS
@@ -338,7 +340,8 @@ public final class CreatePatchCommitExecutor extends LocalCommitExecutor {
                                            @NotNull CommitContext commitContext) throws VcsException, IOException {
     List<FilePatch> patches = patchBuilder.buildPatches(baseDir, changes, reversePatch, honorExcludedFromCommit);
     PatchWriter.writeAsPatchToClipboard(project, patches, baseDir, commitContext);
-    VcsNotifier.getInstance(project).notifySuccess(VcsBundle.message("patch.copied.to.clipboard"));
+    VcsNotifier.getInstance(project).notifySuccess(PATCH_COPIED_TO_CLIPBOARD, "",
+                                                   VcsBundle.message("patch.copied.to.clipboard"));
   }
 
   private static @NotNull List<? extends FilePatch> createFilePatchesFromShelf(@NotNull Project project,
@@ -365,17 +368,21 @@ public final class CreatePatchCommitExecutor extends LocalCommitExecutor {
     }
 
     for (FilePatch patch : patches) {
-      patch.setBeforeName(patch.getBeforeName() == null
-                          ? null
-                          : getRelativePath(oldBase, newBase, patch.getBeforeName()));
-      patch.setAfterName((patch.getAfterFileName() == null
-                          ? null
-                          : getRelativePath(oldBase, newBase, patch.getAfterName())));
+      patch.setBeforeName(getRelativePath(oldBase, newBase, patch.getBeforeName()));
+      patch.setAfterName(getRelativePath(oldBase, newBase, patch.getAfterName()));
     }
   }
 
   @SystemIndependent
-  private static @NotNull String getRelativePath(@NotNull Path oldBase, @NotNull Path newBase, @NotNull String name) {
-    return newBase.relativize(oldBase.resolve(name)).toString().replace(File.separatorChar, '/');
+  private static @Nullable String getRelativePath(@NotNull Path oldBase, @NotNull Path newBase, @Nullable String name) {
+    if (name == null) return null;
+    try {
+      Path path = oldBase.resolve(name);
+      return newBase.relativize(path).toString().replace(File.separatorChar, '/');
+    }
+    catch (IllegalArgumentException e) {
+      LOG.warn(String.format("Can't update patch base: base1: %s; base2: %s; path: %s", oldBase, newBase, name), e);
+      return name;
+    }
   }
 }

@@ -27,6 +27,7 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.ui.*;
+import com.intellij.ui.hover.TableHoverListener;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.table.JBTable;
 import com.intellij.uiDesigner.ErrorAnalyzer;
@@ -39,6 +40,7 @@ import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.palette.Palette;
 import com.intellij.uiDesigner.propertyInspector.properties.*;
 import com.intellij.uiDesigner.radComponents.*;
+import com.intellij.util.ExceptionUtilRt;
 import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.IndentedIcon;
 import com.intellij.util.ui.UIUtil;
@@ -58,7 +60,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.*;
 
@@ -136,6 +137,8 @@ public final class PropertyInspectorTable extends JBTable implements DataProvide
     myCellRenderer = new MyCompositeTableCellRenderer();
     myCellEditor = new MyCellEditor();
 
+    TableHoverListener.DEFAULT.removeFrom(this);
+
     addMouseListener(new MouseAdapter() {
       @Override
       public void mousePressed(final MouseEvent e){
@@ -194,10 +197,10 @@ public final class PropertyInspectorTable extends JBTable implements DataProvide
     );
 
     // Popup menu
-    PopupHandler.installPopupHandler(
+    PopupHandler.installPopupMenu(
       this,
-      (ActionGroup)ActionManager.getInstance().getAction(IdeActions.GROUP_GUI_DESIGNER_PROPERTY_INSPECTOR_POPUP),
-      ActionPlaces.GUI_DESIGNER_PROPERTY_INSPECTOR_POPUP, ActionManager.getInstance());
+      IdeActions.GROUP_GUI_DESIGNER_PROPERTY_INSPECTOR_POPUP,
+      ActionPlaces.GUI_DESIGNER_PROPERTY_INSPECTOR_POPUP);
   }
 
   public void setEditor(final GuiEditor editor) {
@@ -872,10 +875,8 @@ public final class PropertyInspectorTable extends JBTable implements DataProvide
     }
     catch (Throwable e) {
       LOG.debug(e);
-      if(e instanceof InvocationTargetException){ // special handling of warapped exceptions
-        e = ((InvocationTargetException)e).getTargetException();
-      }
-      Messages.showMessageDialog(e.getMessage(), UIDesignerBundle.message("title.invalid.input"), Messages.getErrorIcon());
+      String message = ExceptionUtilRt.unwrapInvocationTargetException(e).getMessage();
+      Messages.showMessageDialog(message, UIDesignerBundle.message("title.invalid.input"), Messages.getErrorIcon());
       return false;
     }
     return true;

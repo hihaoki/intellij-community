@@ -1,11 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.varScopeCanBeNarrowed;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInspection.*;
-import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.codeInspection.util.SpecialAnnotationsUtil;
 import com.intellij.codeInspection.util.SpecialAnnotationsUtilBase;
@@ -28,14 +28,12 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.Query;
 import com.siyeh.InspectionGadgetsBundle;
-import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.List;
 import java.util.*;
 
@@ -63,7 +61,7 @@ public class FieldCanBeLocalInspection extends AbstractBaseJavaLocalInspectionTo
     removeFieldsReferencedFromInitializers(aClass, aClass, candidates);
     if (candidates.isEmpty()) return;
 
-    final Set<PsiField> usedFields = new THashSet<>();
+    final Set<PsiField> usedFields = new HashSet<>();
     removeReadFields(aClass, candidates, usedFields, ignoreFieldsUsedInMultipleMethods);
 
     if (candidates.isEmpty()) return;
@@ -78,7 +76,7 @@ public class FieldCanBeLocalInspection extends AbstractBaseJavaLocalInspectionTo
         final Map<PsiCodeBlock, Collection<PsiReference>> refs = new HashMap<>();
         for (PsiReference reference : references.findAll()) {
           final PsiElement element = reference.getElement();
-          if (!(element instanceof PsiReferenceExpression)) break;
+          if (!(element instanceof PsiReferenceExpression)) continue FieldLoop;
           final PsiElement qualifier = ((PsiReferenceExpression)element).getQualifier();
           if (qualifier != null && (!(qualifier instanceof PsiThisExpression) || ((PsiThisExpression)qualifier).getQualifier() != null) ||
               !groupReferenceByCodeBlocks(refs, reference)) {
@@ -111,12 +109,12 @@ public class FieldCanBeLocalInspection extends AbstractBaseJavaLocalInspectionTo
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
+    final MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
     final JPanel listPanel = SpecialAnnotationsUtil
       .createSpecialAnnotationsListControl(EXCLUDE_ANNOS, JavaBundle.message("special.annotations.annotations.list"));
 
-    final JPanel panel = new JPanel(new BorderLayout(2, 2));
-    panel.add(new SingleCheckboxOptionsPanel(JavaBundle.message("checkbox.ignore.fields.used.in.multiple.methods"), this, "IGNORE_FIELDS_USED_IN_MULTIPLE_METHODS"), BorderLayout.NORTH);
-    panel.add(listPanel, BorderLayout.CENTER);
+    panel.addCheckbox(JavaBundle.message("checkbox.ignore.fields.used.in.multiple.methods"), "IGNORE_FIELDS_USED_IN_MULTIPLE_METHODS");
+    panel.add(listPanel, "growx, wrap");
     return panel;
   }
 
@@ -449,10 +447,6 @@ public class FieldCanBeLocalInspection extends AbstractBaseJavaLocalInspectionTo
     @Nullable
     protected PsiField getVariable(@NotNull ProblemDescriptor descriptor) {
       return PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiField.class);
-    }
-
-    @Override
-    protected void beforeDelete(@NotNull Project project, @NotNull PsiField variable, @NotNull PsiElement newDeclaration) {
     }
 
     @NotNull

@@ -1,24 +1,23 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.StreamUtil;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.EventDispatcher;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -54,7 +53,7 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
     }
   };
 
-  final ThreadLocal<UntrustedCertificateStrategy> myUntrustedCertificateStrategy =
+  public final ThreadLocal<UntrustedCertificateStrategy> myUntrustedCertificateStrategy =
     ThreadLocal.withInitial(() -> UntrustedCertificateStrategy.ASK_USER);
 
   public static ConfirmingTrustManager createForStorage(@NotNull String path, @NotNull String password) {
@@ -126,7 +125,7 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
     Application app = ApplicationManager.getApplication();
     final X509Certificate endPoint = chain[0];
     // IDEA-123467 and IDEA-123335 workaround
-    String threadClassName = StringUtil.notNullize(Thread.currentThread().getClass().getCanonicalName());
+    String threadClassName = Strings.notNullize(Thread.currentThread().getClass().getCanonicalName());
     if (threadClassName.equals("sun.awt.image.ImageFetcher")) {
       LOG.debug("Image Fetcher thread is detected. Certificate check will be skipped.");
       return true;
@@ -212,22 +211,21 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
       KeyStore keyStore;
       try {
         keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        File cacertsFile = new File(path);
-        if (cacertsFile.exists()) {
-          FileInputStream stream = null;
-          try {
-            stream = new FileInputStream(path);
+        Path cacertsFile = Path.of(path);
+        if (Files.exists(cacertsFile)) {
+          try (InputStream stream = Files.newInputStream(cacertsFile)) {
             keyStore.load(stream, password.toCharArray());
-          }
-          finally {
-            StreamUtil.closeStream(stream);
           }
         }
         else {
-          if (!FileUtil.createParentDirs(cacertsFile)) {
-            LOG.error("Cannot create directories: " + cacertsFile.getParent());
+          try {
+            Files.createDirectories(cacertsFile.getParent());
+          }
+          catch (IOException e) {
+            LOG.error("Cannot create directories: " + cacertsFile.getParent(), e);
             return null;
           }
+
           keyStore.load(null, password.toCharArray());
         }
       }
@@ -237,7 +235,6 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
       }
       return keyStore;
     }
-
 
     /**
      * Add certificate to underlying trust store.
@@ -358,11 +355,11 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
         for (String alias : Collections.list(myKeyStore.aliases())) {
           certificates.add(getCertificate(alias));
         }
-        return ContainerUtil.immutableList(certificates);
+        return List.copyOf(certificates);
       }
       catch (Exception e) {
         LOG.error(e);
-        return ContainerUtil.emptyList();
+        return Collections.emptyList();
       }
       finally {
         myReadLock.unlock();
@@ -470,12 +467,8 @@ public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
     }
 
     private void flushKeyStore() throws Exception {
-      FileOutputStream stream = new FileOutputStream(myPath);
-      try {
+      try (FileOutputStream stream = new FileOutputStream(myPath)) {
         myKeyStore.store(stream, myPassword.toCharArray());
-      }
-      finally {
-        StreamUtil.closeStream(stream);
       }
     }
   }

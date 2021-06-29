@@ -10,7 +10,7 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.codeStyle.JavaCodeStyleSettingsFacade;
+import com.intellij.psi.codeStyle.JavaFileCodeStyleFacade;
 import com.intellij.psi.filters.*;
 import com.intellij.psi.filters.element.ModifierFilter;
 import com.intellij.psi.impl.CheckUtil;
@@ -179,13 +179,15 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
   private void diagnoseUnknownParent() {
     CompositeElement parent = getTreeParent();
     IElementType i = parent.getElementType();
-    StringBuilder msg = new StringBuilder("Unknown parent for java code reference: '").append(parent).append("'; Type: ").append(i).append(";\n");
+    StringBuilder msg = new StringBuilder("Unknown parent for java code reference: '").append(parent)
+      .append("'; Type: ").append(i).append(";\n")
+      .append(" Class: ").append(parent.getClass()).append('\n');
     while (parent != null && parent.getPsi() instanceof PsiExpression) {
       parent = parent.getTreeParent();
       msg.append(" Parent: '").append(parent).append("'; \n");
     }
     if (parent != null) {
-      msg.append(DebugUtil.treeToString(parent, false));
+      msg.append(DebugUtil.treeToString(parent, true));
     }
     LOG.error(msg.toString());
   }
@@ -613,7 +615,7 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
   private PsiElement bindToClass(@NotNull PsiClass aClass, @NotNull PsiFile containingFile) throws IncorrectOperationException {
     String qName = aClass.getQualifiedName();
     Project project = containingFile.getProject();
-    boolean preserveQualification = JavaCodeStyleSettingsFacade.getInstance(project).useFQClassNames() && isFullyQualified(containingFile);
+    boolean preserveQualification = JavaFileCodeStyleFacade.forContext(containingFile).useFQClassNames() && isFullyQualified(containingFile);
     JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
     if (qName == null) {
       qName = aClass.getName();
@@ -643,6 +645,10 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
       }
     }
 
+    PsiElement qualifier = getQualifier();
+    PsiReferenceParameterList parentReferencesList = qualifier instanceof PsiJavaCodeReferenceElement 
+                                                     ? ((PsiJavaCodeReferenceElement)qualifier).getParameterList() 
+                                                     : null;
     PsiJavaCodeReferenceElement ref;
     try {
       ref = facade.getParserFacade().createReferenceFromText(text.toString(), getParent());
@@ -658,6 +664,16 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
     PsiReferenceParameterList refParameterList = ref.getParameterList();
     if (parameterList != null && refParameterList != null) {
       refParameterList.replace(parameterList);
+    }
+
+    if (parentReferencesList != null) {
+      PsiElement refQualifier = ref.getQualifier();
+      if (refQualifier instanceof PsiJavaCodeReferenceElement) {
+        PsiReferenceParameterList qRefParameterList = ((PsiJavaCodeReferenceElement)refQualifier).getParameterList();
+        if (qRefParameterList != null) {
+          qRefParameterList.replace(parentReferencesList);
+        }
+      }
     }
 
     getTreeParent().replaceChildInternal(this, (TreeElement)ref.getNode());

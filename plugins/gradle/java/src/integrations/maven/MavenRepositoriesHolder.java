@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.integrations.maven;
 
 import com.intellij.CommonBundle;
@@ -7,7 +7,6 @@ import com.intellij.notification.NotificationDisplayType;
 import com.intellij.notification.NotificationListener;
 import com.intellij.notification.impl.NotificationsConfigurationImpl;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemNotificationManager;
 import com.intellij.openapi.externalSystem.service.notification.NotificationCategory;
 import com.intellij.openapi.externalSystem.service.notification.NotificationData;
@@ -15,6 +14,7 @@ import com.intellij.openapi.externalSystem.service.notification.NotificationSour
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.indices.MavenIndex;
@@ -69,14 +69,15 @@ public class MavenRepositoriesHolder {
 
     if (notificationManager.isNotificationActive(NOTIFICATION_KEY)) return;
 
-    final MavenIndicesManager indicesManager = MavenIndicesManager.getInstance();
+    final MavenIndicesManager indicesManager = MavenIndicesManager.getInstance(myProject);
     for (MavenSearchIndex index : indicesManager.getIndices()) {
       if (indicesManager.getUpdatingState(index) != IDLE) return;
     }
 
+    @NlsSafe String lineBreak = "\n<br>";
     final NotificationData notificationData = new NotificationData(
       GradleBundle.message("gradle.integrations.maven.notification.not_updated_repository.title"),
-      "\n<br>" + GradleBundle.message("gradle.integrations.maven.notification.not_updated_repository.text"),
+      lineBreak + GradleBundle.message("gradle.integrations.maven.notification.not_updated_repository.text"),
       NotificationCategory.INFO,
       NotificationSource.PROJECT_SYNC);
     notificationData.setBalloonNotification(true);
@@ -122,7 +123,7 @@ public class MavenRepositoriesHolder {
   }
 
   public static MavenRepositoriesHolder getInstance(@NotNull Project p) {
-    return ServiceManager.getService(p, MavenRepositoriesHolder.class);
+    return p.getService(MavenRepositoriesHolder.class);
   }
 
   public void update(Set<MavenRemoteRepository> remoteRepositories) {

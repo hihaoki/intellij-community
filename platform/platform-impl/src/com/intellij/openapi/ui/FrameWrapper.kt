@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui
 
 import com.intellij.application.options.RegistryManager
@@ -11,24 +11,29 @@ import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.MouseGestureManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
 import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.util.*
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.*
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
 import com.intellij.openapi.wm.ex.IdeFrameEx
 import com.intellij.openapi.wm.ex.WindowManagerEx
-import com.intellij.openapi.wm.impl.*
+import com.intellij.openapi.wm.impl.GlobalMenuLinux
+import com.intellij.openapi.wm.impl.IdeFrameDecorator
+import com.intellij.openapi.wm.impl.IdeGlassPaneImpl
+import com.intellij.openapi.wm.impl.IdeMenuBar
 import com.intellij.openapi.wm.impl.LinuxIdeMenuBar.Companion.doBindAppMenuOfParent
-import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent.Companion.getCustomContentHolder
+import com.intellij.openapi.wm.impl.ProjectFrameHelper.appendTitlePart
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent
 import com.intellij.ui.AppUIUtil
 import com.intellij.ui.BalloonLayout
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.FrameState
 import com.intellij.util.SystemProperties
-import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.NonNls
@@ -45,10 +50,10 @@ import javax.swing.*
 open class FrameWrapper @JvmOverloads constructor(project: Project?,
                                                   @param:NonNls protected open val dimensionKey: String? = null,
                                                   private val isDialog: Boolean = false,
-                                                  var title: String = "",
+                                                  @NlsContexts.DialogTitle var title: String = "",
                                                   open var component: JComponent? = null) : Disposable, DataProvider {
   open var preferredFocusedComponent: JComponent? = null
-  private var images: List<Image>? = null
+  private var images: List<Image> = emptyList()
   private var isCloseOnEsc = false
   private var onCloseHandler: BooleanGetter? = null
   private var frame: Window? = null
@@ -86,7 +91,7 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     show(true)
   }
 
-  fun show(restoreBounds: Boolean) {
+  fun createContents() {
     val frame = getFrame()
     if (frame is JFrame) {
       frame.defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
@@ -130,8 +135,21 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     }
 
     if (IdeFrameDecorator.isCustomDecorationActive()) {
-      component = getCustomContentHolder(frame, component!!)
+      component?.let {
+
+
+        component = /*UIUtil.findComponentOfType(it, EditorsSplitters::class.java)?.let {
+          if(frame !is JFrame) null else {
+            val header = CustomHeader.createMainFrameHeader(frame, IdeMenuBar.createMenuBar())
+            getCustomContentHolder(frame, it, header)
+          }
+
+        } ?:*/
+
+          CustomFrameDialogContent.getCustomContentHolder(frame, it)
+      }
     }
+
     frame.contentPane.add(component!!, BorderLayout.CENTER)
     if (frame is JFrame) {
       frame.title = title
@@ -139,19 +157,13 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     else {
       (frame as JDialog).title = title
     }
-    if (images == null) {
+
+    if (images.isEmpty()) {
       AppUIUtil.updateWindowIcon(frame)
     }
     else {
       // unwrap the image before setting as frame's icon
-      frame.setIconImages(ContainerUtil.map(images!!) { image: Image? ->
-        ImageUtil.toBufferedImage((image)!!)
-      })
-    }
-
-    val state = dimensionKey?.let { dimensionKey -> getWindowStateService(project).getState(dimensionKey, frame) }
-    if (restoreBounds) {
-      loadFrameState(state)
+      frame.iconImages = images.map { ImageUtil.toBufferedImage(it) }
     }
 
     if (SystemInfo.isLinux && frame is JFrame && GlobalMenuLinux.isAvailable()) {
@@ -162,6 +174,18 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     }
     focusWatcher = FocusWatcher()
     focusWatcher!!.install(component!!)
+  }
+
+  fun show(restoreBounds: Boolean) {
+    createContents()
+
+    val frame = getFrame()
+
+    val state = dimensionKey?.let { getWindowStateService(project).getState(it, frame) }
+    if (restoreBounds) {
+      loadFrameState(state)
+    }
+
     frame.isVisible = true
   }
 
@@ -193,7 +217,7 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     }
     focusWatcher = null
     component = null
-    images = null
+    images = emptyList()
     isDisposed = true
 
     if (statusBar != null) {
@@ -248,7 +272,7 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     return if (CommonDataKeys.PROJECT.`is`(dataId)) project else null
   }
 
-  private fun getDataInner(dataId: String): Any? {
+  private fun getDataInner(@NonNls dataId: String): Any? {
     return when {
       CommonDataKeys.PROJECT.`is`(dataId) -> project
       else -> getData(dataId)
@@ -264,7 +288,7 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
   }
 
   fun setImages(value: List<Image>?) {
-    images = value
+    images = value ?: emptyList()
   }
 
   fun setOnCloseHandler(value: BooleanGetter?) {
@@ -289,6 +313,7 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     private var frameTitle: String? = null
     private var fileTitle: String? = null
     private var file: Path? = null
+    var myFrameDecorator: IdeFrameDecorator? = null
 
     init {
       FrameState.setFrameStateListener(this)
@@ -298,6 +323,10 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
       }
       MouseGestureManager.getInstance().add(this)
       focusTraversalPolicy = IdeFocusTraversalPolicy()
+      // NB!: the root pane must be set before decorator,
+      // which holds its own client properties in a root pane
+      myFrameDecorator = IdeFrameDecorator.decorate(this, owner)
+
     }
 
     override fun isInFullScreen() = false
@@ -341,7 +370,15 @@ open class FrameWrapper @JvmOverloads constructor(project: Project?,
     }
 
     private fun updateTitle() {
-      ProjectFrameHelper.updateTitle(this, frameTitle, fileTitle, file, null)
+      if (AdvancedSettings.getBoolean("ide.show.fileType.icon.in.titleBar")) {
+        // this property requires java.io.File
+        rootPane.putClientProperty("Window.documentFile", file?.toFile())
+      }
+
+      val builder = StringBuilder()
+      appendTitlePart(builder, frameTitle)
+      appendTitlePart(builder, fileTitle)
+      title = builder.toString()
     }
 
     override fun dispose() {

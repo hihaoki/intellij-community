@@ -1,13 +1,9 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.rmi;
 
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.ExecutionManager;
-import com.intellij.execution.ExecutionResult;
-import com.intellij.execution.Executor;
+import com.intellij.execution.*;
 import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
-import com.intellij.execution.configurations.RunnerSettings;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
@@ -19,23 +15,29 @@ import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
+import java.rmi.NotBoundException;
 import java.rmi.Remote;
+import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Gregory.Shrago
@@ -44,11 +46,12 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
   public static final Logger LOG = Logger.getInstance(RemoteProcessSupport.class);
 
   private final Class<EntryPoint> myValueClass;
+  private final AtomicReference<Heartbeat> myHeartbeatRef = new AtomicReference<>();
   private final Map<Pair<Target, Parameters>, Info> myProcMap = new HashMap<>();
   private final Map<Pair<Target, Parameters>, InProcessInfo<EntryPoint>> myInProcMap = new HashMap<>();
 
   static {
-    RemoteServer.setupRMI();
+    RemoteServer.setupRMI(true);
   }
 
   public RemoteProcessSupport(@NotNull Class<EntryPoint> valueClass) {
@@ -135,7 +138,17 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     return configurations;
   }
 
+  /**
+   @deprecated
+    * use acquire(Target, Parameters, ProgressIndicator)
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @Deprecated
   public EntryPoint acquire(@NotNull Target target, @NotNull Parameters configuration) throws Exception {
+    return acquire(target, configuration, null);
+  }
+
+  public EntryPoint acquire(@NotNull Target target, @NotNull Parameters configuration, @Nullable ProgressIndicator indicator) throws Exception {
     ApplicationManagerEx.getApplicationEx().assertTimeConsuming();
 
     EntryPoint inProcess = acquireInProcess(target, configuration);
@@ -151,12 +164,12 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
           synchronized (ref) {
             while (ref.isNull()) {
               ref.wait(1000);
-              ProgressManager.checkCanceled();
+              checkIndicator(indicator);
             }
           }
         }
         catch (InterruptedException e) {
-          ProgressManager.checkCanceled();
+          checkIndicator(indicator);
         }
       }
     }
@@ -167,9 +180,22 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
       throw new ExecutionException(message, o.cause);
     }
     else if (info == null || info.handler == null) {
-      throw new ExecutionException("Unable to acquire remote proxy for: " + getName(target));
+      throw new ExecutionException(ExecutionBundle.message("dialog.remote.process.unable.to.acquire.remote.proxy.for", getName(target)));
     }
     return acquire(info);
+  }
+
+  private static void checkIndicator(@Nullable ProgressIndicator indicator) {
+    if (indicator != null) {
+      indicator.checkCanceled();
+    }
+    else {
+      ProgressManager.checkCanceled();
+    }
+  }
+
+  protected int publishPort(int port) {
+    return port;
   }
 
   @NotNull
@@ -202,7 +228,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     });
   }
 
-  private static void destroyProcessesImpl(@NotNull List<Info> infos) {
+  private static void destroyProcessesImpl(@NotNull List<? extends Info> infos) {
     for (Info o : infos) {
       LOG.info("Terminating: " + o);
       o.handler.destroyProcess();
@@ -210,7 +236,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
   }
 
   private void startProcess(@NotNull Target target, @NotNull Parameters configuration, @NotNull Pair<Target, Parameters> key) {
-    ProgramRunner<?> runner = new ProgramRunner<RunnerSettings>() {
+    ProgramRunner<?> runner = new ProgramRunner<>() {
       @Override
       @NotNull
       public String getRunnerId() {
@@ -245,7 +271,9 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     processHandler.startNotify();
   }
 
-  protected abstract RunProfileState getRunProfileState(@NotNull Target target, @NotNull Parameters configuration, @NotNull Executor executor)
+  protected abstract RunProfileState getRunProfileState(@NotNull Target target,
+                                                        @NotNull Parameters configuration,
+                                                        @NotNull Executor executor)
     throws ExecutionException;
 
   private boolean getExistingInfo(@NotNull Ref<RunningInfo> ref, @NotNull Pair<Target, Parameters> key) {
@@ -278,10 +306,10 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     return info != null;
   }
 
-  private EntryPoint acquire(final RunningInfo port) throws Exception {
+  private EntryPoint acquire(final RunningInfo info) throws Exception {
     EntryPoint result = RemoteUtil.executeWithClassLoader(() -> {
-      Registry registry = LocateRegistry.getRegistry(getLocalHost(), port.port);
-      Remote remote = Objects.requireNonNull(registry.lookup(port.name));
+      Registry registry = LocateRegistry.getRegistry(info.host, info.port);
+      Remote remote = Objects.requireNonNull(registry.lookup(info.name));
 
       if (myValueClass.isInstance(remote)) {
         EntryPoint entryPoint = myValueClass.cast(remote);
@@ -292,7 +320,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
       }
     }, getClass().getClassLoader()); // should be the loader of client plugin
     // init hard ref that will keep it from DGC and thus preventing from System.exit
-    port.entryPointHardRef = result;
+    info.entryPointHardRef = result;
     return result;
   }
 
@@ -316,14 +344,18 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
       public void processTerminated(@NotNull ProcessEvent event) {
         if (dropProcessInfo(key, null, event.getProcessHandler())) {
           fireModificationCountChanged();
-          onProcessTerminated(event);
         }
+        onProcessTerminated(event);
       }
 
       @Override
       public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
         if (dropProcessInfo(key, null, event.getProcessHandler())) {
           fireModificationCountChanged();
+        }
+        Heartbeat heartbeat = myHeartbeatRef.get();
+        if (heartbeat != null) {
+          heartbeat.stopBeat();
         }
       }
 
@@ -338,11 +370,14 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
           if (o instanceof PendingInfo) {
             info = (PendingInfo)o;
             if (outputType == ProcessOutputTypes.STDOUT) {
-              String prefix = "Port/ID:";
+              String prefix = "Port/ServicesPort/ID:";
               if (text.startsWith(prefix)) {
-                String pair = text.substring(prefix.length()).trim();
-                int idx = pair.indexOf("/");
-                result = new RunningInfo(info.handler, Integer.parseInt(pair.substring(0, idx)), pair.substring(idx + 1));
+                List<String> data = StringUtil.split(text.substring(prefix.length()).trim(), "/");
+                int port = Integer.parseInt(data.get(0));
+                int servicesPort = Integer.parseInt(data.get(1));
+                String id = data.get(2);
+
+                result = new RunningInfo(info.handler, getRemoteHost(), publishPort(port), id, publishPort(servicesPort));
                 myProcMap.put(key, result);
                 myProcMap.notifyAll();
               }
@@ -362,7 +397,9 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
           }
           fireModificationCountChanged();
           try {
-            RemoteDeadHand.TwoMinutesTurkish.startCooking(getLocalHost(), result.port);
+            Heartbeat heartbeat = new Heartbeat(result.host, result.port);
+            heartbeat.startBeat();
+            myHeartbeatRef.set(heartbeat);
           }
           catch (Throwable e) {
             LOG.warn("The cook failed to start due to " + ExceptionUtil.getRootCause(e));
@@ -374,10 +411,9 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
   protected void onProcessTerminated(ProcessEvent event) {}
 
-  protected void sendDataAfterStart(ProcessHandler handler){}
+  protected void sendDataAfterStart(ProcessHandler handler) {}
 
-  @NotNull
-  private static String getLocalHost() {
+  protected String getRemoteHost() {
     return ObjectUtils.notNull(System.getProperty(RemoteServer.SERVER_HOSTNAME), "127.0.0.1");
   }
 
@@ -422,7 +458,8 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
   }
 
   @NotNull
-  protected ThrowableComputable<@Nullable EntryPoint, Exception> acquireInProcessFactory(Target target, Parameters configuration) throws Exception {
+  protected ThrowableComputable<@Nullable EntryPoint, Exception> acquireInProcessFactory(Target target, Parameters configuration)
+    throws Exception {
     return () -> null;
   }
 
@@ -450,28 +487,36 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
   }
 
   private static class RunningInfo extends Info {
+    final String host;
     final int port;
     final String name;
+    final int servicesPort; // port number when was exported with RemoteServer.start(knownPort=true), 0 otherwise
     Object entryPointHardRef;
 
-    RunningInfo(ProcessHandler handler, int port, String name) {
+    RunningInfo(ProcessHandler handler, String host, int port, String name) {
+      this(handler, host, port, name, 0);
+    }
+
+    RunningInfo(ProcessHandler handler, String host, int port, String name, int servicesPort) {
       super(handler);
+      this.host = host;
       this.port = port;
       this.name = name;
+      this.servicesPort = servicesPort;
     }
 
     @Override
     public String toString() {
-      return port + "/" + name;
+      return host + ":" + port + "/" + name;
     }
   }
 
   private static class FailedInfo extends RunningInfo {
     final Throwable cause;
-    final String stderr;
+    final @NlsSafe String stderr;
 
     FailedInfo(Throwable cause, String stderr) {
-      super(null, -1, null);
+      super(null, null, -1, null);
       this.cause = cause;
       this.stderr = stderr;
     }
@@ -494,6 +539,60 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     @Override
     public String toString() {
       return "InProcessInfo{" + Integer.toHexString(hashCode()) + '}';
+    }
+  }
+
+  public static class Heartbeat {
+    private final Registry myRegistry;
+    private boolean live = true;
+    private ScheduledFuture<?> myFuture = null;
+
+    Heartbeat(String host, int port) throws RemoteException {
+      myRegistry = LocateRegistry.getRegistry(host, port);
+    }
+
+    void stopBeat() {
+      if (myFuture != null) {
+        myFuture.cancel(false);
+      }
+    }
+
+    void startBeat() {
+      myFuture = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> {
+        try {
+          if (live) {
+            IdeaWatchdog watchdog = getWatchdog();
+            watchdog.ping();
+          }
+        }
+        catch (Exception ignore) {
+          live = false;
+          myFuture.cancel(false);
+        }
+        catch (Throwable t) {
+          live = false;
+          myFuture.cancel(false);
+          LOG.error(t);
+        }
+      }, IdeaWatchdog.PULSE_TIMEOUT, IdeaWatchdog.PULSE_TIMEOUT, TimeUnit.MILLISECONDS);
+      Disposer.register(ApplicationManager.getApplication(), () -> myFuture.cancel(false));
+    }
+
+    @TestOnly
+    public void kill(int exitCode){
+      try {
+        getWatchdog().dieNow(exitCode);
+      } catch (RemoteException|NotBoundException ignore) {}
+
+    }
+
+    private IdeaWatchdog getWatchdog() throws RemoteException, NotBoundException {
+      Remote remote = myRegistry.lookup(IdeaWatchdog.BINDING_NAME);
+      if (remote instanceof IdeaWatchdog) {
+        return (IdeaWatchdog)remote;
+      } else {
+        return RemoteUtil.castToLocal(remote, IdeaWatchdog.class);
+      }
     }
   }
 }

@@ -3,11 +3,9 @@ package com.intellij.openapi.project;
 
 import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.extensions.AreaInstance;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemDependent;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 
 /**
  * An object representing an IntelliJ project.
@@ -29,28 +27,35 @@ public interface Project extends ComponentManager, AreaInstance {
    * @return project name
    */
   @NotNull
-  String getName();
+  @NlsSafe String getName();
 
   /**
-   * Returns a project base directory - a parent directory of a {@code .ipr} file or {@code .idea} directory.<br/>
+   * Returns a directory under which project configuration files are stored ({@code .ipr} file or {@code .idea} directory). Note that it
+   * is not always the direct parent of {@code .idea} directory, it may be its grand-grand parent.<br/>
    * Returns {@code null} for default project.
    *
-   * @see com.intellij.openapi.project.ProjectUtil#guessProjectDir
-   * @see #getBasePath()
-   *
-   * @deprecated No such concept as "project root". Project consists of module set, each has own content root set.
+   * @deprecated use other methods depending on what you actually need:
+   * <ul>
+   *   <li>if you need to find a root directory for a file use {@link com.intellij.openapi.roots.ProjectFileIndex#getContentRootForFile getContentRootForFile};</li>
+   *   <li>if you have a {@link com.intellij.openapi.module.Module Module} instance in the context, use one of its {@link com.intellij.openapi.roots.ModuleRootModel#getContentRoots() content roots};</li>
+   *   <li>if you just need to get a directory somewhere near project files, use {@link com.intellij.openapi.project.ProjectUtil#guessProjectDir guessProjectDir};</li>
+   *   <li>if you really need to locate {@code .idea} directory or {@code .ipr} file, use {@link com.intellij.openapi.components.impl.stores.IProjectStore IProjectStore}.</li>
+   * </ul>
    */
   @Deprecated
   VirtualFile getBaseDir();
 
   /**
-   * Returns a path to a project base directory (see {@linkplain #getBaseDir()}).<br/>
+   * Returns path to a directory under which project configuration files are stored ({@code .ipr} file or {@code .idea} directory). Note that it
+   * is not always the direct parent of {@code .idea} directory, it may be its grand-grand parent.<br/>
    * Returns {@code null} for default project.
-   *
-   * @see com.intellij.openapi.project.ProjectUtil#guessProjectDir
+   * <p>It's <b>strongly recommended</b> to use other methods instead of this one (see {@link #getBaseDir()} for alternatives. Most
+   * probably any use of this method in production code may lead to unexpected results for some projects (e.g. if {@code .idea} directory is
+   * stored not near the project files).
+   * </p>
    */
   @Nullable
-  @SystemIndependent
+  @SystemIndependent @NonNls
   String getBasePath();
 
   /**
@@ -70,7 +75,7 @@ public interface Project extends ComponentManager, AreaInstance {
    * @return a path to project file (see {@linkplain #getProjectFile()}) or {@code null} for default project.
    */
   @Nullable
-  @SystemIndependent
+  @SystemIndependent @NonNls
   String getProjectFilePath();
 
   /**
@@ -80,7 +85,7 @@ public interface Project extends ComponentManager, AreaInstance {
    * <b>Note:</b> the word "presentable" here implies file system presentation, not a UI one.
    */
   @Nullable
-  @SystemDependent
+  @SystemDependent @NonNls
   default String getPresentableUrl() {
     return null;
   }
@@ -98,7 +103,7 @@ public interface Project extends ComponentManager, AreaInstance {
   @Nullable
   VirtualFile getWorkspaceFile();
 
-  @NotNull
+  @NotNull @NonNls
   String getLocationHash();
 
   void save();

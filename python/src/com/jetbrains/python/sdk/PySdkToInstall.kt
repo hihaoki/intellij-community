@@ -18,11 +18,17 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.text.HtmlBuilder
+import com.intellij.openapi.util.text.HtmlChunk.*
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.SimpleTextAttributes
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.io.HttpRequests
 import com.intellij.webcore.packaging.PackageManagementService
 import com.intellij.webcore.packaging.PackagesNotificationPanel
@@ -33,7 +39,6 @@ import com.jetbrains.python.sdk.PySdkToInstallCollector.Companion.LookupResult
 import com.jetbrains.python.sdk.PySdkToInstallCollector.Companion.logSdkDownload
 import com.jetbrains.python.sdk.PySdkToInstallCollector.Companion.logSdkInstallation
 import org.jetbrains.annotations.CalledInAny
-import org.jetbrains.annotations.CalledInAwt
 import java.io.File
 import java.io.IOException
 import kotlin.math.absoluteValue
@@ -42,66 +47,50 @@ private val LOGGER = Logger.getInstance(PySdkToInstall::class.java)
 
 @CalledInAny
 internal fun getSdksToInstall(): List<PySdkToInstall> {
-  return if (SystemInfo.isWindows) listOf(getPy37ToInstallOnWindows(), getPy38ToInstallOnWindows())
+  return if (SystemInfo.isWindows) listOf(getPy39ToInstallOnWindows(), getPy38ToInstallOnWindows())
   else emptyList()
 }
 
-private fun getPy37ToInstallOnWindows(): PySdkToInstallOnWindows {
-  val version = "3.7"
-  val name = "Python $version"
-  val hashFunction = Hashing.md5()
+@RequiresEdt
+fun installSdkIfNeeded(sdk: Sdk?, module: Module?, existingSdks: List<Sdk>): Sdk? {
+  return sdk.let { if (it is PySdkToInstall) it.install(module) { detectSystemWideSdks(module, existingSdks) } else it }
+}
 
-  return if (SystemInfo.is32Bit) {
-    PySdkToInstallOnWindows(
-      name,
-      version,
-      "https://www.python.org/ftp/python/3.7.7/python-3.7.7.exe",
-      25747128,
-      "e9db9cf43b4f2472d75a055380871045",
-      hashFunction,
-      "python-3.7.7.exe"
-    )
-  }
-  else {
-    PySdkToInstallOnWindows(
-      name,
-      version,
-      "https://www.python.org/ftp/python/3.7.7/python-3.7.7-amd64.exe",
-      26797616,
-      "e0c910087459df78d827eb1554489663",
-      hashFunction,
-      "python-3.7.7-amd64.exe"
-    )
-  }
+@RequiresEdt
+fun installSdkIfNeeded(sdk: Sdk?, module: Module?, existingSdks: List<Sdk>, context: UserDataHolder): Sdk? {
+  return sdk.let { if (it is PySdkToInstall) it.install(module) { detectSystemWideSdks(module, existingSdks, context) } else it }
+}
+
+private fun getPy39ToInstallOnWindows(): PySdkToInstallOnWindows {
+  val version = "3.9"
+  val name = "Python $version"
+  @Suppress("DEPRECATION") val hashFunction = Hashing.md5()
+
+  return PySdkToInstallOnWindows(
+    name,
+    version,
+    "https://www.python.org/ftp/python/3.9.5/python-3.9.5-amd64.exe",
+    28377264,
+    "53a354a15baed952ea9519a7f4d87c3f",
+    hashFunction,
+    "python-3.9.5-amd64.exe"
+  )
 }
 
 private fun getPy38ToInstallOnWindows(): PySdkToInstallOnWindows {
   val version = "3.8"
   val name = "Python $version"
-  val hashFunction = Hashing.md5()
+  @Suppress("DEPRECATION") val hashFunction = Hashing.md5()
 
-  return if (SystemInfo.is32Bit) {
-    PySdkToInstallOnWindows(
-      name,
-      version,
-      "https://www.python.org/ftp/python/3.8.3/python-3.8.3.exe",
-      26744744,
-      "452373e2c467c14220efeb10f40c231f",
-      hashFunction,
-      "python-3.8.3.exe"
-    )
-  }
-  else {
-    PySdkToInstallOnWindows(
-      name,
-      version,
-      "https://www.python.org/ftp/python/3.8.3/python-3.8.3-amd64.exe",
-      27805800,
-      "fd2458fa0e9ead1dd9fbc2370a42853b",
-      hashFunction,
-      "python-3.8.3-amd64.exe"
-    )
-  }
+  return PySdkToInstallOnWindows(
+    name,
+    version,
+    "https://www.python.org/ftp/python/3.8.10/python-3.8.10-amd64.exe",
+    28296784,
+    "62cf1a12a5276b0259e8761d4cf4fe42",
+    hashFunction,
+    "python-3.8.10-amd64.exe"
+  )
 }
 
 internal abstract class PySdkToInstall internal constructor(name: String, version: String)
@@ -111,9 +100,10 @@ internal abstract class PySdkToInstall internal constructor(name: String, versio
   abstract fun renderInList(renderer: PySdkListCellRenderer)
 
   @CalledInAny
-  abstract fun getInstallationWarning(defaultButtonName: String): String
+  @NlsContexts.DialogMessage
+  abstract fun getInstallationWarning(@NlsContexts.Button defaultButtonName: String): String
 
-  @CalledInAwt
+  @RequiresEdt
   abstract fun install(module: Module?, systemWideSdksDetector: () -> List<PyDetectedSdk>): PyDetectedSdk?
 }
 
@@ -127,20 +117,20 @@ private class PySdkToInstallOnWindows(name: String,
 
   override fun renderInList(renderer: PySdkListCellRenderer) {
     renderer.append(name)
-    renderer.append(" $url", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+    renderer.append(" $url", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)  // NON-NLS
     renderer.icon = AllIcons.Actions.Download
   }
 
-  override fun getInstallationWarning(defaultButtonName: String): String {
-    val header = "Python executable is not found. Choose one of the following options:"
-
-    val browseButtonName = "..." // ComponentWithBrowseButton
-    val firstOption = "Click <strong>$browseButtonName</strong> to specify a path to python.exe in your file system"
-
-    val size = StringUtil.formatFileSize(size)
-    val secondOption = "Click <strong>$defaultButtonName</strong> to download and install Python from python.org ($size)"
-
-    return "$header<ul><li>$firstOption</li><li>$secondOption</li></ul>"
+  @NlsContexts.DialogMessage
+  override fun getInstallationWarning(@NlsContexts.Button defaultButtonName: String): String {
+    val fileSize = StringUtil.formatFileSize(size)
+    return HtmlBuilder()
+      .append(PyBundle.message("python.sdk.executable.not.found.header"))
+      .append(tag("ul").children(
+        tag("li").children(raw(PyBundle.message("python.sdk.executable.not.found.option.specify.path", text("...").bold()))),
+        tag("li").children(raw(PyBundle.message("python.sdk.executable.not.found.option.download.and.install",
+                                                text(defaultButtonName).bold(), fileSize)))
+      )).toString()
   }
 
   override fun install(module: Module?, systemWideSdksDetector: () -> List<PyDetectedSdk>): PyDetectedSdk? {
@@ -246,7 +236,7 @@ private class PySdkToInstallOnWindows(name: String,
           it,
           null,
           e.cause?.message,
-          "Try to install Python from https://www.python.org manually."
+          PyBundle.message("python.sdk.try.to.install.python.manually")
         )
       )
     }
@@ -273,10 +263,10 @@ private class PySdkToInstallOnWindows(name: String,
       PackagesNotificationPanel.showError(
         PyBundle.message("python.sdk.installation.has.been.cancelled.title", name),
         PackageManagementService.ErrorDescription(
-          "Some Python components that have been installed might get inconsistent after cancellation.",
+          PyBundle.message("python.sdk.some.installed.python.components.might.get.inconsistent.after.cancellation"),
           e.commandLine.commandLineString,
           listOf(processOutput.stderr, processOutput.stdout).firstOrNull { it.isNotBlank() },
-          "Consider installing Python from https://www.python.org manually."
+          PyBundle.message("python.sdk.consider.installing.python.manually")
         )
       )
     }
@@ -284,10 +274,11 @@ private class PySdkToInstallOnWindows(name: String,
       PackagesNotificationPanel.showError(
         PyBundle.message("python.sdk.failed.to.install.title", name),
         PackageManagementService.ErrorDescription(
-          if (processOutput.isTimeout) "Timed out" else "Exit code ${processOutput.exitCode}",
+          if (processOutput.isTimeout) PyBundle.message("python.sdk.failed.to.install.timed.out")
+          else PyBundle.message("python.sdk.failed.to.install.exit.code", processOutput.exitCode),
           e.commandLine.commandLineString,
           listOf(processOutput.stderr, processOutput.stdout).firstOrNull { it.isNotBlank() },
-          "Try to install Python from https://www.python.org manually."
+          PyBundle.message("python.sdk.try.to.install.python.manually")
         )
       )
     }
@@ -313,7 +304,7 @@ private class PySdkToInstallOnWindows(name: String,
           it,
           e.commandLine.commandLineString,
           null,
-          "Try to install Python from https://www.python.org manually."
+          PyBundle.message("python.sdk.try.to.install.python.manually")
         )
       )
     }

@@ -13,6 +13,7 @@ import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.popup.async.AsyncPopupImpl;
 import com.intellij.ui.popup.async.AsyncPopupStep;
+import com.intellij.ui.popup.list.ComboBoxPopup;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.ui.popup.tree.TreePopupImpl;
 import com.intellij.ui.popup.util.MnemonicsSearch;
@@ -21,6 +22,7 @@ import com.intellij.ui.speedSearch.SpeedSearch;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.TimerUtil;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,10 +57,13 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   private final ActionMap myActionMap = new ActionMap();
   private final InputMap myInputMap = new InputMap();
 
+  private boolean myKeyPressedReceived;
+
   /**
    * @deprecated use {@link #WizardPopup(Project, JBPopup, PopupStep)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public WizardPopup(@NotNull PopupStep<Object> aStep) {
     this(CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext()), null, aStep);
   }
@@ -70,7 +75,7 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
     mySpeedSearch.setEnabled(myStep.isSpeedSearchEnabled());
 
     final JComponent content = createContent();
-
+    content.putClientProperty(KEY, this);
     JComponent popupComponent = createPopupComponent(content);
 
     init(project, popupComponent, getPreferredFocusableComponent(), true, true, true, null,
@@ -343,17 +348,14 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   public final boolean dispatch(KeyEvent event) {
-    if (event.getID() != KeyEvent.KEY_PRESSED &&
-        event.getID() != KeyEvent.KEY_RELEASED &&
-        event.getID() != KeyEvent.KEY_TYPED) {
-      // do not dispatch these events to Swing
-      event.consume();
-      return true;
-    }
-
     if (event.getID() == KeyEvent.KEY_PRESSED) {
+      myKeyPressedReceived = true;
       final KeyStroke stroke = KeyStroke.getKeyStroke(event.getKeyCode(), event.getModifiers(), false);
       if (proceedKeyEvent(event, stroke)) return true;
+    }
+    else if (!myKeyPressedReceived && !(this instanceof ComboBoxPopup)) {
+      // key was pressed while this popup wasn't active, ignore the event
+      return false;
     }
 
     if (event.getID() == KeyEvent.KEY_RELEASED) {
@@ -386,7 +388,8 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   public Rectangle getBounds() {
-    return new Rectangle(getContent().getLocationOnScreen(), getContent().getSize());
+    JComponent content = isDisposed() ? null : getContent();
+    return content == null ? null : new Rectangle(content.getLocationOnScreen(), content.getSize());
   }
 
   protected WizardPopup createPopup(WizardPopup parent, PopupStep step, Object parentValue) {

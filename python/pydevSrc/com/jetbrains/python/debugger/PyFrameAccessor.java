@@ -1,9 +1,16 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XCompositeNode;
+import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.debugger.pydev.PyDebugCallback;
+import com.jetbrains.python.debugger.pydev.TableCommandType;
+import com.jetbrains.python.debugger.pydev.dataviewer.DataViewerCommandBuilder;
+import com.jetbrains.python.debugger.pydev.dataviewer.DataViewerCommandResult;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,10 +22,16 @@ import java.util.List;
  * @author traff
  */
 public interface PyFrameAccessor {
+  @Nullable
+  default Project getProject() { return null; }
+
   PyDebugValue evaluate(final String expression, final boolean execute, boolean doTrunc) throws PyDebuggerException;
 
+  /**
+   * @param frame if null, then `XDebuggerSession#getCurrentStackFrame` is used
+   */
   @Nullable
-  XValueChildrenList loadFrame() throws PyDebuggerException;
+  XValueChildrenList loadFrame(@Nullable XStackFrame frame) throws PyDebuggerException;
 
   XValueChildrenList loadVariable(PyDebugValue var) throws PyDebuggerException;
 
@@ -33,6 +46,11 @@ public interface PyFrameAccessor {
    */
   ArrayChunk getArrayItems(PyDebugValue var, int rowOffset, int colOffset, int rows, int cols, String format) throws PyDebuggerException;
 
+  default DataViewerCommandResult executeDataViewerCommand(DataViewerCommandBuilder builder) throws PyDebuggerException {
+    Logger.getInstance(this.getClass()).warn("executeDataViewerCommand is not supported on this PyFrameAccessor");
+    return DataViewerCommandResult.NOT_IMPLEMENTED;
+  }
+
   @Nullable
   XSourcePosition getSourcePositionForName(@Nullable String name, @Nullable String parentType);
 
@@ -43,9 +61,9 @@ public interface PyFrameAccessor {
 
   default void addFrameListener(@NotNull PyFrameListener listener) {}
 
-  default void loadAsyncVariablesValues(@NotNull final List<PyAsyncValue<String>> pyAsyncValues) {}
+  default void loadAsyncVariablesValues(@Nullable XStackFrame frame, @NotNull final List<PyAsyncValue<String>> pyAsyncValues) {}
 
-  default boolean isCurrentFrameCached() {
+  default boolean isFrameCached(@NotNull XStackFrame frame) {
     return false;
   }
 
@@ -54,6 +72,9 @@ public interface PyFrameAccessor {
   default boolean isSimplifiedView() {
     return false;
   }
+
+  @Nullable
+  String execTableCommand(String command, TableCommandType commandType) throws PyDebuggerException;
 
   @Nullable
   default XCompositeNode getCurrentRootNode() {

@@ -8,6 +8,7 @@ import com.intellij.execution.services.ServiceModelFilter.ServiceViewFilter;
 import com.intellij.execution.services.ServiceViewDragHelper.ServiceViewDragBean;
 import com.intellij.execution.services.ServiceViewModel.*;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.lightEdit.LightEditUtil;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.navigation.ItemPresentation;
@@ -58,7 +59,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-@State(name = "ServiceViewManager", storages = @Storage(value = StoragePathMacros.PRODUCT_WORKSPACE_FILE))
+import static com.intellij.execution.services.ServiceViewContributor.CONTRIBUTOR_EP_NAME;
+
+@State(name = "ServiceViewManager", storages = @Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE))
 public final class ServiceViewManagerImpl implements ServiceViewManager, PersistentStateComponent<ServiceViewManagerImpl.State> {
   @NonNls private static final String HELP_ID = "services.tool.window";
 
@@ -77,14 +80,15 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
 
   public ServiceViewManagerImpl(@NotNull Project project) {
     myProject = project;
+    LightEditUtil.forbidServiceInLightEditMode(project, getClass());
     myModel = new ServiceModel(myProject);
     Disposer.register(myProject, myModel);
     myModelFilter = new ServiceModelFilter();
-    loadGroups(ServiceModel.CONTRIBUTOR_EP_NAME.getExtensionList());
+    loadGroups(CONTRIBUTOR_EP_NAME.getExtensionList());
     myProject.getMessageBus().connect(myModel).subscribe(ServiceEventListener.TOPIC,
                                                          e -> myModel.handle(e).onSuccess(o -> eventHandled(e)));
     initRoots();
-    ServiceModel.CONTRIBUTOR_EP_NAME.addExtensionPointListener(new ServiceViewExtensionPointListener(), myProject);
+    CONTRIBUTOR_EP_NAME.addExtensionPointListener(new ServiceViewExtensionPointListener(), myProject);
   }
 
   private void eventHandled(@NotNull ServiceEvent e) {
@@ -110,7 +114,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
       myModel.initRoots().onSuccess(o -> {
         Set<? extends ServiceViewContributor<?>> activeContributors = getActiveContributors();
         Map<String, Boolean> toolWindowIds = new HashMap<>();
-        for (ServiceViewContributor<?> contributor : ServiceModel.CONTRIBUTOR_EP_NAME.getExtensionList()) {
+        for (ServiceViewContributor<?> contributor : CONTRIBUTOR_EP_NAME.getExtensionList()) {
           String toolWindowId = getToolWindowId(contributor.getClass());
           if (toolWindowId != null) {
             Boolean active = toolWindowIds.putIfAbsent(toolWindowId, activeContributors.contains(contributor));
@@ -405,6 +409,16 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
     return result;
   }
 
+  @Override
+  public @NotNull Promise<Void> extract(@NotNull Object service, @NotNull Class<?> contributorClass) {
+    AsyncPromise<Void> result = new AsyncPromise<>();
+    myModel.getInvoker().invoke(() -> AppUIUtil.invokeLaterIfProjectAlive(myProject, () ->
+      promiseFindView(contributorClass, result,
+                      serviceView -> serviceView.extract(service, contributorClass),
+                      null)));
+    return result;
+  }
+
   @NotNull
   Promise<Void> select(@NotNull VirtualFile virtualFile) {
     AsyncPromise<Void> result = new AsyncPromise<>();
@@ -460,6 +474,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
 
   private static void extractGroup(GroupModel viewModel, Content content) {
     viewModel.addModelListener(() -> updateContentTab(viewModel.getGroup(), content));
+    updateContentTab(viewModel.getGroup(), content);
   }
 
   private void extractService(SingeServiceModel viewModel, Content content) {
@@ -487,10 +502,12 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
         updateContentTab(item, content);
       }
     });
+    updateContentTab(viewModel.getService(), content);
   }
 
   private static void extractList(ServiceListModel viewModel, Content content) {
     viewModel.addModelListener(() -> updateContentTab(ContainerUtil.getOnlyItem(viewModel.getRoots()), content));
+    updateContentTab(ContainerUtil.getOnlyItem(viewModel.getRoots()), content);
   }
 
   private static ItemPresentation getContentPresentation(Project project, ServiceViewModel viewModel, ServiceViewState viewState) {
@@ -555,6 +572,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
         ItemPresentation itemPresentation = viewItem.getViewDescriptor().getContentPresentation();
         content.setDisplayName(ServiceViewDragHelper.getDisplayName(itemPresentation));
         content.setIcon(itemPresentation.getIcon(false));
+        content.setTabColor(viewItem.getColor());
       });
     }
   }
@@ -731,9 +749,9 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
   }
 
   @NotNull
-  public List<Object> getChildrenSafe(@NotNull AnActionEvent e, @NotNull List<Object> valueSubPath) {
+  public List<Object> getChildrenSafe(@NotNull AnActionEvent e, @NotNull List<Object> valueSubPath, @NotNull Class<?> contributorClass) {
     ServiceView serviceView = ServiceViewActionProvider.getSelectedView(e);
-    return serviceView != null ? serviceView.getChildrenSafe(valueSubPath) : Collections.emptyList();
+    return serviceView != null ? serviceView.getChildrenSafe(valueSubPath, contributorClass) : Collections.emptyList();
   }
 
   @Nullable

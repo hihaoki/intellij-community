@@ -35,9 +35,6 @@
     <exportable serviceInterface="com.intellij.platform.templates.ProjectTemplateExportable"/>
     <projectTemplateFileProcessor implementation="com.intellij.platform.templates.SystemFileProcessor"/>
 
-    <usageFilteringRuleProvider implementation="com.intellij.usages.impl.ImportUsageFilteringRuleProvider"/>
-    <applicationService serviceImplementation="com.intellij.usages.impl.ImportFilteringUsageViewSetting"/>
-
     <!-- this depends on TemplateLanguageConfigurable which isn't registered in LangExtensions, so it should go here as well -->
     <errorQuickFixProvider implementation="com.intellij.psi.templateLanguages.TemplateLanguageErrorQuickFixProvider"/>
 
@@ -59,7 +56,7 @@
     <action id="NewElement" class="com.intellij.ide.actions.NewElementAction"/>
 
     <group id="OpenProjectGroup">
-      <group id="NewElementInMenuGroup" class="com.intellij.ide.actions.NewActionGroup" popup="true"/>
+      <group id="NewElementInMenuGroup" class="com.intellij.ide.actions.NewActionGroup" popup="true" searchable="false"/>
       <add-to-group group-id="FileOpenGroup" anchor="first"/>
     </group>
 
@@ -78,8 +75,7 @@
     </group>
 
     <group id="WelcomeScreen.QuickStart.IDEA">
-      <action id="WelcomeScreen.CreateNewProject" class="com.intellij.ide.actions.NewProjectAction"
-              icon="AllIcons.Welcome.CreateNewProject"/>
+      <action id="WelcomeScreen.CreateNewProject" class="com.intellij.ide.actions.NewProjectAction"/>
       <action id="WelcomeScreen.OpenProject" class="com.intellij.ide.actions.OpenFileAction$OnWelcomeScreen"/>
       <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
     </group>
@@ -88,9 +84,10 @@
             icon="AllIcons.RunConfigurations.RerunFailedTests"/>
 
     <group>
+      <separator/>
       <action id="SaveProjectAsTemplate" class="com.intellij.platform.templates.SaveProjectAsTemplateAction"/>
       <action id="ManageProjectTemplates" class="com.intellij.platform.templates.ManageProjectTemplatesAction"/>
-      <add-to-group group-id="ToolsBasicGroup" anchor="after" relative-to-action="SaveFileAsTemplate"/>
+      <add-to-group group-id="FileOtherSettingsGroup" anchor="last"/>
     </group>
 
     <action id="ConsoleView.FoldLinesLikeThis" class="com.intellij.execution.console.FoldLinesLikeThis">

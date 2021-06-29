@@ -20,6 +20,7 @@ import com.intellij.util.xmlb.annotations.Transient;
 import com.intellij.util.xmlb.annotations.XCollection;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -86,7 +87,7 @@ public class CodeInsightSettings implements PersistentStateComponent<Element>, C
   /**
    * @deprecated use accessors instead
    */
-  @Deprecated
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public boolean SELECT_AUTOPOPUP_SUGGESTIONS_BY_CHARS;
 
   public boolean isSelectAutopopupSuggestionsByChars() {
@@ -105,12 +106,6 @@ public class CodeInsightSettings implements PersistentStateComponent<Element>, C
 
   public boolean AUTOCOMPLETE_ON_CODE_COMPLETION = true;
   public boolean AUTOCOMPLETE_ON_SMART_TYPE_COMPLETION = true;
-
-  /**
-   * @deprecated unused
-   */
-  @Deprecated
-  public boolean AUTOCOMPLETE_COMMON_PREFIX = true;
 
   public boolean SHOW_FULL_SIGNATURES_IN_PARAMETER_INFO;
 
@@ -202,9 +197,9 @@ public class CodeInsightSettings implements PersistentStateComponent<Element>, C
   private void setDefaults() {
     try {
       ReflectionUtil.copyFields(CodeInsightSettings.class.getDeclaredFields(), new CodeInsightSettings(), this,
-                                new DifferenceFilter<Object>(null, null) {
+                                new DifferenceFilter<>(null, null) {
                                   @Override
-                                  public boolean isAccept(@NotNull Field field) {
+                                  public boolean test(@NotNull Field field) {
                                     return !field.getName().equals("EXCLUDED_PACKAGES");
                                   }
                                 });

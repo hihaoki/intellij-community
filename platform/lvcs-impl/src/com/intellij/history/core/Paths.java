@@ -3,10 +3,13 @@
 package com.intellij.history.core;
 
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
+import java.util.List;
 
 public final class Paths {
   public static final char DELIM = '/';
@@ -53,20 +56,24 @@ public final class Paths {
   }
 
   public static Iterable<String> split(String path) {
-    //must be consistent with LocalFileSystemBase.extractRootPath()
-    int prefixLen = 0;
-    if (path.startsWith("//")) {
-      prefixLen = path.indexOf(DELIM, 2);
-      if (prefixLen == -1) prefixLen = path.length();
+    String root = FileUtil.extractRootPath(path);
+    if (root == null) return splitInner(path);
+    if (root.length() + 1 == path.length() && path.endsWith(":///")) {
+      return Collections.singleton(root);
     }
-    else if (StringUtil.startsWithChar(path, DELIM)) {
-      prefixLen = 1;
-    }
-    Iterable<String> result = StringUtil.tokenize(path.substring(prefixLen), String.valueOf(DELIM));
-    if (prefixLen > 0) {
-      result = ContainerUtil.concat(Collections.singleton(path.substring(0, prefixLen)), result);
-    }
-    return result;
+
+    Iterable<String> tail = splitInner(path.substring(root.length()));
+    return ContainerUtil.concat(Collections.singleton(root), tail);
+  }
+
+  @NotNull
+  private static List<String> splitInner(String path) {
+    if (path.isEmpty()) return Collections.emptyList();
+    int s = 0;
+    int e = path.length();
+    if (path.charAt(0) == '/') ++s;
+    if (e > s && path.charAt(e - 1) == '/') --e;
+    return StringUtil.split(path.substring(s, e), String.valueOf(DELIM), true, false);
   }
 
   public static boolean isParent(String parent, String path) {

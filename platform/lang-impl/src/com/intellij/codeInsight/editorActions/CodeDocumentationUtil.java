@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.editorActions;
 
@@ -6,7 +6,6 @@ import com.intellij.lang.CodeDocumentationAwareCommenter;
 import com.intellij.lang.Commenter;
 import com.intellij.lang.LanguageCommenters;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.DocCommentSettings;
@@ -15,21 +14,10 @@ import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
+
 public final class CodeDocumentationUtil {
 
   private CodeDocumentationUtil() {
-  }
-
-  /**
-   * @deprecated  Use createDocCommentLine(lineData,file,commenter) instead.
-   */
-  @SuppressWarnings("unused")
-  @Deprecated
-  public static String createDocCommentLine(String lineData, Project project, CodeDocumentationAwareCommenter commenter) {
-    return createLine(lineData, commenter, DocCommentSettings.DEFAULTS);
   }
 
   public static String createDocCommentLine(String lineData, PsiFile file, CodeDocumentationAwareCommenter commenter) {

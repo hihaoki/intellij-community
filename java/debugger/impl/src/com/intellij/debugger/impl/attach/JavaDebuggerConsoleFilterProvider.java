@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl.attach;
 
 import com.intellij.codeInsight.hints.presentation.InlayPresentation;
 import com.intellij.codeInsight.hints.presentation.PresentationFactory;
 import com.intellij.codeInsight.hints.presentation.PresentationRenderer;
+import com.intellij.debugger.actions.JavaDebuggerActionsCollector;
 import com.intellij.execution.filters.ConsoleFilterProvider;
 import com.intellij.execution.filters.Filter;
 import com.intellij.execution.impl.InlayProvider;
@@ -11,6 +12,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorCustomElementRenderer;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,14 +23,20 @@ import java.util.regex.Pattern;
 public class JavaDebuggerConsoleFilterProvider implements ConsoleFilterProvider {
   @Override
   public Filter @NotNull [] getDefaultFilters(@NotNull Project project) {
-    return new Filter[]{new JavaDebuggerAttachFilter()};
+    return new Filter[]{new JavaDebuggerAttachFilter(project)};
   }
 
   private static class JavaDebuggerAttachFilter implements Filter {
     static final Pattern PATTERN = Pattern.compile("Listening for transport (\\S+) at address: (\\S+)");
+    private final Project myProject;
+
+    private JavaDebuggerAttachFilter(Project project) {
+      myProject = project;
+    }
 
     @Override
     public @Nullable Result applyFilter(@NotNull String line, int entireLength) {
+      if (!line.contains("Listening for transport")) return null;
       Matcher matcher = PATTERN.matcher(line);
       if (!matcher.find()) {
         return null;
@@ -36,6 +44,10 @@ public class JavaDebuggerConsoleFilterProvider implements ConsoleFilterProvider 
       String transport = matcher.group(1);
       String address = matcher.group(2);
       int start = entireLength - line.length();
+
+      if (Registry.is("debugger.auto.attach.from.console")) {
+        JavaAttachDebuggerProvider.attach(transport, address, null, myProject);
+      }
 
       // to trick the code unwrapping single results in com.intellij.execution.filters.CompositeFilter#createFinalResult
       return new Result(Arrays.asList(
@@ -57,11 +69,12 @@ public class JavaDebuggerConsoleFilterProvider implements ConsoleFilterProvider 
     @Override
     public EditorCustomElementRenderer createInlayRenderer(Editor editor) {
       PresentationFactory factory = new PresentationFactory((EditorImpl)editor);
-      InlayPresentation presentation = factory.referenceOnHover(factory.roundWithBackground(factory.smallText("Attach debugger")),
-                                                                (event, point) -> {
-                                                                  JavaAttachDebuggerProvider
-                                                                    .attach(myTransport, myAddress, null, editor.getProject());
-                                                                });
+      InlayPresentation presentation = factory.referenceOnHover(
+        factory.roundWithBackground(factory.smallText("Attach debugger")),
+        (event, point) -> {
+          JavaDebuggerActionsCollector.attachFromConsoleInlay.log();
+          JavaAttachDebuggerProvider.attach(myTransport, myAddress, null, editor.getProject());
+        });
       return new PresentationRenderer(presentation);
     }
   }

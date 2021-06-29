@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.navigation;
 
 import com.intellij.JavaTestUtil;
@@ -6,12 +6,15 @@ import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 import java.util.Collection;
+
+import static com.intellij.testFramework.assertions.Assertions.assertThat;
 
 public class GotoDeclarationTest extends LightJavaCodeInsightTestCase {
   @NotNull
@@ -119,11 +122,20 @@ public class GotoDeclarationTest extends LightJavaCodeInsightTestCase {
     assertNotNull("Unexpected null", element);
   }
 
-  public void testGotoDeclarationOnEnumConstantDoesntNavigateToEnumClass() {
-    configureFromFileText("A.java", "enum A {G<caret>();}");
-    final PsiReference reference = getFile().findReferenceAt(getEditor().getCaretModel().getOffset());
-    assertNotNull(reference);
-    final Collection<PsiElement> candidates = TargetElementUtil.getInstance().getTargetCandidates(reference);
-    assertEmpty(candidates);
+  public void testPatternMatchingGuardInSwitchExpression() {
+    doTestPatternMatchingGuard();
+  }
+
+  public void testPatternMatchingGuardInSwitchStatement() {
+    doTestPatternMatchingGuard();
+  }
+
+  private void doTestPatternMatchingGuard() {
+    String name = getTestName(false);
+    configureByFile("/codeInsight/gotoDeclaration/" + name + ".java");
+    final PsiJavaFile file = (PsiJavaFile)getFile();
+    final PsiField field = PsiTreeUtil.findChildOfType(file, PsiField.class);
+    final PsiElement element = GotoDeclarationAction.findTargetElement(getProject(), getEditor(), getEditor().getCaretModel().getOffset());
+    assertThat(element).isEqualTo(field);
   }
 }

@@ -1,14 +1,18 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.daemon
 
 import com.intellij.codeInsight.daemon.impl.JavaHighlightInfoTypes
+import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil
 import com.intellij.codeInsight.intention.IntentionActionDelegate
 import com.intellij.codeInspection.deprecation.DeprecationInspection
 import com.intellij.codeInspection.deprecation.MarkedForRemovalInspection
 import com.intellij.java.testFramework.fixtures.LightJava9ModulesCodeInsightFixtureTestCase
 import com.intellij.java.testFramework.fixtures.MultiModuleJava9ProjectDescriptor.ModuleDescriptor
 import com.intellij.java.testFramework.fixtures.MultiModuleJava9ProjectDescriptor.ModuleDescriptor.*
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiManager
+import com.intellij.psi.search.ProjectScope
 import org.assertj.core.api.Assertions.assertThat
 import java.util.jar.JarFile
 
@@ -25,7 +29,7 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     highlight("""
         <error descr="A module file should not have 'package' statement">package pkg;</error>
         module M { }""".trimIndent())
-    fixes("<caret>package pkg;\nmodule M { }", arrayOf("DeleteElementFix"))
+    fixes("<caret>package pkg;\nmodule M { }", arrayOf("DeleteElementFix", "FixAllHighlightingProblems"))
   }
 
   fun testSoftKeywords() {
@@ -255,8 +259,10 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     addFile("pkg/m4/C4.java", "package pkg.m4;\npublic class C4 { }", M4)
     addFile("module-info.java", "module M5 { exports pkg.m5; }", M5)
     addFile("pkg/m5/C5.java", "package pkg.m5;\npublic class C5 { }", M5)
-    addFile("module-info.java", "module M6 { requires transitive M7; }", M6)
+    addFile("module-info.java", "module M6 { requires transitive M7; exports pkg.m6.inner; }", M6)
     addFile("pkg/sub/C6X.java", "package pkg.sub;\npublic class C6X { }", M6)
+    addFile("pkg/m6/C6_1.java", "package pkg.m6.inner;\npublic class C6_1 {}", M6)
+    //addFile("pkg/m6/C6_2.kt", "package pkg.m6.inner\n class C6_2", M6) TODO: uncomment to fail the test
     addFile("module-info.java", "module M7 { exports pkg.m7; }", M7)
     addFile("pkg/m7/C7.java", "package pkg.m7;\npublic class C7 { }", M7)
 
@@ -284,6 +290,9 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
         import java.util.function.Supplier;
 
         import <error descr="Package 'pkg.libInvalid' is declared in module with an invalid name ('lib.invalid.1.2')">pkg.libInvalid</error>.LCInv;
+        
+        import pkg.m6.inner.C6_1;
+        //import pkg.m6.inner.C6_2;
 
         /** See also {@link C2Impl#I} and {@link C2Impl#make} */
         class C {{
@@ -364,6 +373,14 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     highlight("module M { requires M6; }")
   }
 
+  fun testCorrectedType() {
+    addFile("module-info.java", "module M { requires M6; requires lib.named; }")
+
+    addFile("module-info.java", "module M6 {  requires lib.named; exports pkg;}", M6)
+    addFile("pkg/A.java", "package pkg; public class A {public static void foo(java.util.function.Supplier<pkg.lib1.LC1> f){}}", M6)
+    highlight("pkg/Usage.java","import pkg.lib1.LC1; class Usage { {pkg.A.foo(LC1::new);} }")
+  }
+
   fun testDeprecations() {
     myFixture.enableInspections(DeprecationInspection(), MarkedForRemovalInspection())
     addFile("module-info.java", "@Deprecated module M2 { }", M2)
@@ -423,6 +440,12 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
         }""".trimIndent())
   }
 
+  fun testClashingReads4() {
+    addFile("module-info.java", "module M2 { requires transitive lib.auto; }", M2)
+    addFile("module-info.java", "module M4 { requires transitive lib.auto; }", M4)
+    highlight("module M { requires M2; requires M4; }")
+  }
+
   fun testInaccessibleMemberType() {
     addFile("module-info.java", "module C { exports pkg.c; }", M8)
     addFile("module-info.java", "module B { requires C; exports pkg.b; }", M6)
@@ -461,6 +484,17 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
         }""".trimIndent())
   }
 
+  fun testLightModuleDescriptorCaching() {
+    val libClass = myFixture.javaFacade.findClass("pkg.lib2.LC2", ProjectScope.getLibrariesScope(project))!!
+    val libModule = JavaModuleGraphUtil.findDescriptorByElement(libClass)!!
+
+    PsiManager.getInstance(project).dropPsiCaches()
+    assertSame(libModule, JavaModuleGraphUtil.findDescriptorByElement(libClass)!!)
+
+    ProjectRootManager.getInstance(project).incModificationCount()
+    assertNotSame(libModule, JavaModuleGraphUtil.findDescriptorByElement(libClass)!!)
+  }
+
   //<editor-fold desc="Helpers.">
   private fun highlight(text: String) = highlight("module-info.java", text)
 
@@ -474,8 +508,9 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
   private fun fixes(path: String, text: String, fixes: Array<String>) {
     myFixture.configureFromExistingVirtualFile(addFile(path, text))
     val available = myFixture.availableIntentions
-      .map { IntentionActionDelegate.unwrap(it)::class.java.simpleName }
-      .filter { it != "GutterIntentionAction" }
+      .map { IntentionActionDelegate.unwrap(it)::class.java }
+      .filter { it.name.startsWith("com.intellij.codeInsight.") }
+      .map { it.simpleName }
     assertThat(available).containsExactlyInAnyOrder(*fixes)
   }
   //</editor-fold>

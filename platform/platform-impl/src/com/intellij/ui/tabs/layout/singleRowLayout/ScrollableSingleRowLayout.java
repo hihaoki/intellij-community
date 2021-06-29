@@ -1,7 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs.layout.singleRowLayout;
 
 import com.intellij.application.options.editor.EditorTabPlacementKt;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.ui.OnePixelDivider;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.tabs.JBTabsPosition;
@@ -10,6 +11,7 @@ import com.intellij.ui.tabs.impl.TabLabel;
 import com.intellij.ui.tabs.impl.tabsLayout.TabsLayout;
 import com.intellij.ui.tabs.impl.tabsLayout.TabsLayoutInfo;
 import com.intellij.util.Alarm;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,9 +22,7 @@ import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class ScrollableSingleRowLayout extends SingleRowLayout {
   public static final int DEADZONE_FOR_DECLARE_TAB_HIDDEN = 10;
   private final Alarm afterScrollAlarm = new Alarm();
@@ -265,8 +265,7 @@ public class ScrollableSingleRowLayout extends SingleRowLayout {
 
   public static class ScrollableSingleRowTabsLayoutInfo extends TabsLayoutInfo {
 
-    private final static String ID = "ScrollableSingleRowTabsLayoutInfo";
-    private final static String NAME = "Scrollable Single Row";
+    @NonNls private final static String ID = "ScrollableSingleRowTabsLayoutInfo";
 
     private JPanel myPanel;
     public JCheckBox myCheckBox;
@@ -280,7 +279,7 @@ public class ScrollableSingleRowLayout extends SingleRowLayout {
     @NotNull
     @Override
     public String getName() {
-      return NAME;
+      return IdeBundle.message("tabs.layout.scrollable.single.row.name");
     }
 
     @NotNull

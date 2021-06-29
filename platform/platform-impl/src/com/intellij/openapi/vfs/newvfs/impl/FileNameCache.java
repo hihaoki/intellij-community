@@ -5,8 +5,8 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords;
 import com.intellij.util.IntSLRUCache;
-import com.intellij.util.containers.IntObjectLinkedMap;
-import com.intellij.util.text.ByteArrayCharSequence;
+import com.intellij.util.containers.IntObjectLRUMap;
+import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -38,26 +38,29 @@ public final class FileNameCache {
   private static void assertShortFileName(@NotNull String name) {
     if (name.length() <= 1) return;
     int start = 0;
+    int end = name.length();
     if (SystemInfo.isWindows && name.startsWith("//")) {  // Windows UNC: //Network/Ubuntu
       final int idx = name.indexOf('/', 2);
       start = idx == -1 ? 2 : idx + 1;
     }
-    if (StringUtil.containsAnyChar(name, FS_SEPARATORS, start, name.length())) {
+    if (name.endsWith(URLUtil.SCHEME_SEPARATOR)) {
+      end -= URLUtil.SCHEME_SEPARATOR.length();
+    }
+    if (StringUtil.containsAnyChar(name, FS_SEPARATORS, start, end)) {
       throw new IllegalArgumentException("Must not intern long path: '" + name + "'");
     }
   }
 
   @NotNull
-  private static IntObjectLinkedMap.MapEntry<CharSequence> cacheData(String name, int id, int stripe) {
+  private static IntObjectLRUMap.MapEntry<CharSequence> cacheData(String name, int id, int stripe) {
     if (name == null) {
       FSRecords.handleError(new RuntimeException("VFS name enumerator corrupted"));
     }
 
-    CharSequence rawName = ByteArrayCharSequence.convertToBytesIfPossible(name);
     IntSLRUCache<CharSequence> cache = ourNameCache[stripe];
     //noinspection SynchronizationOnLocalVariableOrMethodParameter
     synchronized (cache) {
-      return cache.cacheEntry(id, rawName);
+      return cache.cacheEntry(id, name);
     }
   }
 
@@ -76,7 +79,7 @@ public final class FileNameCache {
   private static final boolean ourTrackStats = false;
   private static final int ourLOneSize = 1024;
   @SuppressWarnings("unchecked")
-  private static final IntObjectLinkedMap.MapEntry<CharSequence>[] ourArrayCache = new IntObjectLinkedMap.MapEntry[ourLOneSize];
+  private static final IntObjectLRUMap.MapEntry<CharSequence>[] ourArrayCache = new IntObjectLRUMap.MapEntry[ourLOneSize];
 
   private static final AtomicInteger ourQueries = new AtomicInteger();
   private static final AtomicInteger ourMisses = new AtomicInteger();
@@ -103,7 +106,7 @@ public final class FileNameCache {
     }
 
     int l1 = nameId % ourLOneSize;
-    IntObjectLinkedMap.MapEntry<CharSequence> entry = ourArrayCache[l1];
+    IntObjectLRUMap.MapEntry<CharSequence> entry = ourArrayCache[l1];
     if (entry != null && entry.key == nameId) {
       return entry.value;
     }

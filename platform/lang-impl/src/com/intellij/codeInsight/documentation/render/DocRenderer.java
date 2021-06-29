@@ -2,10 +2,12 @@
 package com.intellij.codeInsight.documentation.render;
 
 import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.codeInsight.documentation.DocumentationActionProvider;
 import com.intellij.codeInsight.documentation.DocumentationComponent;
 import com.intellij.codeInsight.documentation.DocumentationManager;
 import com.intellij.codeInsight.documentation.QuickDocUtil;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
@@ -17,6 +19,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.event.CaretEvent;
 import com.intellij.openapi.editor.event.CaretListener;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.impl.EditorCssFontResolver;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
@@ -26,6 +29,7 @@ import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiDocCommentBase;
@@ -41,6 +45,7 @@ import com.intellij.util.ui.JBHtmlEditorKit;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,13 +59,15 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseEvent;
 import java.awt.font.TextAttribute;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.ImageObserver;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-class DocRenderer implements EditorCustomElementRenderer {
+class DocRenderer implements EditorCustomElementRenderer, CustomFoldRegionRenderer {
   private static final Logger LOG = Logger.getInstance(DocRenderer.class);
+  private static final Key<EditorPane> CACHED_LOADING_PANE = Key.create("cached.loading.pane");
   private static final DocRendererMemoryManager MEMORY_MANAGER = new DocRendererMemoryManager();
   private static final DocRenderImageManager IMAGE_MANAGER = new DocRenderImageManager();
 
@@ -75,40 +82,115 @@ class DocRenderer implements EditorCustomElementRenderer {
 
   private static StyleSheet ourCachedStyleSheet;
   private static String ourCachedStyleSheetLinkColor = "non-existing";
-  private static String ourCachedStyleSheetMonoFont = "non-existing";
 
-  private final DocRenderItem myItem;
+  final DocRenderItem myItem;
   private boolean myContentUpdateNeeded;
   private EditorPane myPane;
+  private int myCachedWidth = -1;
+  private int myCachedHeight = -1;
 
   DocRenderer(@NotNull DocRenderItem item) {
     myItem = item;
   }
 
-  void updateContent() {
-    Inlay<DocRenderer> inlay = myItem.inlay;
-    if (inlay != null) {
-      myContentUpdateNeeded = true;
-      inlay.update();
+  private boolean useOldBackend() {
+    return myItem.useOldBackend();
+  }
+
+  void update(boolean updateSize, boolean updateContent, List<Runnable> foldingTasks) {
+    if (useOldBackend()) {
+      Inlay<DocRenderer> inlay = myItem.inlay;
+      if (inlay != null) {
+        if (updateSize) {
+          myCachedWidth = -1;
+          myCachedHeight = -1;
+        }
+        myContentUpdateNeeded = updateContent;
+        inlay.update();
+      }
+    }
+    else {
+      FoldRegion foldRegion = myItem.foldRegion;
+      if (foldRegion instanceof CustomFoldRegion) {
+        if (updateSize) {
+          myCachedWidth = -1;
+          myCachedHeight = -1;
+        }
+        myContentUpdateNeeded = updateContent;
+        Runnable task = () -> ((CustomFoldRegion)foldRegion).update();
+        if (foldingTasks == null) {
+          task.run();
+        }
+        else {
+          foldingTasks.add(task);
+        }
+      }
     }
   }
 
   @Override
   public int calcWidthInPixels(@NotNull Inlay inlay) {
-    return calcInlayWidth(inlay.getEditor());
+    return doCalcWidth(inlay.getEditor());
+  }
+
+  @Override
+  public int calcWidthInPixels(@NotNull CustomFoldRegion region) {
+    return doCalcWidth(region.getEditor());
   }
 
   @Override
   public int calcHeightInPixels(@NotNull Inlay inlay) {
-    Editor editor = inlay.getEditor();
-    int width = Math.max(0, calcInlayWidth(editor) - calcInlayStartX() + editor.getInsets().left - scale(LEFT_INSET) - scale(RIGHT_INSET));
-    JComponent component = getRendererComponent(inlay, width);
-    return Math.max(editor.getLineHeight(),
-                    component.getPreferredSize().height + scale(TOP_BOTTOM_INSETS) * 2 + scale(TOP_BOTTOM_MARGINS) * 2);
+    return doCalcHeight(inlay.getEditor());
+  }
+
+  @Override
+  public int calcHeightInPixels(@NotNull CustomFoldRegion region) {
+    return doCalcHeight(region.getEditor());
+  }
+
+  private int doCalcWidth(Editor editor) {
+    if (myCachedWidth < 0) {
+      return myCachedWidth = calcWidth(editor);
+    }
+    else {
+      return myCachedWidth;
+    }
+  }
+
+  private int doCalcHeight(Editor editor) {
+    if (myCachedHeight < 0) {
+      int indent = 0;
+      // optimize editor opening: skip 'proper' width calculation for 'Loading...' inlays
+      if (myItem.textToRender != null) {
+        indent = calcInlayStartX() - editor.getInsets().left;
+      }
+      int width = Math.max(0, calcWidth(editor) - indent - scale(LEFT_INSET) - scale(RIGHT_INSET));
+      JComponent component = getRendererComponent(editor, width);
+      return myCachedHeight = Math.max(editor.getLineHeight(),
+                                       component.getPreferredSize().height + scale(TOP_BOTTOM_INSETS) * 2 + scale(TOP_BOTTOM_MARGINS) * 2);
+    }
+    else {
+      return myCachedHeight;
+    }
   }
 
   @Override
   public void paint(@NotNull Inlay inlay, @NotNull Graphics g, @NotNull Rectangle targetRegion, @NotNull TextAttributes textAttributes) {
+    doPaint(inlay.getEditor(), g, targetRegion, textAttributes);
+  }
+
+  @Override
+  public void paint(@NotNull CustomFoldRegion region,
+                    @NotNull Graphics g,
+                    @NotNull Rectangle targetRegion,
+                    @NotNull TextAttributes textAttributes) {
+    doPaint(region.getEditor(), g, targetRegion, textAttributes);
+  }
+
+  private void doPaint(@NotNull Editor editor,
+                       @NotNull Graphics g,
+                       @NotNull Rectangle targetRegion,
+                       @NotNull TextAttributes textAttributes) {
     int startX = calcInlayStartX();
     int endX = targetRegion.x + targetRegion.width;
     if (startX >= endX) return;
@@ -117,8 +199,7 @@ class DocRenderer implements EditorCustomElementRenderer {
     if (filledHeight <= 0) return;
     int filledStartY = targetRegion.y + margin;
 
-    EditorEx editor = (EditorEx)inlay.getEditor();
-    Color defaultBgColor = editor.getBackgroundColor();
+    Color defaultBgColor = ((EditorEx)editor).getBackgroundColor();
     Color currentBgColor = textAttributes.getBackgroundColor();
     Color bgColor = currentBgColor == null ? defaultBgColor
                                            : ColorUtil.mix(defaultBgColor, textAttributes.getBackgroundColor(), .5);
@@ -143,7 +224,7 @@ class DocRenderer implements EditorCustomElementRenderer {
     int componentWidth = endX - startX - scale(LEFT_INSET) - scale(RIGHT_INSET);
     int componentHeight = filledHeight - topBottomInset * 2;
     if (componentWidth > 0 && componentHeight > 0) {
-      JComponent component = getRendererComponent(inlay, componentWidth);
+      JComponent component = getRendererComponent(editor, componentWidth);
       component.setBackground(bgColor);
       Graphics dg = g.create(startX + scale(LEFT_INSET), filledStartY + topBottomInset, componentWidth, componentHeight);
       UISettings.setupAntialiasing(dg);
@@ -154,6 +235,16 @@ class DocRenderer implements EditorCustomElementRenderer {
 
   @Override
   public GutterIconRenderer calcGutterIconRenderer(@NotNull Inlay inlay) {
+    return doCalcGutterRenderer();
+  }
+
+  @Override
+  public @Nullable GutterIconRenderer calcGutterIconRenderer(@NotNull CustomFoldRegion region) {
+    return doCalcGutterRenderer();
+  }
+
+  @Nullable
+  private GutterIconRenderer doCalcGutterRenderer() {
     DocRenderItem.MyGutterIconRenderer highlighterIconRenderer =
       (DocRenderItem.MyGutterIconRenderer)myItem.highlighter.getGutterIconRenderer();
     return highlighterIconRenderer == null ? null : myItem.new MyGutterIconRenderer(AllIcons.Gutter.JavadocEdit,
@@ -162,6 +253,16 @@ class DocRenderer implements EditorCustomElementRenderer {
 
   @Override
   public ActionGroup getContextMenuGroup(@NotNull Inlay inlay) {
+    return doGetContextMenu();
+  }
+
+  @Override
+  public @Nullable ActionGroup getContextMenuGroup(@NotNull CustomFoldRegion region) {
+    return doGetContextMenu();
+  }
+
+  @NotNull
+  private DefaultActionGroup doGetContextMenu() {
     DefaultActionGroup group = new DefaultActionGroup();
     group.add(new CopySelection());
     group.addSeparator();
@@ -171,6 +272,11 @@ class DocRenderer implements EditorCustomElementRenderer {
       group.add(toggleRenderAllAction);
     }
     group.add(new DocRenderItem.ChangeFontSize());
+
+    for (DocumentationActionProvider provider: DocumentationActionProvider.EP_NAME.getExtensions()) {
+      provider.additionalActions(myItem.editor, myItem.getComment(), myItem.textToRender).forEach(group::add);
+    }
+
     return group;
   }
 
@@ -178,7 +284,7 @@ class DocRenderer implements EditorCustomElementRenderer {
     return (int)(value * UISettings.getDefFontScale());
   }
 
-  static int calcInlayWidth(@NotNull Editor editor) {
+  static int calcWidth(@NotNull Editor editor) {
     int availableWidth = editor.getScrollingModel().getVisibleArea().width;
     if (availableWidth <= 0) {
       // if editor is not shown yet, we create the inlay with maximum possible width,
@@ -203,56 +309,73 @@ class DocRenderer implements EditorCustomElementRenderer {
     return editor.getInsets().left;
   }
 
-  Rectangle getEditorPaneBoundsWithinInlay(Inlay inlay) {
+  Rectangle getEditorPaneBoundsWithinRenderer(int width, int height) {
     int relativeX = calcInlayStartX() - myItem.editor.getInsets().left + scale(LEFT_INSET);
     int relativeY = scale(TOP_BOTTOM_MARGINS) + scale(TOP_BOTTOM_INSETS);
-    return new Rectangle(relativeX, relativeY,
-                         inlay.getWidthInPixels() - relativeX - scale(RIGHT_INSET), inlay.getHeightInPixels() - relativeY * 2);
+    return new Rectangle(relativeX, relativeY, width - relativeX - scale(RIGHT_INSET), height - relativeY * 2);
   }
 
-  EditorPane getRendererComponent(Inlay inlay, int width) {
+  EditorPane getRendererComponent(Editor editor, int width) {
     boolean newInstance = false;
-    EditorEx editor = (EditorEx)inlay.getEditor();
-    if (myPane == null || myContentUpdateNeeded) {
-      newInstance = true;
-      clearCachedComponent();
-      myPane = new EditorPane();
-      myPane.setEditable(false);
-      myPane.getCaret().setSelectionVisible(true);
-      myPane.putClientProperty("caretWidth", 0); // do not reserve space for caret (making content one pixel narrower than component)
-      myPane.setEditorKit(createEditorKit(editor));
-      myPane.setBorder(JBUI.Borders.empty());
-      Map<TextAttribute, Object> fontAttributes = new HashMap<>();
-      fontAttributes.put(TextAttribute.SIZE, JBUIScale.scale(DocumentationComponent.getQuickDocFontSize().getSize()));
-      // disable kerning for now - laying out all fragments in a file with it takes too much time
-      fontAttributes.put(TextAttribute.KERNING, 0);
-      myPane.setFont(myPane.getFont().deriveFont(fontAttributes));
-      Color textColor = getTextColor(editor.getColorsScheme());
-      myPane.setForeground(textColor);
-      myPane.setSelectedTextColor(textColor);
-      myPane.setSelectionColor(editor.getSelectionModel().getTextAttributes().getBackgroundColor());
-      UIUtil.enableEagerSoftWrapping(myPane);
-      String textToRender = myItem.textToRender;
-      if (textToRender == null) {
-        textToRender = CodeInsightBundle.message("doc.render.loading.text");
-      }
-      myPane.setText(textToRender);
-      myPane.addHyperlinkListener(e -> {
-        if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
-          activateLink(e);
-        }
-      });
-      myPane.getDocument().putProperty("imageCache", IMAGE_MANAGER.getImageProvider());
+    EditorPane pane = myPane;
+    if (pane == null || myContentUpdateNeeded) {
       myContentUpdateNeeded = false;
+      clearCachedComponent();
+      if (myItem.textToRender == null) {
+        pane = getLoadingPane(editor);
+      }
+      else {
+        myPane = pane = createEditorPane(editor, myItem.textToRender, false);
+        newInstance = true;
+      }
     }
-    AppUIUtil.targetToDevice(myPane, editor.getContentComponent());
-    myPane.setSize(width, 10_000_000 /* Arbitrary large value, that doesn't lead to overflows and precision loss */);
+    AppUIUtil.targetToDevice(pane, editor.getContentComponent());
+    pane.setSize(width, 10_000_000 /* Arbitrary large value, that doesn't lead to overflows and precision loss */);
     if (newInstance) {
-      myPane.getPreferredSize(); // trigger internal layout, so that image elements are created
+      pane.getPreferredSize(); // trigger internal layout, so that image elements are created
                                  // this is done after 'targetToDevice' call to take correct graphics context into account
-      myPane.startImageTracking();
+      pane.startImageTracking();
     }
-    return myPane;
+    return pane;
+  }
+
+  private EditorPane getLoadingPane(@NotNull Editor editor) {
+    EditorPane pane = editor.getUserData(CACHED_LOADING_PANE);
+    if (pane == null) {
+      editor.putUserData(CACHED_LOADING_PANE, pane = createEditorPane(editor, CodeInsightBundle.message("doc.render.loading.text"), true));
+    }
+    return pane;
+  }
+
+  static void clearCachedLoadingPane(@NotNull Editor editor) {
+    editor.putUserData(CACHED_LOADING_PANE, null);
+  }
+
+  private EditorPane createEditorPane(@NotNull Editor editor, @Nls @NotNull String text, boolean reusable) {
+    EditorPane pane = new EditorPane(!reusable);
+    pane.setEditable(false);
+    pane.getCaret().setSelectionVisible(!reusable);
+    pane.putClientProperty("caretWidth", 0); // do not reserve space for caret (making content one pixel narrower than component)
+    pane.setEditorKit(createEditorKit(editor));
+    pane.setBorder(JBUI.Borders.empty());
+    Map<TextAttribute, Object> fontAttributes = new HashMap<>();
+    fontAttributes.put(TextAttribute.SIZE, JBUIScale.scale(DocumentationComponent.getQuickDocFontSize().getSize()));
+    // disable kerning for now - laying out all fragments in a file with it takes too much time
+    fontAttributes.put(TextAttribute.KERNING, 0);
+    pane.setFont(pane.getFont().deriveFont(fontAttributes));
+    Color textColor = getTextColor(editor.getColorsScheme());
+    pane.setForeground(textColor);
+    pane.setSelectedTextColor(textColor);
+    pane.setSelectionColor(editor.getSelectionModel().getTextAttributes().getBackgroundColor());
+    UIUtil.enableEagerSoftWrapping(pane);
+    pane.setText(text);
+    pane.addHyperlinkListener(e -> {
+      if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
+        activateLink(e);
+      }
+    });
+    pane.getDocument().putProperty("imageCache", IMAGE_MANAGER.getImageProvider());
+    return pane;
   }
 
   void clearCachedComponent() {
@@ -276,9 +399,9 @@ class DocRenderer implements EditorCustomElementRenderer {
     Element element = event.getSourceElement();
     if (element == null) return;
 
-    Rectangle location = null;
+    Rectangle2D location = null;
     try {
-      location = ((JEditorPane)event.getSource()).modelToView(element.getStartOffset());
+      location = ((JEditorPane)event.getSource()).modelToView2D(element.getStartOffset());
     }
     catch (BadLocationException ignored) {}
     if (location == null) return;
@@ -315,16 +438,29 @@ class DocRenderer implements EditorCustomElementRenderer {
   private void showDocumentation(@NotNull Editor editor,
                                  @NotNull PsiElement context,
                                  @NotNull String linkUrl,
-                                 @NotNull Rectangle linkLocationWithinInlay) {
+                                 @NotNull Rectangle2D linkLocationWithinInlay) {
+    if (isExternalLink(linkUrl)) {
+      BrowserUtil.open(linkUrl);
+      return;
+    }
     Project project = context.getProject();
     DocumentationManager documentationManager = DocumentationManager.getInstance(project);
     if (QuickDocUtil.getActiveDocComponent(project) == null) {
-      Inlay<DocRenderer> inlay = myItem.inlay;
-      Point inlayPosition = Objects.requireNonNull(inlay.getBounds()).getLocation();
-      Rectangle relativeBounds = getEditorPaneBoundsWithinInlay(inlay);
+      Point rendererPosition;
+      Rectangle relativeBounds;
+      if (useOldBackend()) {
+        Inlay<DocRenderer> inlay = myItem.inlay;
+        rendererPosition = Objects.requireNonNull(inlay.getBounds()).getLocation();
+        relativeBounds = getEditorPaneBoundsWithinRenderer(inlay.getWidthInPixels(), inlay.getHeightInPixels());
+      }
+      else {
+        CustomFoldRegion foldRegion = (CustomFoldRegion)myItem.foldRegion;
+        rendererPosition = Objects.requireNonNull(foldRegion.getLocation());
+        relativeBounds = getEditorPaneBoundsWithinRenderer(foldRegion.getWidthInPixels(), foldRegion.getHeightInPixels());
+      }
       editor.putUserData(PopupFactoryImpl.ANCHOR_POPUP_POINT,
-                         new Point(inlayPosition.x + relativeBounds.x + linkLocationWithinInlay.x,
-                                   inlayPosition.y + relativeBounds.y + linkLocationWithinInlay.y + linkLocationWithinInlay.height));
+                         new Point(rendererPosition.x + relativeBounds.x + (int)linkLocationWithinInlay.getX(),
+                                   rendererPosition.y + relativeBounds.y + (int)Math.ceil(linkLocationWithinInlay.getMaxY())));
       documentationManager.showJavaDocInfo(editor, context, context, () -> {
         editor.putUserData(PopupFactoryImpl.ANCHOR_POPUP_POINT, null);
       }, "", false, true);
@@ -334,42 +470,45 @@ class DocRenderer implements EditorCustomElementRenderer {
       if (!documentationManager.hasActiveDockedDocWindow()) {
         component.startWait();
       }
-      documentationManager.navigateByLink(component, linkUrl);
+      documentationManager.navigateByLink(component, context, linkUrl);
     }
     if (documentationManager.getDocInfoHint() == null) {
       editor.putUserData(PopupFactoryImpl.ANCHOR_POPUP_POINT, null);
     }
     if (documentationManager.hasActiveDockedDocWindow()) {
-      documentationManager.setAllowContentUpdateFromContext(false);
       Disposable disposable = Disposer.newDisposable();
       editor.getCaretModel().addCaretListener(new CaretListener() {
         @Override
         public void caretPositionChanged(@NotNull CaretEvent e) {
-          documentationManager.resetAutoUpdateState();
           Disposer.dispose(disposable);
         }
       }, disposable);
+      documentationManager.muteAutoUpdateTill(disposable);
     }
   }
 
+  private static boolean isExternalLink(@NotNull String linkUrl) {
+    String l = linkUrl.toLowerCase(Locale.ROOT);
+    return l.startsWith("http://") || l.startsWith("https://");
+  }
+
   private static EditorKit createEditorKit(@NotNull Editor editor) {
-    HTMLEditorKit editorKit = new MyEditorKit();
+    HTMLEditorKit editorKit = new MyEditorKit(editor);
     editorKit.getStyleSheet().addStyleSheet(getStyleSheet(editor));
     return editorKit;
   }
 
   private static StyleSheet getStyleSheet(@NotNull Editor editor) {
     EditorColorsScheme colorsScheme = editor.getColorsScheme();
-    String editorFontName = ObjectUtils.notNull(colorsScheme.getEditorFontName(), Font.MONOSPACED);
     Color linkColor = colorsScheme.getColor(DefaultLanguageHighlighterColors.DOC_COMMENT_LINK);
     if (linkColor == null) linkColor = getTextColor(colorsScheme);
     String linkColorHex = ColorUtil.toHex(linkColor);
-    if (!Objects.equals(linkColorHex, ourCachedStyleSheetLinkColor) || !Objects.equals(editorFontName, ourCachedStyleSheetMonoFont)) {
-      String escapedFontName = StringUtil.escapeQuotes(editorFontName);
+    if (!Objects.equals(linkColorHex, ourCachedStyleSheetLinkColor)) {
+      String editorFontNamePlaceHolder = EditorCssFontResolver.EDITOR_FONT_NAME_PLACEHOLDER;
       ourCachedStyleSheet = StartupUiUtil.createStyleSheet(
         "body {overflow-wrap: anywhere}" + // supported by JetBrains Runtime
-        "code {font-family: \"" + escapedFontName + "\"}" +
-        "pre {font-family: \"" + escapedFontName + "\";" +
+        "code {font-family: \"" + editorFontNamePlaceHolder + "\"}" +
+        "pre {font-family: \"" + editorFontNamePlaceHolder + "\";" +
              "white-space: pre-wrap}" + // supported by JetBrains Runtime
         "h1, h2, h3, h4, h5, h6 {margin-top: 0; padding-top: 1}" +
         "a {color: #" + linkColorHex + "; text-decoration: none}" +
@@ -387,7 +526,6 @@ class DocRenderer implements EditorCustomElementRenderer {
         ".content {padding: 2 0 2 0}"
       );
       ourCachedStyleSheetLinkColor = linkColorHex;
-      ourCachedStyleSheetMonoFont = editorFontName;
     }
     return ourCachedStyleSheet;
   }
@@ -408,8 +546,10 @@ class DocRenderer implements EditorCustomElementRenderer {
     };
     private boolean myRepaintRequested;
 
-    EditorPane() {
-      MEMORY_MANAGER.register(DocRenderer.this, 50 /* rough size estimation */);
+    EditorPane(boolean trackMemory) {
+      if (trackMemory) {
+        MEMORY_MANAGER.register(DocRenderer.this, 50 /* rough size estimation */);
+      }
     }
 
     @Override
@@ -420,12 +560,20 @@ class DocRenderer implements EditorCustomElementRenderer {
     void doWithRepaintTracking(Runnable task) {
       myRepaintRequested = false;
       task.run();
-      if (myRepaintRequested) repaintInlay();
+      if (myRepaintRequested) repaintRenderer();
     }
 
-    private void repaintInlay() {
-      Inlay<DocRenderer> inlay = myItem.inlay;
-      if (inlay != null) inlay.repaint();
+    private void repaintRenderer() {
+      if (useOldBackend()) {
+        Inlay<DocRenderer> inlay = myItem.inlay;
+        if (inlay != null) inlay.repaint();
+      }
+      else {
+        FoldRegion foldRegion = myItem.foldRegion;
+        if (foldRegion instanceof CustomFoldRegion) {
+          ((CustomFoldRegion)foldRegion).repaint();
+        }
+      }
     }
 
     @Override
@@ -450,25 +598,44 @@ class DocRenderer implements EditorCustomElementRenderer {
     }
 
     @Nullable Point getSelectionPositionInEditor() {
-      if (myPane != this ||
-          myItem.inlay == null ||
-          myItem.inlay.getRenderer() != DocRenderer.this) {
+      if (myPane != this) {
         return null;
       }
-      Rectangle inlayBounds = myItem.inlay.getBounds();
-      if (inlayBounds == null) {
-        return null;
+      Point rendererLocation;
+      Rectangle boundsWithinRenderer;
+      if (useOldBackend()) {
+        Inlay<DocRenderer> inlay = myItem.inlay;
+        if (inlay == null || inlay.getRenderer() != DocRenderer.this) {
+          return null;
+        }
+        Rectangle bounds = inlay.getBounds();
+        if (bounds == null) {
+          return null;
+        }
+        rendererLocation = bounds.getLocation();
+        boundsWithinRenderer = getEditorPaneBoundsWithinRenderer(inlay.getWidthInPixels(), inlay.getHeightInPixels());
       }
-      Rectangle boundsWithinInlay = getEditorPaneBoundsWithinInlay(myItem.inlay);
-      Rectangle locationInPane;
+      else {
+        CustomFoldRegion foldRegion = (CustomFoldRegion)myItem.foldRegion;
+        if (foldRegion == null || foldRegion.getRenderer() != DocRenderer.this) {
+          return null;
+        }
+        rendererLocation = foldRegion.getLocation();
+        if (rendererLocation == null) {
+          return null;
+        }
+        boundsWithinRenderer = getEditorPaneBoundsWithinRenderer(foldRegion.getWidthInPixels(), foldRegion.getHeightInPixels());
+      }
+      Rectangle2D locationInPane;
       try {
-        locationInPane = modelToView(getSelectionStart());
+        locationInPane = modelToView2D(getSelectionStart());
       }
       catch (BadLocationException e) {
         LOG.error(e);
         locationInPane = new Rectangle();
       }
-      return new Point(inlayBounds.x + boundsWithinInlay.x + locationInPane.x, inlayBounds.y + boundsWithinInlay.y + locationInPane.y);
+      return new Point(rendererLocation.x + boundsWithinRenderer.x + (int)locationInPane.getX(),
+                       rendererLocation.y + boundsWithinRenderer.y + (int)locationInPane.getY());
     }
 
     private void scheduleUpdate() {
@@ -476,9 +643,19 @@ class DocRenderer implements EditorCustomElementRenderer {
         SwingUtilities.invokeLater(() -> {
           myRepaintScheduled.set(false);
           myUpdateScheduled.set(false);
-          Inlay<DocRenderer> inlay = myItem.inlay;
-          if (this == myPane && inlay != null) {
-            DocRenderItemUpdater.getInstance().updateInlays(Collections.singleton(inlay), false);
+          if (this == myPane) {
+            if (useOldBackend()) {
+              Inlay<DocRenderer> inlay = myItem.inlay;
+              if (inlay != null) {
+                DocRenderItemUpdater.getInstance().updateInlays(Collections.singleton(inlay), false);
+              }
+            }
+            else {
+              FoldRegion foldRegion = myItem.foldRegion;
+              if (foldRegion instanceof CustomFoldRegion) {
+                DocRenderItemUpdater.getInstance().updateFoldRegions(Collections.singleton((CustomFoldRegion)foldRegion), false);
+              }
+            }
           }
         });
       }
@@ -489,7 +666,7 @@ class DocRenderer implements EditorCustomElementRenderer {
         SwingUtilities.invokeLater(() -> {
           myRepaintScheduled.set(false);
           if (this == myPane) {
-            repaintInlay();
+            repaintRenderer();
           }
         });
       }
@@ -527,6 +704,10 @@ class DocRenderer implements EditorCustomElementRenderer {
   }
 
   private static class MyEditorKit extends JBHtmlEditorKit {
+    private MyEditorKit(Editor editor) {
+      setFontResolver(EditorCssFontResolver.getInstance(editor));
+    }
+
     @Override
     public ViewFactory getViewFactory() {
       return MyViewFactory.INSTANCE;

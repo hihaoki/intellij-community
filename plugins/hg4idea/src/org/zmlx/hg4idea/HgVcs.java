@@ -18,7 +18,6 @@ import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.options.Configurable;
@@ -39,8 +38,10 @@ import com.intellij.openapi.vcs.rollback.RollbackEnvironment;
 import com.intellij.openapi.vcs.roots.VcsRootDetector;
 import com.intellij.openapi.vcs.update.UpdateEnvironment;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.messages.Topic;
-import org.jetbrains.annotations.CalledInAwt;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.provider.*;
@@ -61,9 +62,11 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static com.intellij.util.containers.ContainerUtil.exists;
 import static com.intellij.util.containers.ContainerUtil.newArrayList;
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.*;
 
 public class HgVcs extends AbstractVcs {
   public static final Topic<HgUpdater> REMOTE_TOPIC = new Topic<>("hg4idea.remote", HgUpdater.class);
@@ -71,13 +74,14 @@ public class HgVcs extends AbstractVcs {
   public static final Topic<HgWidgetUpdater> INCOMING_OUTGOING_CHECK_TOPIC = new Topic<>("hg4idea.incomingcheck", HgWidgetUpdater.class);
   private static final Logger LOG = Logger.getInstance(HgVcs.class);
 
-  public static final String VCS_NAME = "hg4idea";
-  public static final String DISPLAY_NAME = "Mercurial";
+  public static final @NonNls String VCS_NAME = "hg4idea";
+  public static final Supplier<@Nls String> DISPLAY_NAME = HgBundle.messagePointer("hg4idea.vcs.name");
+  public static final Supplier<@Nls String> SHORT_DISPLAY_NAME = HgBundle.messagePointer("hg4idea.vcs.short.name");
   private final static VcsKey ourKey = createKey(VCS_NAME);
   private static final int MAX_CONSOLE_OUTPUT_SIZE = 10000;
 
-  private static final String ORIG_FILE_PATTERN = "*.orig";
-  @Nullable public static final String HGENCODING = System.getenv("HGENCODING");
+  private static final @NonNls String ORIG_FILE_PATTERN = "*.orig";
+  @Nullable public static final @NonNls String HGENCODING = System.getenv("HGENCODING");
 
   private final HgChangeProvider changeProvider;
   private final HgRollbackEnvironment rollbackEnvironment;
@@ -122,18 +126,25 @@ public class HgVcs extends AbstractVcs {
   @Override
   @NotNull
   public String getDisplayName() {
-    return DISPLAY_NAME;
+    return DISPLAY_NAME.get();
   }
 
   @NotNull
   @Override
   public String getShortName() {
-    return "Hg";
+    return SHORT_DISPLAY_NAME.get();
+  }
+
+  @Nls
+  @NotNull
+  @Override
+  public String getShortNameWithMnemonic() {
+    return HgBundle.message("hg4idea.vcs.short.name.with.mnemonic");
   }
 
   @Override
   public Configurable getConfigurable() {
-    return new HgProjectConfigurable(myProject);
+    return null;
   }
 
   @NotNull
@@ -280,7 +291,7 @@ public class HgVcs extends AbstractVcs {
     return (HgVcs)vcsManager.findVcsByName(VCS_NAME);
   }
 
-  public void showMessageInConsole(@NotNull String message, @NotNull ConsoleViewContentType contentType) {
+  public void showMessageInConsole(@NotNull @Nls String message, @NotNull ConsoleViewContentType contentType) {
     if (message.length() > MAX_CONSOLE_OUTPUT_SIZE) {
       message = message.substring(0, MAX_CONSOLE_OUTPUT_SIZE);
     }
@@ -325,12 +336,12 @@ public class HgVcs extends AbstractVcs {
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   public void enableIntegration() {
     new Task.Backgroundable(myProject, HgBundle.message("progress.title.enabling.hg"), true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        Collection<VcsRoot> roots = ServiceManager.getService(myProject, VcsRootDetector.class).detect();
+        Collection<VcsRoot> roots = myProject.getService(VcsRootDetector.class).detect();
         new HgIntegrationEnabler(HgVcs.this).enable(roots);
       }
     }.queue();
@@ -355,8 +366,7 @@ public class HgVcs extends AbstractVcs {
       protected void hyperlinkActivated(@NotNull Notification notification,
                                         @NotNull HyperlinkEvent e) {
         if (SETTINGS_LINK.equals(e.getDescription())) {
-          ShowSettingsUtil.getInstance()
-            .showSettingsDialog(myProject, getConfigurable().getDisplayName());
+          ShowSettingsUtil.getInstance().showSettingsDialog(myProject, HgProjectConfigurable.getDISPLAY_NAME());
         }
         else if (UPDATE_LINK.equals(e.getDescription())) {
           BrowserUtil.browse("http://mercurial.selenic.com");
@@ -369,13 +379,13 @@ public class HgVcs extends AbstractVcs {
       if (!myVersion.isSupported()) {
         LOG.info("Unsupported Hg version: " + myVersion);
         String message = HgBundle.message("hg4idea.version.update", SETTINGS_LINK, myVersion, HgVersion.MIN, UPDATE_LINK);
-        vcsNotifier.notifyError(HgBundle.message("hg4idea.version.unsupported"), message, linkAdapter);
+        vcsNotifier.notifyError(UNSUPPORTED_VERSION, HgBundle.message("hg4idea.version.unsupported"), message, linkAdapter);
       }
       else if (myVersion.hasUnsupportedExtensions()) {
         String unsupportedExtensionsAsString = myVersion.getUnsupportedExtensions().toString();
         LOG.warn("Unsupported Hg extensions: " + unsupportedExtensionsAsString);
         String message = HgBundle.message("hg4idea.version.unsupported.ext", unsupportedExtensionsAsString);
-        vcsNotifier.notifyWarning(HgBundle.message("hg4idea.version.unsupported"), message);
+        vcsNotifier.notifyWarning(UNSUPPORTED_EXT, HgBundle.message("hg4idea.version.unsupported"), message);
       }
     }
     catch (Exception e) {
@@ -384,7 +394,7 @@ public class HgVcs extends AbstractVcs {
         // so parse(output) throw ParseException, but hg and git executable seems to be valid in this case
         final String reason = (e.getCause() != null ? e.getCause() : e).getMessage();
         String message = HgBundle.message("hg4idea.unable.to.run.hg", executable);
-        vcsNotifier.notifyError(message,
+        vcsNotifier.notifyError(UNABLE_TO_RUN_EXEC, message,
                                 HgBundle.message("hg4idea.exec.not.found", reason, SETTINGS_LINK),
                                 linkAdapter
         );

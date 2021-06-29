@@ -87,8 +87,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       }
     }
 
-    @Nullable
-    private String buildSystemArrayCopyText(PsiForStatement forStatement, CommentTracker commentTracker) {
+    private @Nullable @NonNls String buildSystemArrayCopyText(PsiForStatement forStatement, CommentTracker commentTracker) {
       final PsiExpression condition = forStatement.getCondition();
       final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)PsiUtil.skipParenthesizedExprDown(condition);
       if (binaryExpression == null) {
@@ -302,7 +301,8 @@ public class ManualArrayCopyInspection extends BaseInspection {
           return maxText + '+' + -minValue;
         }
       }
-      final String minText = commentTracker.text(min, ParenthesesUtils.ADDITIVE_PRECEDENCE);
+      // - 1 because of the increment inside the com.siyeh.ig.psiutils.CommentTracker.text(com.intellij.psi.PsiExpression, int)
+      final String minText = commentTracker.text(min, ParenthesesUtils.ADDITIVE_PRECEDENCE - 1);
       final String maxText = buildExpressionText(max, plusOne, commentTracker);
       return maxText + '-' + minText;
     }
@@ -385,56 +385,15 @@ public class ManualArrayCopyInspection extends BaseInspection {
     public void visitForStatement(
       @NotNull PsiForStatement statement) {
       super.visitForStatement(statement);
-      final PsiStatement initialization = statement.getInitialization();
-      if (!(initialization instanceof PsiDeclarationStatement)) {
+      final CountingLoop countingLoop = CountingLoop.from(statement);
+      if (countingLoop == null) {
         return;
-      }
-      final PsiDeclarationStatement declaration =
-        (PsiDeclarationStatement)initialization;
-      final PsiElement[] declaredElements =
-        declaration.getDeclaredElements();
-      if (declaredElements.length != 1) {
-        return;
-      }
-      final PsiElement declaredElement = declaredElements[0];
-      if (!(declaredElement instanceof PsiLocalVariable)) {
-        return;
-      }
-      final PsiLocalVariable variable = (PsiLocalVariable)declaredElement;
-      final PsiExpression initialValue = variable.getInitializer();
-      if (initialValue == null) {
-        return;
-      }
-      final PsiStatement update = statement.getUpdate();
-      final boolean decrement;
-      if (VariableAccessUtils.variableIsIncremented(variable, update)) {
-        decrement = false;
-      }
-      else if (VariableAccessUtils.variableIsDecremented(variable,
-                                                         update)) {
-        decrement = true;
-      }
-      else {
-        return;
-      }
-      final PsiExpression condition = statement.getCondition();
-      if (decrement) {
-        if (!ExpressionUtils.isVariableGreaterThanComparison(
-          condition, variable)) {
-          return;
-        }
-      }
-      else {
-        if (!ExpressionUtils.isVariableLessThanComparison(
-          condition, variable)) {
-          return;
-        }
       }
       final PsiStatement body = statement.getBody();
-      if (!bodyIsArrayCopy(body, variable, null)) {
+      if (!bodyIsArrayCopy(body, countingLoop.getCounter(), null)) {
         return;
       }
-      registerStatementError(statement, Boolean.valueOf(decrement));
+      registerStatementError(statement, Boolean.valueOf(countingLoop.isDescending()));
     }
 
     private static boolean bodyIsArrayCopy(

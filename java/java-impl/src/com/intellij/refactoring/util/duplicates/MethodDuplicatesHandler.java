@@ -20,8 +20,10 @@ import com.intellij.analysis.AnalysisUIOptions;
 import com.intellij.analysis.BaseAnalysisActionDialog;
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.ContextAwareActionHandler;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
@@ -37,6 +39,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.WindowManager;
@@ -47,8 +50,10 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
+import com.intellij.refactoring.actions.RefactoringActionContextUtil;
 import com.intellij.refactoring.extractMethod.InputVariables;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -62,13 +67,40 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
    * @deprecated Use {@link #getRefactoringName()} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static final String REFACTORING_NAME = "Replace Code Duplicates";
   private static final Logger LOG = Logger.getInstance(MethodDuplicatesHandler.class);
 
   @Override
   public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    PsiMember member = findMember(editor, file);
+    return member != null && getCannotRefactorMessage(member) == null;
+  }
+
+  private static @Nullable PsiMember findMember(@Nullable Editor editor, @Nullable PsiFile file) {
+    if (editor == null || file == null) return null;
     final PsiElement element = file.findElementAt(editor.getCaretModel().getOffset());
-    return getCannotRefactorMessage(PsiTreeUtil.getParentOfType(element, PsiMember.class)) == null;
+    PsiMember member = RefactoringActionContextUtil.getJavaMethodHeader(element);
+    if (member == null) {
+      member = PsiTreeUtil.getParentOfType(element, PsiField.class);
+    }
+    return member;
+  }
+
+  public static @NlsActions.ActionText String getActionName(DataContext dataContext){
+    Editor editor = dataContext.getData(CommonDataKeys.EDITOR);
+    Project project = dataContext.getData(CommonDataKeys.PROJECT);
+    if (project != null && editor != null) {
+      PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+      PsiMember member = findMember(editor, file);
+      if (member instanceof PsiField) {
+        return ActionsBundle.message("action.MethodDuplicates.field.text");
+      }
+      else if (member instanceof PsiMethod) {
+        return ActionsBundle.message("action.MethodDuplicates.method.text");
+      }
+    }
+    return ActionsBundle.message("action.MethodDuplicates.text");
   }
 
   @Override
@@ -102,7 +134,7 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
   }
 
   @Nullable
-  private static String getCannotRefactorMessage(PsiMember member) {
+  private static @NlsContexts.DialogMessage String getCannotRefactorMessage(PsiMember member) {
     if (member == null) {
       return JavaRefactoringBundle.message("locate.caret.inside.a.method");
     }
@@ -121,15 +153,15 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
     } else if (member instanceof PsiField) {
       final PsiField field = (PsiField)member;
       if (field.getInitializer() == null) {
-        return "Field " + member.getName() + " doesn't have initializer";
+        return JavaRefactoringBundle.message("dialog.message.field.doesnt.have.initializer", member.getName());
       }
       final PsiClass containingClass = field.getContainingClass();
       if (!field.hasModifierProperty(PsiModifier.FINAL) || !field.hasModifierProperty(PsiModifier.STATIC) ||
           containingClass == null || containingClass.getQualifiedName() == null) {
-        return "Replace Duplicates works with constants only";
+        return JavaRefactoringBundle.message("dialog.message.replace.duplicates.works.with.constants.only");
       }
     } else {
-      return "Caret should be inside method or constant";
+      return JavaRefactoringBundle.message("dialog.message.caret.should.be.inside.method.or.constant");
     }
     return null;
   }
@@ -298,7 +330,7 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
                                 new ArrayList<>());
   }
 
-  private static @NotNull String getStatusMessage(final int duplicatesNo) {
+  private static @NlsContexts.StatusBarText @NotNull String getStatusMessage(final int duplicatesNo) {
     return JavaRefactoringBundle.message("method.duplicates.found.message", duplicatesNo);
   }
 

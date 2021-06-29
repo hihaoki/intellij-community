@@ -1,39 +1,22 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.openapi.util.Comparing;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.SingletonSet;
 import gnu.trove.THashMap;
 import gnu.trove.TObjectFunction;
 import gnu.trove.TObjectObjectProcedure;
 import gnu.trove.TObjectProcedure;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.AbstractMap;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
- * Hash set (based on THashSet) which is fast when contains one or zero elements (avoids to calculate hash codes and call equals whenever possible).
- * For other sizes it delegates to THashSet.
- * Null keys are NOT PERMITTED.
+ * @deprecated Use {@link HashMap}
  */
+@ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+@Deprecated
 public class SmartHashMap<K,V> extends THashMap<K,V> {
   private K theKey;   // contains the only element if size() == 1
   private V theValue;
@@ -131,7 +114,7 @@ public class SmartHashMap<K,V> extends THashMap<K,V> {
   public Set<K> keySet() {
     K theKey = this.theKey;
     if (theKey != null) {
-      return new SingletonSet<>(theKey);
+      return Collections.singleton(theKey);
     }
     return super.keySet();
   }
@@ -141,7 +124,7 @@ public class SmartHashMap<K,V> extends THashMap<K,V> {
   public Collection<V> values() {
     K theKey = this.theKey;
     if (theKey != null) {
-      return new SingletonSet<>(theValue);
+      return Collections.singleton(theValue);
     }
     return super.values();
   }
@@ -151,7 +134,7 @@ public class SmartHashMap<K,V> extends THashMap<K,V> {
   public Set<Map.Entry<K, V>> entrySet() {
     K theKey = this.theKey;
     if (theKey != null) {
-      return new SingletonSet<>(new AbstractMap.SimpleEntry<>(theKey, theValue));
+      return Collections.singleton(new AbstractMap.SimpleEntry<>(theKey, theValue));
     }
     return super.entrySet();
   }

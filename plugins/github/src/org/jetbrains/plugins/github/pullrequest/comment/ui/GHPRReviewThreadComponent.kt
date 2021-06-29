@@ -1,18 +1,24 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.comment.ui
 
+import com.intellij.collaboration.async.CompletableFutureUtil.handleOnEdt
+import com.intellij.collaboration.async.CompletableFutureUtil.successOnEdt
+import com.intellij.collaboration.ui.SingleValueModel
+import com.intellij.collaboration.ui.codereview.InlineIconButton
+import com.intellij.collaboration.ui.codereview.ToggleableContainer
 import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.newui.VerticalLayout
 import com.intellij.openapi.fileTypes.FileTypeRegistry
 import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.project.Project
 import com.intellij.ui.ClickListener
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.labels.LinkLabel
 import com.intellij.ui.components.panels.HorizontalBox
 import com.intellij.ui.components.panels.NonOpaquePanel
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.PathUtil
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UI
 import com.intellij.util.ui.UIUtil
 import net.miginfocom.layout.CC
 import net.miginfocom.layout.LC
@@ -20,14 +26,11 @@ import net.miginfocom.swing.MigLayout
 import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewCommentState
 import org.jetbrains.plugins.github.i18n.GithubBundle
-import org.jetbrains.plugins.github.pullrequest.avatars.GHAvatarIconsProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRReviewDataProvider
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRReviewThreadDiffComponentFactory
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRSelectInToolWindowHelper
-import org.jetbrains.plugins.github.ui.InlineIconButton
-import org.jetbrains.plugins.github.ui.util.SingleValueModel
-import org.jetbrains.plugins.github.util.handleOnEdt
-import org.jetbrains.plugins.github.util.successOnEdt
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
+import org.jetbrains.plugins.github.ui.util.GHUIUtil
 import java.awt.Cursor
 import java.awt.event.ActionListener
 import java.awt.event.MouseEvent
@@ -35,22 +38,23 @@ import javax.swing.*
 
 object GHPRReviewThreadComponent {
 
-  fun create(thread: GHPRReviewThreadModel, reviewDataProvider: GHPRReviewDataProvider,
+  fun create(project: Project, thread: GHPRReviewThreadModel, reviewDataProvider: GHPRReviewDataProvider,
              avatarIconsProvider: GHAvatarIconsProvider, currentUser: GHUser): JComponent {
-    val panel = JPanel(VerticalLayout(UI.scale(12))).apply {
+    val panel = JPanel(VerticalLayout(JBUIScale.scale(12))).apply {
       isOpaque = false
     }
     panel.add(
-      GHPRReviewThreadCommentsPanel.create(thread, GHPRReviewCommentComponent.factory(reviewDataProvider, avatarIconsProvider)),
+      GHPRReviewThreadCommentsPanel.create(thread, GHPRReviewCommentComponent.factory(project, reviewDataProvider, avatarIconsProvider)),
       VerticalLayout.FILL_HORIZONTAL)
 
     if (reviewDataProvider.canComment()) {
-      panel.add(getThreadActionsComponent(reviewDataProvider, thread, avatarIconsProvider, currentUser), VerticalLayout.FILL_HORIZONTAL)
+      panel.add(getThreadActionsComponent(project, reviewDataProvider, thread, avatarIconsProvider, currentUser),
+                VerticalLayout.FILL_HORIZONTAL)
     }
     return panel
   }
 
-  fun createWithDiff(thread: GHPRReviewThreadModel, reviewDataProvider: GHPRReviewDataProvider,
+  fun createWithDiff(project: Project, thread: GHPRReviewThreadModel, reviewDataProvider: GHPRReviewDataProvider,
                      selectInToolWindowHelper: GHPRSelectInToolWindowHelper, diffComponentFactory: GHPRReviewThreadDiffComponentFactory,
                      avatarIconsProvider: GHAvatarIconsProvider, currentUser: GHUser): JComponent {
 
@@ -59,24 +63,24 @@ object GHPRReviewThreadComponent {
     val expandButton = InlineIconButton(AllIcons.General.ExpandComponent, AllIcons.General.ExpandComponentHover,
                                         tooltip = GithubBundle.message("pull.request.timeline.review.thread.expand"))
 
-    val panel = JPanel(VerticalLayout(UI.scale(4))).apply {
+    val panel = JPanel(VerticalLayout(JBUIScale.scale(4))).apply {
       isOpaque = false
       add(createFileName(thread, selectInToolWindowHelper, collapseButton, expandButton),
           VerticalLayout.FILL_HORIZONTAL)
     }
 
     object : CollapseController(thread, panel, collapseButton, expandButton) {
-      override fun createThreadsPanel(): JComponent = JPanel(VerticalLayout(UI.scale(12))).apply {
+      override fun createThreadsPanel(): JComponent = JPanel(VerticalLayout(JBUIScale.scale(12))).apply {
         isOpaque = false
 
-        add(diffComponentFactory.createComponent(thread.diffHunk), VerticalLayout.FILL_HORIZONTAL)
+        add(diffComponentFactory.createComponent(thread.diffHunk, thread.startLine), VerticalLayout.FILL_HORIZONTAL)
 
         add(GHPRReviewThreadCommentsPanel.create(thread,
-                                                 GHPRReviewCommentComponent.factory(reviewDataProvider, avatarIconsProvider, false)),
+                                                 GHPRReviewCommentComponent.factory(project, reviewDataProvider, avatarIconsProvider, false)),
             VerticalLayout.FILL_HORIZONTAL)
 
         if (reviewDataProvider.canComment()) {
-          add(getThreadActionsComponent(reviewDataProvider, thread, avatarIconsProvider, currentUser),
+          add(getThreadActionsComponent(project, reviewDataProvider, thread, avatarIconsProvider, currentUser),
               VerticalLayout.FILL_HORIZONTAL)
         }
       }
@@ -97,7 +101,7 @@ object GHPRReviewThreadComponent {
     init {
       collapseButton.actionListener = ActionListener { collapseModel.value = true }
       expandButton.actionListener = ActionListener { collapseModel.value = false }
-      collapseModel.addValueChangedListener(::update)
+      collapseModel.addListener { update() }
       thread.addAndInvokeStateChangeListener(::update)
     }
 
@@ -161,7 +165,7 @@ object GHPRReviewThreadComponent {
       resolvedLabel.isVisible = thread.isResolved
     }
 
-    return NonOpaquePanel(MigLayout(LC().insets("0").gridGap("${UI.scale(5)}", "0").fill().noGrid())).apply {
+    return NonOpaquePanel(MigLayout(LC().insets("0").gridGap("${JBUIScale.scale(5)}", "0").fill().noGrid())).apply {
       add(nameLabel)
 
       if (!path.isBlank()) add(JLabel(path).apply {
@@ -176,12 +180,15 @@ object GHPRReviewThreadComponent {
     }
   }
 
-  private fun getThreadActionsComponent(reviewDataProvider: GHPRReviewDataProvider,
-                                        thread: GHPRReviewThreadModel,
-                                        avatarIconsProvider: GHAvatarIconsProvider,
-                                        currentUser: GHUser): JComponent {
+  private fun getThreadActionsComponent(
+    project: Project,
+    reviewDataProvider: GHPRReviewDataProvider,
+    thread: GHPRReviewThreadModel,
+    avatarIconsProvider: GHAvatarIconsProvider,
+    currentUser: GHUser
+  ): JComponent {
     val toggleModel = SingleValueModel(false)
-    val textFieldModel = GHSubmittableTextFieldModel { text ->
+    val textFieldModel = GHSubmittableTextFieldModel(project) { text ->
       reviewDataProvider.addComment(EmptyProgressIndicator(), thread.getElementAt(0).id, text).successOnEdt {
         thread.addComment(GHPRReviewCommentModel.convert(it))
         toggleModel.value = false
@@ -216,14 +223,21 @@ object GHPRReviewThreadComponent {
                      }, null)
     }
 
-    return GHPRToggleableContainer.create(toggleModel,
-                                          { createThreadActionsComponent(thread, toggleReplyLink, resolveLink, unresolveLink) },
-                                          {
-                                            GHSubmittableTextFieldFactory(textFieldModel).create(avatarIconsProvider, currentUser,
-                                                                                                 GithubBundle.message(
-                                                                                                   "pull.request.review.thread.reply"),
-                                                                                                 onCancel = { toggleModel.value = false })
-                                          })
+    val content = ToggleableContainer.create(
+      toggleModel,
+      { createThreadActionsComponent(thread, toggleReplyLink, resolveLink, unresolveLink) },
+      {
+        GHSubmittableTextFieldFactory(textFieldModel).create(avatarIconsProvider, currentUser,
+                                                             GithubBundle.message(
+                                                               "pull.request.review.thread.reply"),
+                                                             onCancel = { toggleModel.value = false })
+      }
+    )
+    return JPanel().apply {
+      isOpaque = false
+      layout = MigLayout(LC().insets("0"))
+      add(content, CC().width("${GHUIUtil.getPRTimelineWidth() + JBUIScale.scale(GHUIUtil.AVATAR_SIZE)}"))
+    }
   }
 
   private fun createThreadActionsComponent(model: GHPRReviewThreadModel,
@@ -242,7 +256,7 @@ object GHPRReviewThreadComponent {
       border = JBUI.Borders.empty(6, 28, 6, 0)
 
       add(toggleReplyLink)
-      add(Box.createHorizontalStrut(UI.scale(8)))
+      add(Box.createHorizontalStrut(JBUIScale.scale(8)))
       add(resolveLink)
       add(unresolveLink)
     }

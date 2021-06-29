@@ -1,30 +1,16 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.revert
 
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.DumbAwareAction
-import com.intellij.openapi.util.text.StringUtil.pluralize
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.vcs.log.VcsLogDataKeys
 import com.intellij.vcs.log.util.VcsLogUtil.MAX_SELECTED_COMMITS
 import git4idea.GitUtil.getRepositoryManager
 import git4idea.config.GitVcsSettings
+import git4idea.i18n.GitBundle
 
 class GitRevertAction : DumbAwareAction() {
   override fun update(e: AnActionEvent) {
@@ -39,6 +25,8 @@ class GitRevertAction : DumbAwareAction() {
     val repositoryManager = getRepositoryManager(project)
 
     val commits = ContainerUtil.getFirstItems(log.selectedShortDetails, MAX_SELECTED_COMMITS)
+
+    e.presentation.text = GitBundle.message("action.Git.Revert.In.Log.template.text", commits.size)
 
     if (commits.isEmpty()) {
       e.presentation.isEnabledAndVisible = false
@@ -55,7 +43,7 @@ class GitRevertAction : DumbAwareAction() {
     if (commits.any { it.parents.size > 1 }) {
       e.presentation.isVisible = true
       e.presentation.isEnabled = false
-      e.presentation.description = "Reverting merge commits is not allowed"
+      e.presentation.description = GitBundle.message("action.description.cant.revert.merge.commit")
       return
     }
 
@@ -67,14 +55,14 @@ class GitRevertAction : DumbAwareAction() {
     val log = e.getRequiredData(VcsLogDataKeys.VCS_LOG)
     val repositoryManager = getRepositoryManager(project)
 
-    log.requestSelectedDetails rsd@ { commits ->
+    log.requestSelectedDetails rsd@{ commits ->
       if (commits.any { repositoryManager.getRepositoryForRootQuick(it.root) == null }) return@rsd
       if (commits.any { it.parents.size > 1 }) return@rsd
 
-      object : Task.Backgroundable(project, "Reverting ${pluralize("commit", commits.size)}") {
-       override fun run(indicator: ProgressIndicator) {
-         GitRevertOperation(project, commits, GitVcsSettings.getInstance(project).isAutoCommitOnRevert).execute()
-       }
+      object : Task.Backgroundable(project, GitBundle.message("progress.title.reverting.n.commits", commits.size)) {
+        override fun run(indicator: ProgressIndicator) {
+          GitRevertOperation(project, commits, true).execute()
+        }
       }.queue()
     }
   }

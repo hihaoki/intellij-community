@@ -7,6 +7,7 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.MnemonicHelper;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionButtonLook;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -71,7 +72,7 @@ public class ActionButtonWithText extends ActionButton {
     }
     else {
       AnAction action = getAction();
-      setFont(action != null && action.useSmallerFontForTextInToolbar() ? JBUI.Fonts.toolbarSmallComboBoxFont() : UIUtil.getLabelFont());
+      setFont(action.useSmallerFontForTextInToolbar() ? JBUI.Fonts.toolbarSmallComboBoxFont() : UIUtil.getLabelFont());
     }
   }
 
@@ -188,7 +189,7 @@ public class ActionButtonWithText extends ActionButton {
     look.paintIcon(g, this, icon, iconRect.x, iconRect.y);
     look.paintBorder(g, this);
 
-    g.setColor(isButtonEnabled() ? getForeground() : getInactiveTextColor());
+    g.setColor(isEnabled() ? getForeground() : getInactiveTextColor());
     UIUtilities.drawStringUnderlineCharAt(this, g, text, getMnemonicCharIndex(text),
                                           textRect.x, textRect.y + fm.getAscent());
     if (arrowIcon != null) {
@@ -205,7 +206,7 @@ public class ActionButtonWithText extends ActionButton {
   @Override
   protected void presentationPropertyChanged(@NotNull PropertyChangeEvent e) {
     super.presentationPropertyChanged(e);
-    if (Presentation.PROP_TEXT.equals(e.getPropertyName())) {
+    if (Presentation.PROP_TEXT_WITH_SUFFIX.equals(e.getPropertyName())) {
       revalidate(); // recalc preferred size & repaint instantly
     }
   }
@@ -235,7 +236,7 @@ public class ActionButtonWithText extends ActionButton {
     return icon instanceof EmptyIcon || icon == null ? 0 : JBUI.scale(ICON_TEXT_SPACE);
   }
 
-  private int getMnemonicCharIndex(String text) {
+  protected int getMnemonicCharIndex(String text) {
     final int mnemonicIndex = myPresentation.getDisplayedMnemonicIndex();
     if (mnemonicIndex != -1) {
       return mnemonicIndex;
@@ -260,8 +261,9 @@ public class ActionButtonWithText extends ActionButton {
   }
 
   @NotNull
-  private String getText() {
-    final String text = myPresentation.getText();
+  @NlsActions.ActionText
+  protected String getText() {
+    final String text = myPresentation.getText(true);
     return text != null ? text : "";
   }
 

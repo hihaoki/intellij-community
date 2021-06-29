@@ -105,18 +105,6 @@ public final class PyClassRefactoringUtil {
     return currentValue.getText();
   }
 
-  @NotNull
-  public static List<PyFunction> copyMethods(Collection<? extends PyFunction> methods, PyClass superClass, boolean skipIfExist ) {
-    if (methods.isEmpty()) {
-      return Collections.emptyList();
-    }
-    for (final PsiElement e : methods) {
-      rememberNamedReferences(e);
-    }
-    final PyFunction[] elements = methods.toArray(PyFunction.EMPTY_ARRAY);
-    return addMethods(superClass, skipIfExist, elements);
-  }
-
   /**
    * Adds methods to class.
    *
@@ -139,10 +127,7 @@ public final class PyClassRefactoringUtil {
         continue; //We skip adding if class already has this method.
       }
 
-
-      final PyFunction newMethod = insertMethodInProperPlace(destStatementList, method);
-      result.add(newMethod);
-      restoreNamedReferences(newMethod);
+      result.add(insertMethodInProperPlace(destStatementList, method));
     }
 
     PyPsiUtils.removeRedundantPass(destStatementList);
@@ -199,13 +184,13 @@ public final class PyClassRefactoringUtil {
                                             final PsiElement @NotNull [] otherMovedElements) {
     newElement.acceptChildren(new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyReferenceExpression(PyReferenceExpression node) {
+      public void visitPyReferenceExpression(@NotNull PyReferenceExpression node) {
         super.visitPyReferenceExpression(node);
         restoreReference(node, node, otherMovedElements);
       }
 
       @Override
-      public void visitPyStringLiteralExpression(PyStringLiteralExpression node) {
+      public void visitPyStringLiteralExpression(@NotNull PyStringLiteralExpression node) {
         super.visitPyStringLiteralExpression(node);
         if (oldElement != null) {
           for (PsiReference ref : node.getReferences()) {
@@ -265,7 +250,7 @@ public final class PyClassRefactoringUtil {
   public static void rememberNamedReferences(@NotNull final PsiElement element, final String @NotNull ... namesToSkip) {
     element.accept(new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyReferenceExpression(PyReferenceExpression node) {
+      public void visitPyReferenceExpression(@NotNull PyReferenceExpression node) {
         super.visitPyReferenceExpression(node);
         if (PsiTreeUtil.getParentOfType(node, PyImportStatementBase.class) != null) {
           return;

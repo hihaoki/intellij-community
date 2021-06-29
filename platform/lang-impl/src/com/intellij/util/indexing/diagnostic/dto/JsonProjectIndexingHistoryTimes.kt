@@ -1,19 +1,22 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.indexing.diagnostic.dto
 
-@Suppress("unused", "used for JSON")
-data class JsonProjectIndexingHistoryTimes(
-  val indexingTime: JsonDuration,
-  val scanFilesTime: JsonDuration,
-  val pushPropertiesTime: JsonDuration,
-  val indexExtensionsTime: JsonDuration,
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonInclude
 
-  val pushPropertiesStart: JsonDateTime,
-  val pushPropertiesEnd: JsonDateTime,
-  val scanFilesStart: JsonDateTime,
-  val scanFilesEnd: JsonDateTime,
-  val indexExtensionsStart: JsonDateTime,
-  val indexExtensionsEnd: JsonDateTime,
-  val indexingStart: JsonDateTime,
-  val indexingEnd: JsonDateTime
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class JsonProjectIndexingHistoryTimes(
+  val indexingReason: String? = null,
+  val totalUpdatingTime: JsonDuration = JsonDuration(),
+  val indexingTime: JsonDuration = JsonDuration(),
+  val contentLoadingTime: JsonDuration = JsonDuration(),
+  val scanFilesTime: JsonDuration = JsonDuration(),
+  val pushPropertiesTime: JsonDuration = JsonDuration(),
+  val indexExtensionsTime: JsonDuration = JsonDuration(),
+
+  val updatingStart: JsonDateTime = JsonDateTime(),
+  val updatingEnd: JsonDateTime = JsonDateTime(),
+  val totalSuspendedTime: JsonDuration = JsonDuration(),
+  val wasInterrupted: Boolean = false
 )

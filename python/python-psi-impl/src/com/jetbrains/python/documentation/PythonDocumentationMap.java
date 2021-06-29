@@ -4,8 +4,8 @@ package com.jetbrains.python.documentation;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.util.text.StringUtil;
@@ -24,9 +24,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author yole
- */
+
 @State(name = "PythonDocumentationMap", storages = @Storage("other.xml"))
 public class PythonDocumentationMap implements PersistentStateComponent<PythonDocumentationMap.State> {
   private static final ImmutableMap<String, String> DEFAULT_ENTRIES = ImmutableMap.<String, String>builder()
@@ -43,7 +41,7 @@ public class PythonDocumentationMap implements PersistentStateComponent<PythonDo
     .build();
 
   public static PythonDocumentationMap getInstance() {
-    return ServiceManager.getService(PythonDocumentationMap.class);
+    return ApplicationManager.getApplication().getService(PythonDocumentationMap.class);
   }
 
   public static class State {
@@ -98,7 +96,7 @@ public class PythonDocumentationMap implements PersistentStateComponent<PythonDo
   }
 
   public Map<String, String> getEntries() {
-    return ImmutableMap.copyOf(myState.getEntries());
+    return Map.copyOf(myState.getEntries());
   }
 
   public void setEntries(Map<String, String> entries) {

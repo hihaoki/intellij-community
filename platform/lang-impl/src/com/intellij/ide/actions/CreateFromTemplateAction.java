@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.CommonBundle;
@@ -19,6 +19,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNameIdentifierOwner;
+import com.intellij.util.SlowOperations;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +32,7 @@ import java.util.function.Supplier;
 /**
  * @author Eugene.Kudelevsky
  */
-public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnAction implements WriteActionAware {
+public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnAction implements UpdateInBackground, WriteActionAware {
   protected static final Logger LOG = Logger.getInstance(CreateFromTemplateAction.class);
 
   public CreateFromTemplateAction(@NlsActions.ActionText String text,
@@ -53,7 +54,6 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
     }
 
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
-
     final PsiDirectory dir = view.getOrChooseDirectory();
     if (dir == null || project == null) return;
 
@@ -67,7 +67,7 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
                    @Override
                    public T createFile(@NotNull String name, @NotNull String templateName) {
                      selectedTemplateName.set(templateName);
-                     return CreateFromTemplateAction.this.createFile(name, templateName, dir);
+                     return CreateFromTemplateAction.this.createFile(name, templateName, adjustDirectory(dir));
                    }
 
                    @Override
@@ -89,9 +89,20 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
                      if (offset != -1 && editor != null && !editor.isDisposed()) {
                        editor.getCaretModel().moveToOffset(offset);
                      }
-                     postProcess(createdElement, selectedTemplateName.get(), builder.getCustomProperties());
+                     SlowOperations.allowSlowOperations(
+                       () -> postProcess(createdElement, selectedTemplateName.get(), builder.getCustomProperties())
+                     );
                    }
                  });
+  }
+
+  protected PsiDirectory adjustDirectory(@NotNull PsiDirectory original) {
+    return original;
+  }
+
+  @Nullable
+  protected PsiDirectory getDirectory(IdeView view) {
+    return view.getOrChooseDirectory();
   }
 
   @SuppressWarnings("TestOnlyProblems")

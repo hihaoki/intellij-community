@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.frame.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -25,7 +25,9 @@ public class XMoveWatchDown extends XWatchesTreeActionBase {
     if (nodes.size() == 1) {
       XDebuggerTreeNode root = tree.getRoot();
       if (root instanceof WatchesRootNode) {
-        return root.getIndex(nodes.get(0)) < ((WatchesRootNode)root).getWatchChildren().size() - 1;
+        WatchesRootNode rootNode = (WatchesRootNode)root;
+        int size = rootNode.getWatchChildren().size() - 1 + rootNode.headerNodesCount();
+        return root.getIndex(nodes.get(0)) < size;
       }
     }
     return false;

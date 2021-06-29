@@ -8,12 +8,15 @@ import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint;
+import com.intellij.codeInspection.dataFlow.interpreter.StandardDataFlowInterpreter;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -130,13 +133,13 @@ public class ContractInspection extends AbstractBaseJavaLocalInspectionTool {
           return ParseException
             .forClause(JavaAnalysisBundle.message("inspection.contract.checker.unreachable.contract.clause", contract), text, clauseIndex);
         }
-        if (StreamEx.of(possibleContracts).allMatch(c -> c.intersect(contract) == null)) {
+        if (ContainerUtil.and(possibleContracts, c -> c.intersect(contract) == null)) {
           return ParseException.forClause(
             JavaAnalysisBundle.message("inspection.contract.checker.contract.clause.never.satisfied", contract), text, clauseIndex);
         }
         possibleContracts = StreamEx.of(possibleContracts).flatMap(c -> c.excludeContract(contract))
-                                     .limit(DataFlowRunner.MAX_STATES_PER_BRANCH).toList();
-        if (possibleContracts.size() >= DataFlowRunner.MAX_STATES_PER_BRANCH) {
+                                     .limit(StandardDataFlowInterpreter.DEFAULT_MAX_STATES_PER_BRANCH).toList();
+        if (possibleContracts.size() >= StandardDataFlowInterpreter.DEFAULT_MAX_STATES_PER_BRANCH) {
           possibleContracts = null;
         }
       }
@@ -145,9 +148,9 @@ public class ContractInspection extends AbstractBaseJavaLocalInspectionTool {
   }
 
   @Nullable
-  private static String getConstraintProblem(PsiMethod method,
-                                             StandardMethodContract contract,
-                                             ValueConstraint constraint, PsiParameter parameter) {
+  private static @InspectionMessage String getConstraintProblem(PsiMethod method,
+                                                                StandardMethodContract contract,
+                                                                ValueConstraint constraint, PsiParameter parameter) {
     PsiType type = parameter.getType();
     switch (constraint) {
       case NULL_VALUE: {

@@ -4,7 +4,6 @@ package org.jetbrains.jps.model.serialization.impl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElementFactory;
-import org.jetbrains.jps.model.JpsGlobal;
 import org.jetbrains.jps.model.JpsModel;
 import org.jetbrains.jps.model.JpsProject;
 import org.jetbrains.jps.model.serialization.*;
@@ -22,20 +21,21 @@ public final class JpsSerializationManagerImpl extends JpsSerializationManager {
       JpsGlobalLoader.loadGlobalSettings(model.getGlobal(), optionsPath);
     }
     Map<String, String> pathVariables = JpsModelSerializationDataService.computeAllPathVariables(model.getGlobal());
-    JpsProjectLoader.loadProject(model.getProject(), pathVariables, projectPath, loadUnloadedModules);
+    JpsProjectLoader.loadProject(model.getProject(), pathVariables, model.getGlobal().getPathMapper(), projectPath, loadUnloadedModules);
     return model;
   }
 
   @NotNull
   @Override
   public JpsProject loadProject(@NotNull String projectPath, @NotNull Map<String, String> pathVariables) throws IOException {
-    JpsModel model = JpsElementFactory.getInstance().createModel();
-    JpsProjectLoader.loadProject(model.getProject(), pathVariables, projectPath);
-    return model.getProject();
+    return loadProject(projectPath, pathVariables, false);
   }
 
+  @NotNull
   @Override
-  public void saveGlobalSettings(@NotNull JpsGlobal global, @NotNull String optionsPath) throws IOException {
-    JpsGlobalElementSaver.saveGlobalElement(global, optionsPath);
+  public JpsProject loadProject(@NotNull String projectPath, @NotNull Map<String, String> pathVariables, boolean loadUnloadedModules) throws IOException {
+    JpsModel model = JpsElementFactory.getInstance().createModel();
+    JpsProjectLoader.loadProject(model.getProject(), pathVariables, JpsPathMapper.IDENTITY, projectPath, loadUnloadedModules);
+    return model.getProject();
   }
 }

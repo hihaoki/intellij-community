@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util
 
 import com.intellij.openapi.util.JDOMUtil
@@ -13,10 +13,15 @@ import org.jdom.JDOMException
 import org.jdom.Parent
 import org.jdom.input.SAXBuilder
 import org.jdom.input.sax.SAXHandler
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.NonNls
 import org.xml.sax.EntityResolver
 import org.xml.sax.InputSource
 import org.xml.sax.XMLReader
-import java.io.*
+import java.io.CharArrayReader
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Path
 import javax.xml.XMLConstants
 
@@ -39,24 +44,13 @@ fun Parent.write(output: OutputStream, lineSeparator: String = "\n") {
 }
 
 @Throws(IOException::class, JDOMException::class)
-@Deprecated("Use JDOMUtil.load directly", ReplaceWith("JDOMUtil.load(chars)", "com.intellij.openapi.util.JDOMUtil"))
-fun loadElement(chars: CharSequence): Element = JDOMUtil.load(chars)
-
-@Throws(IOException::class, JDOMException::class)
-@Deprecated("Use JDOMUtil.load directly", ReplaceWith("JDOMUtil.load(reader)", "com.intellij.openapi.util.JDOMUtil"))
-fun loadElement(reader: Reader): Element = JDOMUtil.load(reader)
-
-@Throws(IOException::class, JDOMException::class)
 @Deprecated("Use JDOMUtil.load directly", ReplaceWith("JDOMUtil.load(stream)", "com.intellij.openapi.util.JDOMUtil"))
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 fun loadElement(stream: InputStream): Element = JDOMUtil.load(stream)
-
-@Throws(IOException::class, JDOMException::class)
-@Deprecated("Use JDOMUtil.load directly", ReplaceWith("JDOMUtil.load(path)", "com.intellij.openapi.util.JDOMUtil"))
-fun loadElement(path: Path): Element = JDOMUtil.load(path)
 
 fun Element?.isEmpty() = this == null || JDOMUtil.isEmpty(this)
 
-fun Element.getOrCreate(name: String): Element {
+fun Element.getOrCreate(@NonNls name: String): Element {
   var element = getChild(name)
   if (element == null) {
     element = Element(name)
@@ -64,9 +58,6 @@ fun Element.getOrCreate(name: String): Element {
   }
   return element
 }
-
-@Deprecated(message = "Use setAttribute", replaceWith = ReplaceWith("setAttribute(name, value)"))
-fun Element.attribute(name: String, value: String?): Element = setAttribute(name, value)
 
 fun Element.toBufferExposingByteArray(lineSeparator: LineSeparator = LineSeparator.LF): BufferExposingByteArrayOutputStream {
   val out = BufferExposingByteArrayOutputStream(1024)
@@ -79,7 +70,7 @@ fun Element.toByteArray(): ByteArray {
 }
 
 @JvmOverloads
-fun Element.addOptionTag(name: String, value: String, elementName: String = Constants.OPTION) {
+fun Element.addOptionTag(@NonNls name: String, value: String, @NonNls elementName: String = Constants.OPTION) {
   val element = Element(elementName)
   element.setAttribute(Constants.NAME, name)
   element.setAttribute(Constants.VALUE, value)

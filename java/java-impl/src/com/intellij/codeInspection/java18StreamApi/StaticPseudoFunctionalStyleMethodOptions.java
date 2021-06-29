@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInspection.java18StreamApi;
 
+import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -116,7 +117,7 @@ public class StaticPseudoFunctionalStyleMethodOptions {
 
   public JComponent createPanel() {
     final JBList<PipelineElement> list = new JBList<>(myElements);
-    list.setCellRenderer(new ColoredListCellRenderer<PipelineElement>() {
+    list.setCellRenderer(new ColoredListCellRenderer<>() {
       @Override
       protected void customizeCellRenderer(@NotNull JList list, PipelineElement element, int index, boolean selected, boolean hasFocus) {
         final String classFQName = element.getHandlerClass();
@@ -129,7 +130,11 @@ public class StaticPseudoFunctionalStyleMethodOptions {
         append("." + element.getMethodName(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
       }
     });
-    return ToolbarDecorator.createDecorator(list).disableUpDownActions().setAddAction(new AnActionButtonRunnable() {
+    return ToolbarDecorator
+      .createDecorator(list)
+      .disableUpDownActions()
+      .setToolbarPosition(ActionToolbarPosition.RIGHT)
+      .setAddAction(new AnActionButtonRunnable() {
       @Override
       public void run(AnActionButton button) {
         final Project currentProject = CommonDataKeys.PROJECT.getData(button.getDataContext());
@@ -149,7 +154,8 @@ public class StaticPseudoFunctionalStyleMethodOptions {
           ((DefaultListModel<PipelineElement>)list.getModel()).addElement(newElement);
         }
       }
-    }).setRemoveAction(new AnActionButtonRunnable() {
+    })
+      .setRemoveAction(new AnActionButtonRunnable() {
       @Override
       public void run(AnActionButton button) {
         final int[] indices = list.getSelectedIndices();
@@ -160,7 +166,8 @@ public class StaticPseudoFunctionalStyleMethodOptions {
         myElements.removeAll(toRemove);
         ListUtil.removeSelectedItems(list);
       }
-    }).createPanel();
+    })
+      .createPanel();
   }
 
   public static class PipelineElement {
@@ -176,7 +183,7 @@ public class StaticPseudoFunctionalStyleMethodOptions {
       myTemplate = template;
     }
 
-    public String getHandlerClass() {
+    public @NlsSafe String getHandlerClass() {
       return myHandlerClass;
     }
 

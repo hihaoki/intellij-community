@@ -11,6 +11,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.util.concurrency.Invoker;
 import com.intellij.util.concurrency.InvokerSupplier;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.tree.AbstractTreeModel;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
@@ -131,7 +132,7 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
     Object component = path.getLastPathComponent();
     if (component instanceof Node) {
       Node node = (Node)component;
-      return onValidThread(structure -> disposed || isNodeRemoved(node) ? null : function.apply(node));
+      return onValidThread(__ -> disposed || isNodeRemoved(node) ? null : function.apply(node));
     }
     return rejectedPromise("unexpected node: " + component);
   }
@@ -143,12 +144,12 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
    */
   @NotNull
   private <Result> Promise<Result> onValidThread(@NotNull Object element, @NotNull Function<? super Node, ? extends Result> function) {
-    return onValidThread(structure -> {
+    return onValidThread(struct -> {
       Node node = root.get();
       if (node == null) return null;
       if (node.matches(element)) return function.apply(node);
       ArrayDeque<Object> stack = new ArrayDeque<>();
-      for (Object e = element; e != null; e = structure.getParentElement(e)) stack.push(e);
+      for (Object e = element; e != null; e = struct.getParentElement(e)) stack.push(e);
       if (!node.matches(stack.pop())) return null;
       while (!stack.isEmpty()) {
         node = node.findChild(stack.pop());
@@ -163,7 +164,7 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
    */
   @NotNull
   public final Promise<?> invalidate() {
-    return onValidThread(structure -> invalidateInternal(null, true));
+    return onValidThread(__ -> invalidateInternal(null, true));
   }
 
   /**
@@ -269,8 +270,8 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
    */
   @NotNull
   public final Promise<TreeVisitor> promiseVisitor(@NotNull Object element) {
-    return onValidThread(structure -> new TreeVisitor.ByTreePath<>(
-      TreePathUtil.pathToCustomNode(element, structure::getParentElement),
+    return onValidThread(struct -> new TreeVisitor.ByTreePath<>(
+      TreePathUtil.pathToCustomNode(element, struct::getParentElement),
       node -> node instanceof Node ? ((Node)node).getElement() : null));
   }
 
@@ -403,10 +404,12 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
     }
     HashMap<Object, Node> map = new HashMap<>();
     node.getChildren().forEach(child -> {
+      ProgressManager.checkCanceled();
       Object element = child.getElement();
       if (element != null) map.put(element, child);
     });
     for (int i = 0; i < list.size(); i++) {
+      ProgressManager.checkCanceled();
       Node newNode = list.get(i);
       Node oldNode = map.get(newNode.getElement());
       if (oldNode != null && oldNode.canReuse(newNode, null)) {
@@ -417,8 +420,9 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
   }
 
   private static final class Node extends DefaultMutableTreeNode implements LeafState.Supplier {
+    @SuppressWarnings("FieldNameHidesFieldInSuperclass")
     private final Reference<List<Node>> children = new Reference<>();
-    private final LeafState leafState;
+    private LeafState leafState; // NB!: modify in #canReuse only
     private final int hashCode;
 
     private Node(@NotNull AbstractTreeStructure structure, @NotNull Object element, NodeDescriptor<?> parent) {
@@ -427,9 +431,8 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
 
     private Node(@NotNull NodeDescriptor descriptor, @NotNull LeafState leafState, int hashCode) {
       super(descriptor, leafState != LeafState.ALWAYS);
-      this.leafState = leafState;
       this.hashCode = hashCode;
-      if (leafState == LeafState.ALWAYS) children.set(null); // validate children for leaf node
+      setLeafState(leafState);
       update(); // an exception may be thrown while updating
     }
 
@@ -440,9 +443,10 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
     }
 
     private boolean canReuse(@NotNull Node node, Object element) {
-      if (leafState != node.leafState || hashCode != node.hashCode) return false;
+      if (allowsChildren != node.allowsChildren || hashCode != node.hashCode) return false;
       if (element != null && !matches(element)) return false;
       userObject = node.userObject; // replace old descriptor
+      setLeafState(leafState);
       return true;
     }
 
@@ -472,8 +476,8 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
       if (list != null) {
         if (!list.isEmpty()) {
           int hashCode = element.hashCode();
-          Optional<Node> result = list.stream().filter(node -> node.matches(element, hashCode)).findFirst();
-          if (result.isPresent()) return result.get(); // found child node that matches given element
+          Node result = ContainerUtil.find(list, node -> node.matches(element, hashCode));
+          if (result != null) return result; // found child node that matches given element
         }
         if (LOG.isTraceEnabled()) LOG.debug("node '", getElement(), "' have no child: ", element);
       }
@@ -554,6 +558,11 @@ public class StructureTreeModel<Structure extends AbstractTreeStructure>
       if (leafState == LeafState.NEVER) return false;
       if (leafState == LeafState.DEFAULT && validator != null) validator.accept(this);
       return children.isValid() && super.isLeaf();
+    }
+
+    private void setLeafState(@NotNull LeafState leafState) {
+      this.leafState = leafState;
+      if (leafState == LeafState.ALWAYS) children.set(null); // validate children for leaf node
     }
 
     @Override

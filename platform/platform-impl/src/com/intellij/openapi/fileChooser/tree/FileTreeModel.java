@@ -1,20 +1,27 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.tree;
 
+import com.intellij.execution.wsl.WSLDistribution;
+import com.intellij.execution.wsl.WSLUtil;
+import com.intellij.execution.wsl.WslDistributionManager;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.Experiments;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileElement;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.vfs.JarFileSystem;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VFileProperty;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
-import com.intellij.ui.tree.Identifiable;
 import com.intellij.ui.tree.MapBasedTree;
 import com.intellij.ui.tree.MapBasedTree.Entry;
 import com.intellij.ui.tree.MapBasedTree.UpdateResult;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.concurrency.Invoker;
 import com.intellij.util.concurrency.InvokerSupplier;
 import com.intellij.util.containers.ContainerUtil;
@@ -25,22 +32,21 @@ import javax.swing.*;
 import javax.swing.tree.TreePath;
 import java.lang.reflect.Method;
 import java.nio.file.FileSystems;
-import java.util.ArrayDeque;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.stream.StreamSupport;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
-import static com.intellij.openapi.application.ApplicationManager.getApplication;
-import static com.intellij.openapi.util.Disposer.register;
-import static com.intellij.openapi.util.io.FileUtil.toSystemIndependentName;
-import static com.intellij.openapi.util.text.StringUtil.naturalCompare;
-import static com.intellij.openapi.vfs.VirtualFileManager.VFS_CHANGES;
-import static com.intellij.util.ReflectionUtil.getDeclaredMethod;
-import static java.util.Collections.emptyList;
-import static java.util.stream.Collectors.toList;
+public final class FileTreeModel extends AbstractTreeModel implements InvokerSupplier {
 
-public final class FileTreeModel extends AbstractTreeModel implements Identifiable, InvokerSupplier {
+  private static final Logger LOG = Logger.getInstance(FileTreeModel.class);
+
   private final Invoker invoker = Invoker.forBackgroundThreadWithReadAction(this);
   private final State state;
   private volatile List<Root> roots;
@@ -50,11 +56,11 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   public FileTreeModel(@NotNull FileChooserDescriptor descriptor, FileRefresher refresher, boolean sortDirectories, boolean sortArchives) {
-    if (refresher != null) register(this, refresher);
-    state = new State(descriptor, refresher, sortDirectories, sortArchives);
-    getApplication().getMessageBus().connect(this).subscribe(VFS_CHANGES, new BulkFileListener() {
+    if (refresher != null) Disposer.register(this, refresher);
+    state = new State(descriptor, refresher, sortDirectories, sortArchives, this);
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         invoker.invoke(() -> process(events));
       }
     });
@@ -71,24 +77,6 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
     });
   }
 
-  @Override
-  public Object getUniqueID(@NotNull TreePath path) {
-    Object object = path.getLastPathComponent();
-    TreePath parent = path.getParentPath();
-    return parent != null && object instanceof Node
-           ? getUniqueID(parent, (Node)object, new ArrayDeque<>())
-           : parent != null || object != state ? null : state.toString();
-  }
-
-  private Object getUniqueID(TreePath path, Node node, ArrayDeque<? super String> deque) {
-    deque.addFirst(node.getName());
-    Object object = path.getLastPathComponent();
-    TreePath parent = path.getParentPath();
-    return parent != null && object instanceof Node
-           ? getUniqueID(parent, (Node)object, deque)
-           : parent != null || object != state ? null : deque.toArray();
-  }
-
   @NotNull
   @Override
   public Invoker getInvoker() {
@@ -96,14 +84,14 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   @Override
-  public final Object getRoot() {
+  public Object getRoot() {
     if (state.path != null) return state;
     if (roots == null) roots = state.getRoots();
     return 1 == roots.size() ? roots.get(0) : null;
   }
 
   @Override
-  public final Object getChild(Object object, int index) {
+  public Object getChild(Object object, int index) {
     if (object == state) {
       if (roots == null) roots = state.getRoots();
       if (0 <= index && index < roots.size()) return roots.get(index);
@@ -116,7 +104,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   @Override
-  public final int getChildCount(Object object) {
+  public int getChildCount(Object object) {
     if (object == state) {
       if (roots == null) roots = state.getRoots();
       return roots.size();
@@ -129,9 +117,8 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   @Override
-  public final boolean isLeaf(Object object) {
+  public boolean isLeaf(Object object) {
     if (object instanceof Node) {
-      assert object != state;
       Entry<Node> entry = getEntry((Node)object, false);
       if (entry != null) return entry.isLeaf();
     }
@@ -139,7 +126,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   @Override
-  public final int getIndexOfChild(Object object, Object child) {
+  public int getIndexOfChild(Object object, Object child) {
     if (object == state) {
       if (roots == null) roots = state.getRoots();
       for (int i = 0; i < roots.size(); i++) {
@@ -154,6 +141,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   private boolean hasEntry(VirtualFile file) {
+    if (file == null) return false;
     if (roots != null) {
       for (Root root : roots) {
         Entry<Node> entry = root.tree.findEntry(file);
@@ -243,7 +231,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
   }
 
   private static VirtualFile findFile(String path) {
-    return LocalFileSystem.getInstance().findFileByPath(toSystemIndependentName(path));
+    return LocalFileSystem.getInstance().findFileByPath(FileUtil.toSystemIndependentName(path));
   }
 
   private static final class State {
@@ -253,14 +241,20 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
     private final boolean sortDirectories;
     private final boolean sortArchives;
     private final List<VirtualFile> roots;
+    private final FileTreeModel model;
 
-    private State(FileChooserDescriptor descriptor, FileRefresher refresher, boolean sortDirectories, boolean sortArchives) {
+    private State(FileChooserDescriptor descriptor,
+                  FileRefresher refresher,
+                  boolean sortDirectories,
+                  boolean sortArchives,
+                  FileTreeModel model) {
       this.descriptor = descriptor;
       this.refresher = refresher;
       this.sortDirectories = sortDirectories;
       this.sortArchives = sortArchives;
       this.roots = getRoots(descriptor);
       this.path = roots != null && 1 == roots.size() ? null : new TreePath(this);
+      this.model = model;
     }
 
     private int compare(VirtualFile one, VirtualFile two) {
@@ -275,7 +269,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
           if (isArchive != FileElement.isArchive(two)) return isArchive ? -1 : 1;
         }
       }
-      return naturalCompare(one.getName(), two.getName());
+      return StringUtil.naturalCompare(one.getName(), two.getName());
     }
 
     private static boolean isValid(VirtualFile file) {
@@ -292,6 +286,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
     }
 
     private VirtualFile[] getChildren(VirtualFile file) {
+      if (!isValid(file)) return null;
       if (file.isDirectory()) return file.getChildren();
       if (!descriptor.isChooseJarContents() || !FileElement.isArchive(file)) return null;
       String path = file.getPath() + JarFileSystem.JAR_SEPARATOR;
@@ -302,7 +297,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
     private List<Root> getRoots() {
       List<VirtualFile> files = roots;
       if (files == null) files = getSystemRoots();
-      if (files == null || files.isEmpty()) return emptyList();
+      if (files.isEmpty()) return Collections.emptyList();
       return ContainerUtil.map(files, file -> new Root(this, file));
     }
 
@@ -311,11 +306,33 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
       return list.isEmpty() && descriptor.isShowFileSystemRoots() ? null : list;
     }
 
-    private static List<VirtualFile> getSystemRoots() {
-      return StreamSupport.stream(FileSystems.getDefault().getRootDirectories().spliterator(), false)
-               .map(root -> findFile(root.toAbsolutePath().toString()))
-               .filter(State::isValid)
-               .collect(toList());
+    private static @NotNull List<VirtualFile> getSystemRoots() {
+      List<Path> roots = ContainerUtil.newArrayList(FileSystems.getDefault().getRootDirectories());
+      if (WSLUtil.isSystemCompatible() && Experiments.getInstance().isFeatureEnabled("wsl.p9.show.roots.in.file.chooser")) {
+        LOG.debug("Fetching WSL distributions...");
+        Future<List<WSLDistribution>> future = WslDistributionManager.getInstance().getInstalledDistributionsFuture();
+        try {
+          List<WSLDistribution> distributions = future.get(100, TimeUnit.MILLISECONDS);
+          List<Path> wslRoots = ContainerUtil.map(distributions, WSLDistribution::getUNCRootPath);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Added WSL roots: " + wslRoots);
+          }
+          roots.addAll(wslRoots);
+        }
+        catch (InterruptedException | ExecutionException e) {
+          LOG.error("Unexpected exception when fetching WSL distributions", e);
+        }
+        catch (TimeoutException e) {
+          LOG.info("Timed out when fetching WSL distributions, re-fetch scheduled");
+          throw new ProcessCanceledException(e);
+        }
+      }
+      return toVirtualFiles(roots);
+    }
+
+    private static @NotNull List<VirtualFile> toVirtualFiles(@NotNull List<Path> paths) {
+      return paths.stream().map(root -> LocalFileSystem.getInstance().findFileByNioFile(root)).filter(State::isValid).collect(
+        Collectors.toList());
     }
 
     @Override
@@ -340,7 +357,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
       Icon icon = state.descriptor.getIcon(file);
       String name = state.descriptor.getName(file);
       String comment = state.descriptor.getComment(file);
-      if (name == null || comment == null) name = file.getName();
+      if (name == null || comment == null) name = file.getPresentableName();
 
       boolean updated = false;
       if (updateIcon(icon)) updated = true;
@@ -373,7 +390,7 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
 
     private static void markDirtyInternal(VirtualFile file) {
       if (file instanceof VirtualFileSystemEntry) {
-        Method method = getDeclaredMethod(VirtualFileSystemEntry.class, "markDirtyInternal");
+        Method method = ReflectionUtil.getDeclaredMethod(VirtualFileSystemEntry.class, "markDirtyInternal");
         if (method != null) {
           try {
             method.invoke(file);
@@ -387,13 +404,13 @@ public final class FileTreeModel extends AbstractTreeModel implements Identifiab
     private UpdateResult<Node> updateChildren(State state, Entry<Node> parent) {
       VirtualFile[] children = state.getChildren(parent.getNode().getFile());
       if (children == null) return tree.update(parent, null);
-      if (children.length == 0) return tree.update(parent, emptyList());
+      if (children.length == 0) return tree.update(parent, Collections.emptyList());
       return tree.update(parent, Arrays.stream(children).filter(state::isVisible).sorted(state::compare).map(file -> {
         Entry<Node> entry = tree.findEntry(file);
         return entry != null && parent == entry.getParentPath()
                ? Pair.create(entry.getNode(), entry.isLeaf())
                : Pair.create(new Node(state, file), state.isLeaf(file));
-      }).collect(toList()));
+      }).collect(Collectors.toList()));
     }
   }
 }

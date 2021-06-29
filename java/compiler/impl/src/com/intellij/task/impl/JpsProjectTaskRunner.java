@@ -22,10 +22,11 @@ import com.intellij.packaging.impl.compiler.ArtifactCompileScope;
 import com.intellij.packaging.impl.compiler.ArtifactsCompiler;
 import com.intellij.packaging.impl.compiler.ArtifactsWorkspaceSettings;
 import com.intellij.task.*;
-import com.intellij.ui.GuiUtils;
+import com.intellij.util.ModalityUiUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.SimpleMessageBusConnection;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,7 +39,7 @@ import java.util.stream.Stream;
 /**
  * @author Vladislav.Soroka
  */
-public class JpsProjectTaskRunner extends ProjectTaskRunner {
+public final class JpsProjectTaskRunner extends ProjectTaskRunner {
   private static final Logger LOG = Logger.getInstance(JpsProjectTaskRunner.class);
   @ApiStatus.Internal
   public static final Key<JpsBuildData> JPS_BUILD_DATA_KEY = KeyWithDefaultValue.create("jps_build_data", () -> new MyJpsBuildData());
@@ -65,7 +66,7 @@ public class JpsProjectTaskRunner extends ProjectTaskRunner {
       fileGeneratedTopicConnection = null;
     }
     Map<Class<? extends ProjectTask>, List<ProjectTask>> taskMap = groupBy(tasks);
-    GuiUtils.invokeLaterIfNeeded(() -> {
+    ModalityUiUtil.invokeLaterIfNeeded(() -> {
       try (MyNotificationCollector notificationCollector = new MyNotificationCollector(context, callback, () -> {
         if (fileGeneratedTopicConnection != null) {
           fileGeneratedTopicConnection.disconnect();
@@ -320,7 +321,7 @@ public class JpsProjectTaskRunner extends ProjectTaskRunner {
     @NotNull private final Runnable myOnFinished;
     private boolean myCollectingStopped;
 
-    private final Set<MyCompileStatusNotification> myNotifications = ContainerUtil.newIdentityTroveSet();
+    private final Set<MyCompileStatusNotification> myNotifications = new ReferenceOpenHashSet<>();
     private int myErrors;
     private int myWarnings;
     private boolean myAborted;

@@ -12,7 +12,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.intellij.ui.GuiUtils;
+import com.intellij.util.ModalityUiUtil;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataExternalizer;
@@ -20,18 +20,18 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class GistManagerImpl extends GistManager {
   private static final Logger LOG = Logger.getInstance(GistManagerImpl.class);
-  private static final Set<String> ourKnownIds = ContainerUtil.newConcurrentSet();
+  private static final Map<String, VirtualFileGist<?>> ourGists = ContainerUtil.createConcurrentWeakValueMap();
   private static final String ourPropertyName = "file.gist.reindex.count";
   private final AtomicInteger myReindexCount = new AtomicInteger(PropertiesComponent.getInstance().getInt(ourPropertyName, 0));
 
   static final class MyBulkFileListener implements BulkFileListener {
     @Override
-    public void after(@NotNull List<? extends VFileEvent> events) {
+    public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
       if (events.stream().anyMatch(MyBulkFileListener::shouldDropCache)) {
         ((GistManagerImpl)GistManager.getInstance()).invalidateGists();
       }
@@ -51,11 +51,12 @@ public final class GistManagerImpl extends GistManager {
                                                          int version,
                                                          @NotNull DataExternalizer<Data> externalizer,
                                                          @NotNull VirtualFileGist.GistCalculator<Data> calcData) {
-    if (!ourKnownIds.add(id)) {
+    if (ourGists.get(id) != null) {
       throw new IllegalArgumentException("Gist '" + id + "' is already registered");
     }
 
-    return new VirtualFileGistImpl<>(id, version, externalizer, calcData);
+    //noinspection unchecked
+    return (VirtualFileGist<Data>)ourGists.computeIfAbsent(id, __ -> new VirtualFileGistImpl<>(id, version, externalizer, calcData));
   }
 
   @NotNull
@@ -63,7 +64,7 @@ public final class GistManagerImpl extends GistManager {
   public <Data> PsiFileGist<Data> newPsiFileGist(@NotNull String id,
                                                  int version,
                                                  @NotNull DataExternalizer<Data> externalizer,
-                                                 @NotNull NullableFunction<PsiFile, Data> calculator) {
+                                                 @NotNull NullableFunction<? super PsiFile, ? extends Data> calculator) {
     return new PsiFileGistImpl<>(id, version, externalizer, calculator);
   }
 
@@ -79,15 +80,15 @@ public final class GistManagerImpl extends GistManager {
 
   @Override
   public void invalidateData(@NotNull VirtualFile file) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Invalidating gist " + file);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Invalidating gist " + file);
     }
     invalidateData(); // should be more granular in future
   }
 
   private void invalidateGists() {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Invalidating gists", new Throwable());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(new Throwable("Invalidating gists"));
     }
     // Clear all cache at once to simplify and speedup this operation.
     // It can be made per-file if cache recalculation ever becomes an issue.
@@ -95,7 +96,7 @@ public final class GistManagerImpl extends GistManager {
   }
 
   private static void invalidateDependentCaches() {
-    GuiUtils.invokeLaterIfNeeded(() -> {
+    ModalityUiUtil.invokeLaterIfNeeded(() -> {
       for (Project project : ProjectManager.getInstance().getOpenProjects()) {
         PsiManager.getInstance(project).dropPsiCaches();
       }

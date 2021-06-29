@@ -1,24 +1,27 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.problems.pass;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
-import com.intellij.codeInsight.daemon.impl.JavaLensProvider;
+import com.intellij.codeInsight.daemon.impl.JavaCodeVisionUsageCollector;
 import com.intellij.codeInsight.daemon.impl.quickfix.QuickFixAction;
 import com.intellij.codeInsight.daemon.problems.Problem;
-import com.intellij.codeInsight.hints.presentation.AttributesTransformerPresentation;
 import com.intellij.codeInsight.hints.presentation.InlayPresentation;
 import com.intellij.codeInsight.hints.presentation.MouseButton;
 import com.intellij.codeInsight.hints.presentation.PresentationFactory;
+import com.intellij.codeInsight.hints.presentation.WithAttributesPresentation;
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.ide.util.PsiNavigationSupport;
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.java.JavaBundle;
+import com.intellij.lang.jvm.JvmLanguage;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
+import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.JBPopupMenu;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -42,8 +45,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+import static com.intellij.util.ObjectUtils.tryCast;
+
 public final class ProjectProblemUtils {
 
+  public static final Key<Boolean> ourTestingProjectProblems = Key.create("TestingProjectProblems");
   private static final Key<Map<PsiMember, Set<Problem>>> PROBLEMS_KEY = Key.create("project.problems.problem.key");
   private static final Key<Long> MODIFICATION_COUNT = Key.create("ProjectProblemModificationCount");
   private static final String RELATED_PROBLEMS_CLICKED_EVENT_ID = "related.problems.clicked";
@@ -58,8 +64,8 @@ public final class ProjectProblemUtils {
     int column = offset - document.getLineStartOffset(document.getLineNumber(offset));
     InlayPresentation problemsOffset = factory.textSpacePlaceholder(column, true);
     InlayPresentation textPresentation = factory.smallText(JavaBundle.message("project.problems.hint.text", relatedProblems.size()));
-    InlayPresentation errorTextPresentation = new AttributesTransformerPresentation(textPresentation, __ ->
-      editor.getColorsScheme().getAttributes(CodeInsightColors.WRONG_REFERENCES_ATTRIBUTES));
+    InlayPresentation errorTextPresentation = new WithAttributesPresentation(textPresentation, CodeInsightColors.WRONG_REFERENCES_ATTRIBUTES, editor,
+                                                                             new WithAttributesPresentation.AttributesFlags());
     InlayPresentation problemsPresentation =
       factory.referenceOnHover(errorTextPresentation, (e, p) -> showProblems(editor, member));
 
@@ -69,7 +75,7 @@ public final class ProjectProblemUtils {
     popupMenu.add(item);
 
     InlayPresentation withSettings = factory.onClick(problemsPresentation, MouseButton.Right, (e, __) -> {
-      popupMenu.show(e.getComponent(), e.getX(), e.getY());
+      JBPopupMenu.showByEvent(e, popupMenu);
       return Unit.INSTANCE;
     });
 
@@ -77,8 +83,7 @@ public final class ProjectProblemUtils {
   }
 
   private static void showProblems(@NotNull Editor editor, @NotNull PsiMember member) {
-    FUCounterUsageLogger.getInstance().logEvent(member.getProject(), JavaLensProvider.FUS_GROUP_ID, RELATED_PROBLEMS_CLICKED_EVENT_ID);
-
+    JavaCodeVisionUsageCollector.RELATED_PROBLEMS_CLICKED_EVENT_ID.log(member.getProject());
     Map<PsiMember, Set<Problem>> problems = getReportedProblems(editor);
     Set<Problem> relatedProblems = problems.get(member);
     if (relatedProblems == null || relatedProblems.isEmpty()) return;
@@ -154,6 +159,12 @@ public final class ProjectProblemUtils {
 
   static void updateTimestamp(@NotNull PsiJavaFile file, @NotNull Editor editor) {
     editor.putUserData(MODIFICATION_COUNT, file.getManager().getModificationTracker().getModificationCount());
+  }
+
+  public static boolean containsJvmLanguage(@NotNull VirtualFile file) {
+    FileTypeRegistry fileTypeRegistry = FileTypeRegistry.getInstance();
+    LanguageFileType languageFileType = tryCast(fileTypeRegistry.getFileTypeByFileName(file.getName()), LanguageFileType.class);
+    return languageFileType != null && languageFileType.getLanguage() instanceof JvmLanguage;
   }
 
   private static class ShowRelatedProblemsAction extends BaseElementAtCaretIntentionAction {

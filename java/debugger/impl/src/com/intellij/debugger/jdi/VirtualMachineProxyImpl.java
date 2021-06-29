@@ -1,25 +1,21 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Eugene Zhuravlev
  */
 package com.intellij.debugger.jdi;
 
-import com.intellij.Patches;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.jdi.VirtualMachineProxy;
-import com.intellij.debugger.impl.DebuggerUtilsImpl;
-import com.intellij.debugger.impl.PrioritizedTask;
+import com.intellij.debugger.impl.DebuggerUtilsAsync;
 import com.intellij.debugger.impl.attach.SAJDWPRemoteConnection;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ThreeState;
 import com.sun.jdi.*;
 import com.sun.jdi.event.EventQueue;
@@ -32,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
@@ -68,21 +65,8 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     canPopFrames();
 
     if (canBeModified()) { // no need to spend time here for read only sessions
-      try {
         // this will cache classes inside JDI and enable faster search of classes later
-        virtualMachine.allClasses();
-      }
-      catch (VMDisconnectedException e) {
-        throw e;
-      }
-      catch (Throwable e) {
-        // catch all exceptions in order not to break vm attach process
-        // Example:
-        // java.lang.IllegalArgumentException: Invalid JNI signature character ';'
-        //  caused by some bytecode "optimizers" which break type signatures as a side effect.
-        //  solution if you are using JAX-WS: add -Dcom.sun.xml.bind.v2.bytecode.ClassTailor.noOptimize=true to JVM args
-        LOG.info(e);
-      }
+        DebuggerUtilsAsync.allCLasses(virtualMachine);
     }
 
     virtualMachine.topLevelThreadGroups().forEach(this::threadGroupCreated);
@@ -191,6 +175,20 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     return new ArrayList<>(myAllThreads.values());
   }
 
+  public CompletableFuture<Collection<ThreadReferenceProxyImpl>> allThreadsAsync() {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    if (myAllThreadsDirty) {
+      return DebuggerUtilsAsync.allThreads(myVirtualMachine).thenApply(threads -> {
+        DebuggerManagerThreadImpl.assertIsManagerThread();
+        threads.forEach(this::getThreadReferenceProxy); // add proxies
+        myAllThreadsDirty = false;
+        return new ArrayList<>(myAllThreads.values());
+      });
+    }
+
+    return CompletableFuture.completedFuture(new ArrayList<>(myAllThreads.values()));
+  }
+
   public void threadStarted(ThreadReference thread) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     getThreadReferenceProxy(thread); // add a proxy
@@ -221,15 +219,12 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
     clearCaches();
     LOG.debug("before resume VM");
-    try {
-      myVirtualMachine.resume();
-    }
-    catch (InternalException e) {
-      // ok to ignore. Although documentation says it is safe to invoke resume() on running VM,
-      // sometimes this leads to com.sun.jdi.InternalException: Unexpected JDWP Error: 13 (THREAD_NOT_SUSPENDED)
-      LOG.info(e);
-    }
-    LOG.debug("VM resumed");
+    DebuggerUtilsAsync.resume(myVirtualMachine).whenComplete((unused, throwable) -> {
+      if (throwable != null) {
+        LOG.error(throwable);
+      }
+      LOG.debug("VM resumed");
+    });
     //logThreads();
   }
 
@@ -267,14 +262,6 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
 
   public EventRequestManager eventRequestManager() {
     return myVirtualMachine.eventRequestManager();
-  }
-
-  /**
-   * @deprecated use {@link #mirrorOfVoid()} instead
-   */
-  @Deprecated
-  public VoidValue mirrorOf() throws EvaluateException {
-    return mirrorOfVoid();
   }
 
   public VoidValue mirrorOfVoid() {
@@ -338,18 +325,6 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
     catch (UnsupportedOperationException e) {
       LOG.info(e);
-    }
-    finally {
-      if (Patches.JDK_BUG_EVENT_CONTROLLER_LEAK) {
-        // Memory leak workaround, see IDEA-163334
-        Object target = ReflectionUtil.getField(myVirtualMachine.getClass(), myVirtualMachine, null, "target");
-        if (target != null) {
-          Thread controller = ReflectionUtil.getField(target.getClass(), target, Thread.class, "eventController");
-          if (controller != null) {
-            controller.stop();
-          }
-        }
-      }
     }
   }
 
@@ -659,10 +634,6 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
     //myAllThreadsDirty = true;
     myTimeStamp++;
-
-    if (Registry.is("debugger.types.preload")) {
-      scheduleTypesDataPreload();
-    }
   }
 
   @Override
@@ -707,7 +678,6 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
   }
 
-
   private abstract static class Capability {
     private ThreeState myValue = ThreeState.UNSURE;
 
@@ -725,49 +695,5 @@ public class VirtualMachineProxyImpl implements JdiTimer, VirtualMachineProxy {
     }
 
     protected abstract boolean calcValue();
-  }
-
-  private long myLastTypesCheckTime;
-  private int myLastTypesSize;
-
-  // Preload all supertypes information for faster queries (especially for emulated method breakpoints)
-  private void scheduleTypesDataPreload() {
-    if (DebuggerUtilsImpl.isRemote(myDebugProcess)) {
-      return;
-    }
-    DebuggerManagerThreadImpl.assertIsManagerThread();
-    long time = System.currentTimeMillis();
-    if (time > myLastTypesCheckTime + 10000) {
-      List<ReferenceType> types = allClasses();
-      if (time > myLastTypesCheckTime + 60000 || Math.abs(types.size() - myLastTypesSize) > 1000) {
-        scheduleTypesDataPreload(types.iterator());
-        myLastTypesCheckTime = time;
-        myLastTypesSize = types.size();
-      }
-    }
-  }
-
-  private void scheduleTypesDataPreload(Iterator<ReferenceType> iterator) {
-    if (iterator.hasNext()) {
-      myDebugProcess.getManagerThread().schedule(PrioritizedTask.Priority.LOWEST, () -> {
-        long start = System.currentTimeMillis();
-        do {
-          ReferenceType type = iterator.next();
-          if (type.isPrepared()) {
-            try {
-              DebuggerUtilsImpl.supertypes(type);
-            }
-            catch (ObjectCollectedException ignored) {
-            }
-          }
-          if (System.currentTimeMillis() - start > 50) { // batch process for 50ms
-            // schedule here to allow other LOWEST priority commands to be processed
-            scheduleTypesDataPreload(iterator);
-            return;
-          }
-        }
-        while (iterator.hasNext());
-      });
-    }
   }
 }

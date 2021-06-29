@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.plugin.ui;
 
 import com.intellij.codeInsight.template.impl.TemplateEditorUtil;
@@ -7,12 +7,12 @@ import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Splitter;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.structuralsearch.MatchOptions;
 import com.intellij.structuralsearch.SSRBundle;
 import com.intellij.structuralsearch.StructuralSearchProfile;
 import com.intellij.structuralsearch.StructuralSearchUtil;
 import com.intellij.structuralsearch.plugin.replace.ui.ReplaceConfiguration;
+import com.intellij.structuralsearch.plugin.ui.filters.ShortFilterTextProvider;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -34,6 +34,7 @@ import java.util.List;
  * @author Maxim.Mossienko
  */
 public class SelectTemplateDialog extends DialogWrapper {
+  private final ShortFilterTextProvider myShortFilterTextProvider;
   private final boolean showHistory;
   private Editor searchPatternEditor;
   private Editor replacePatternEditor;
@@ -47,10 +48,11 @@ public class SelectTemplateDialog extends DialogWrapper {
   @NonNls private static final String PREVIEW_CARD = "Preview";
   @NonNls private static final String SELECT_TEMPLATE_CARD = "SelectCard";
 
-  public SelectTemplateDialog(Project project, boolean showHistory, boolean replace) {
+  public SelectTemplateDialog(Project project, ShortFilterTextProvider provider, boolean showHistory, boolean replace) {
     super(project, true);
 
     this.project = project;
+    myShortFilterTextProvider = provider;
     this.showHistory = showHistory;
     this.replace = replace;
     existingTemplatesComponent = ExistingTemplatesComponent.getInstance(this.project);
@@ -118,12 +120,12 @@ public class SelectTemplateDialog extends DialogWrapper {
     splitter.setSecondComponent(panel = new JPanel(new BorderLayout()));
 
     searchPatternEditor = UIUtil.createEditor(EditorFactory.getInstance().createDocument(""), project, false, null);
-    SubstitutionShortInfoHandler.install(searchPatternEditor, myDisposable);
+    SubstitutionShortInfoHandler.install(searchPatternEditor, myShortFilterTextProvider, myDisposable);
 
     final JComponent centerComponent;
     if (replace) {
       replacePatternEditor = UIUtil.createEditor(EditorFactory.getInstance().createDocument(""), project, false, null);
-      SubstitutionShortInfoHandler.install(replacePatternEditor, myDisposable);
+      SubstitutionShortInfoHandler.install(replacePatternEditor, myShortFilterTextProvider, myDisposable);
       centerComponent = new Splitter(true);
       ((Splitter)centerComponent).setFirstComponent(searchPatternEditor.getComponent());
       ((Splitter)centerComponent).setSecondComponent(replacePatternEditor.getComponent());
@@ -145,12 +147,6 @@ public class SelectTemplateDialog extends DialogWrapper {
 
     final JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
     labelPanel.add(new JLabel(SSRBundle.message("selecttemplate.template.preview")));
-    if (!Registry.is("ssr.use.editor.inlays.instead.of.tool.tips")) {
-      labelPanel.add(UIUtil.createCompleteMatchInfo(() -> {
-        final Configuration[] configurations = getSelectedConfigurations();
-        return configurations.length != 1 ? null : configurations[0];
-      }));
-    }
     panel.add(BorderLayout.NORTH, labelPanel);
     return centerPanel;
   }

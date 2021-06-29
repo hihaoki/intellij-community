@@ -3,7 +3,7 @@ package org.jetbrains.plugins.gradle.importing
 
 import com.intellij.util.lang.JavaVersion
 import org.gradle.util.GradleVersion
-import org.jetbrains.plugins.gradle.tooling.builder.AbstractModelBuilderTest
+import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule
 import org.junit.Test
 import org.junit.runners.Parameterized
 
@@ -14,18 +14,14 @@ class UnsupportedGradleImportingTest : BuildViewMessagesImportingTestCase() {
     importProject("")
     val expectedExecutionTree: String
     when {
-      currentGradleVersion < GradleVersion.version("1.0") -> expectedExecutionTree =
-        "-\n" +
-        " -failed\n" +
-        "  Support for builds using Gradle versions older than 2.6 was removed"
       currentGradleVersion < GradleVersion.version("2.6") -> expectedExecutionTree =
         "-\n" +
         " -failed\n" +
-        "  Support for builds using Gradle versions older than 2.6 was removed in tooling API version 5.0"
-      JavaVersion.current().feature > 8 && currentGradleVersion < GradleVersion.version("3.0") -> expectedExecutionTree =
+        "  Unsupported Gradle"
+      currentGradleVersion < GradleVersion.version("3.0") -> expectedExecutionTree =
         "-\n" +
-        " -failed\n" +
-        "  Cannot determine classpath for resource 'java/sql/SQLException.class' from location 'jrt:/java.sql/java/sql/SQLException.class'"
+        " -finished\n" +
+        "  Gradle ${currentGradleVersion.version} support can be dropped in the next release"
       else -> expectedExecutionTree = "-\n" +
                                       " finished"
     }
@@ -41,7 +37,7 @@ class UnsupportedGradleImportingTest : BuildViewMessagesImportingTestCase() {
     private val OLD_GRADLE_VERSIONS = arrayOf(
       arrayOf<Any>("0.9"), /*..., */arrayOf<Any>("0.9.2"),
       arrayOf<Any>("1.0"), /*arrayOf<Any>("1.1"), arrayOf<Any>("1.2"), ..., */arrayOf<Any>("1.12"),
-      arrayOf<Any>("2.0"), /*arrayOf<Any>("2.1"), arrayOf<Any>("2.2"), ..., */arrayOf<Any>("2.5"))
+      arrayOf<Any>("2.0"), /*arrayOf<Any>("2.1"), arrayOf<Any>("2.2"), ..., */arrayOf<Any>("2.5"), arrayOf<Any>("2.6"), arrayOf<Any>("2.14.1"))
 
     /**
      * Run the test against very old not-supported Gradle versions also
@@ -49,7 +45,7 @@ class UnsupportedGradleImportingTest : BuildViewMessagesImportingTestCase() {
     @Parameterized.Parameters(name = "with Gradle-{0}")
     @JvmStatic
     fun tests(): Array<out Array<Any>>? {
-      return OLD_GRADLE_VERSIONS + AbstractModelBuilderTest.SUPPORTED_GRADLE_VERSIONS
+      return OLD_GRADLE_VERSIONS + VersionMatcherRule.SUPPORTED_GRADLE_VERSIONS
     }
   }
 }

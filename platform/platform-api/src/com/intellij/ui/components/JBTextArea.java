@@ -1,6 +1,7 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.util.BooleanFunction;
@@ -18,6 +19,8 @@ import javax.swing.text.JTextComponent;
 import java.awt.*;
 
 public class JBTextArea extends JTextArea implements ComponentWithEmptyText {
+  public static final String STATUS_VISIBLE_FUNCTION = "StatusVisibleFunction";
+
   //private final DefaultBoundedRangeModel visibility;
 
   private final TextComponentEmptyText myEmptyText;
@@ -26,7 +29,7 @@ public class JBTextArea extends JTextArea implements ComponentWithEmptyText {
     this(null, null, 0, 0);
   }
 
-  public JBTextArea(String text) {
+  public JBTextArea(@NlsContexts.DetailedDescription String text) {
     this(null, text, 0, 0);
   }
 
@@ -34,7 +37,7 @@ public class JBTextArea extends JTextArea implements ComponentWithEmptyText {
     this(null, null, rows, columns);
   }
 
-  public JBTextArea(String text, int rows, int columns) {
+  public JBTextArea(@NlsContexts.DetailedDescription String text, int rows, int columns) {
     this(null, text, rows, columns);
   }
 
@@ -42,13 +45,13 @@ public class JBTextArea extends JTextArea implements ComponentWithEmptyText {
     this(doc, null, 0, 0);
   }
 
-  public JBTextArea(Document doc, String text, int rows, int columns) {
+  public JBTextArea(Document doc, @NlsContexts.DetailedDescription String text, int rows, int columns) {
     super(doc, text, rows, columns);
 
     myEmptyText = new TextComponentEmptyText(this) {
       @Override
       protected boolean isStatusVisible() {
-        Object function = getClientProperty("StatusVisibleFunction");
+        Object function = getClientProperty(STATUS_VISIBLE_FUNCTION);
         if (function instanceof BooleanFunction) {
           //noinspection unchecked
           return ((BooleanFunction<JTextComponent>)function).fun(JBTextArea.this);
@@ -62,8 +65,8 @@ public class JBTextArea extends JTextArea implements ComponentWithEmptyText {
         Insets margin = ObjectUtils.notNull(getMargin(), JBUI.emptyInsets());
         Insets ipad = getComponent().getIpad();
         Dimension size = getSize();
-        int left = insets.left + margin.left - ipad.left;
-        int top = insets.top + margin.top - ipad.top;
+        int left = insets.left + margin.left - ipad.left - 1;
+        int top = insets.top + margin.top - ipad.top + 1;
         int right = size.width - (insets.right + margin.right - ipad.right);
         return new Rectangle(left, top, right - left, getRowHeight());
       }

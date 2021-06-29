@@ -1,6 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve;
 
+import com.intellij.model.Symbol;
+import com.intellij.model.psi.PsiSymbolReference;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
@@ -13,12 +15,14 @@ import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IdempotenceChecker;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ConcurrentWeakKeySoftValueHashMap;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBus;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.ReferenceQueue;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
@@ -34,11 +38,6 @@ public class ResolveCache implements Disposable {
   public ResolveCache(@NotNull Project project) {
     clearCacheOnPsiChange(project.getMessageBus());
     LowMemoryWatcher.register(() -> onLowMemory(), this);
-  }
-
-  @Deprecated
-  public ResolveCache(@NotNull MessageBus bus) {
-    clearCacheOnPsiChange(bus);
   }
 
   private void clearCacheOnPsiChange(@NotNull MessageBus bus) {
@@ -91,7 +90,7 @@ public class ResolveCache implements Disposable {
   @NotNull
   private static <K,V> Map<K, V> createWeakMap() {
     //noinspection deprecation
-    return new ConcurrentWeakKeySoftValueHashMap<K, V>(100, 0.75f, Runtime.getRuntime().availableProcessors(), ContainerUtil.canonicalStrategy()){
+    return new ConcurrentWeakKeySoftValueHashMap<K, V>(100, 0.75f, Runtime.getRuntime().availableProcessors()) {
       @NotNull
       @Override
       protected ValueReference<K, V> createValueReference(@NotNull V value, @NotNull ReferenceQueue<? super V> queue) {
@@ -186,10 +185,44 @@ public class ResolveCache implements Disposable {
     return results == null ? ResolveResult.EMPTY_ARRAY : results;
   }
 
-  private static <TRef extends PsiReference, TResult> TResult resolve(@NotNull TRef ref,
-                                                                      @NotNull Map<TRef, TResult> cache,
-                                                                      boolean preventRecursion,
-                                                                      @NotNull Computable<? extends TResult> resolver) {
+  @ApiStatus.Experimental
+  public interface PsiSymbolReferenceResolver<@NotNull R extends PsiSymbolReference> {
+    @NotNull Collection<? extends @NotNull Symbol> resolve(R reference);
+  }
+
+  @ApiStatus.Experimental
+  public <@NotNull R extends PsiSymbolReference>
+  @NotNull Collection<? extends @NotNull Symbol> resolveWithCaching(
+    R ref,
+    @NotNull PsiSymbolReferenceResolver<? super R> resolver
+  ) {
+    return resolveWithCaching(ref, true, resolver);
+  }
+
+  @ApiStatus.Experimental
+  public <@NotNull R extends PsiSymbolReference>
+  @NotNull Collection<? extends @NotNull Symbol> resolveWithCaching(
+    R ref,
+    boolean preventRecursion,
+    @NotNull PsiSymbolReferenceResolver<? super R> resolver
+  ) {
+    ProgressIndicatorProvider.checkCanceled();
+    ApplicationManager.getApplication().assertReadAccessAllowed();
+    boolean physical = ref.getElement().isPhysical();
+    int index = getIndex(false, true);
+    Collection<? extends Symbol> results = resolve(
+      ref, getMap(physical, index), preventRecursion,
+      () -> resolver.resolve(ref)
+    );
+    return results == null ? Collections.emptyList() : results;
+  }
+
+  private static <TRef, TResult> @Nullable TResult resolve(
+    @NotNull TRef ref,
+    @NotNull Map<TRef, TResult> cache,
+    boolean preventRecursion,
+    @NotNull Computable<? extends TResult> resolver
+  ) {
     TResult cachedResult = cache.get(ref);
     if (cachedResult != null) {
       if (IdempotenceChecker.areRandomChecksEnabled()) {
@@ -256,8 +289,7 @@ public class ResolveCache implements Disposable {
     return resolve(ref, resolver, needToPreventRecursion, incompleteCode, false, ref.getElement().isPhysical());
   }
 
-  @NotNull
-  private <TRef extends PsiReference, TResult> Map<TRef, TResult> getMap(boolean physical, int index) {
+  private <TRef, TResult> @NotNull Map<TRef, TResult> getMap(boolean physical, int index) {
     AtomicReferenceArray<Map<?, ?>> array = physical ? myPhysicalMaps : myNonPhysicalMaps;
     //noinspection unchecked
     Map<TRef, TResult> map = (Map<TRef, TResult>)array.get(index);
@@ -275,10 +307,12 @@ public class ResolveCache implements Disposable {
 
   private static final Object NULL_RESULT = ObjectUtils.sentinel("ResolveCache.NULL_RESULT");
 
-  private static <TRef extends PsiReference, TResult> void cache(@NotNull TRef ref,
-                                                                 @NotNull Map<? super TRef, TResult> map,
-                                                                 TResult result,
-                                                                 @NotNull Computable<TResult> doResolve) {
+  private static <TRef, TResult> void cache(
+    @NotNull TRef ref,
+    @NotNull Map<? super TRef, TResult> map,
+    TResult result,
+    @NotNull Computable<TResult> doResolve
+  ) {
     // optimization: less contention
     TResult cached = map.get(ref);
     if (cached != null) {

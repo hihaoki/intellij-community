@@ -10,7 +10,10 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionPointListener
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectBundle
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.roots.ex.ProjectRootManagerEx
+import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetManagerBridge
 import org.jetbrains.jps.model.serialization.facet.FacetState
 import java.util.*
 
@@ -39,8 +42,8 @@ class FacetTypeRegistryImpl : FacetTypeRegistry() {
       val model = FacetManager.getInstance(module).createModifiableModel()
       val invalidFacets = model.getFacetsByType(InvalidFacetType.TYPE_ID).filter { it.configuration.facetState.facetType == facetType.stringId }
       for (invalidFacet in invalidFacets) {
-        val newFacet = FacetManagerImpl.createFacetFromStateRaw(module, facetType, invalidFacet.configuration.facetState,
-                                                                invalidFacet.underlyingFacet)
+        val newFacet = FacetManagerBridge.createFacetFromStateRaw(module, facetType, invalidFacet.configuration.facetState,
+                                                                       invalidFacet.underlyingFacet)
         model.replaceFacet(invalidFacet, newFacet)
         for (subFacet in invalidFacet.configuration.facetState.subFacets) {
           model.addFacet(FacetManagerBase.createInvalidFacet(module, subFacet, newFacet, invalidFacet.configuration.errorMessage, false, false))
@@ -51,18 +54,14 @@ class FacetTypeRegistryImpl : FacetTypeRegistry() {
   }
 
   @Synchronized
-  override fun unregisterFacetType(facetType: FacetType<*, *>) {
-    try {
-      ProjectManager.getInstance().openProjects.forEach {
-        convertFacetsToInvalid(it, facetType)
-      }
-    }
-    finally {
-      val id = facetType.id
-      val stringId = facetType.stringId
-      LOG.assertTrue(myFacetTypes.remove(id) != null, "Facet type '$stringId' is not registered")
-      myFacetTypes.remove(id)
-      myTypeIds.remove(stringId)
+  private fun unregisterFacetType(facetType: FacetType<*, *>) {
+    val id = facetType.id
+    val stringId = facetType.stringId
+    LOG.assertTrue(myFacetTypes.remove(id) != null, "Facet type '$stringId' is not registered")
+    myFacetTypes.remove(id)
+    myTypeIds.remove(stringId)
+    ProjectManager.getInstance().openProjects.forEach {
+      convertFacetsToInvalid(it, facetType)
     }
   }
 
@@ -75,13 +74,18 @@ class FacetTypeRegistryImpl : FacetTypeRegistry() {
       for (facet in facets) {
         val facetState = saveFacetWithSubFacets(facet, subFacets) ?: continue
         val pluginName = facetType.pluginDescriptor?.name?.let { " '$it'" } ?: ""
-        val errorMessage = "Plugin$pluginName which provides support for '${facetType.presentableName}' facets is unloaded"
+        val errorMessage = ProjectBundle.message("error.message.plugin.for.facets.unloaded", pluginName, facetType.presentableName)
         val reportError = !ApplicationManager.getApplication().isUnitTestMode
         val invalidFacet = FacetManagerBase.createInvalidFacet(module, facetState, facet.underlyingFacet, errorMessage, true, reportError)
         removeAllSubFacets(model, facet, subFacets)
         model.replaceFacet(facet, invalidFacet)
       }
       model.commit()
+    }
+    if (modulesWithFacets.isNotEmpty()) {
+      /* this is needed to recompute RootIndex, otherwise its DirectoryInfoImpl instances will keep references to SourceFolderBridges,
+         which will keep references to Facet instances from unloaded plugin via WorkspaceEntityStorage making it impossible to unload plugins without restart */
+      ProjectRootManagerEx.getInstanceEx(project).makeRootsChange({}, false, true)
     }
   }
 
@@ -93,8 +97,8 @@ class FacetTypeRegistryImpl : FacetTypeRegistry() {
     }
   }
 
-  private fun saveFacetWithSubFacets(facet: Facet<*>?, subFacets: Map<Facet<FacetConfiguration>, List<Facet<*>>>): FacetState? {
-    val state = FacetManagerImpl.saveFacetConfiguration(facet) ?: return null
+  private fun saveFacetWithSubFacets(facet: Facet<*>, subFacets: Map<Facet<FacetConfiguration>, List<Facet<*>>>): FacetState? {
+    val state = FacetManagerBridge.saveFacetConfiguration(facet) ?: return null
     (subFacets[facet] ?: emptyList()).mapNotNullTo(state.subFacets) { saveFacetWithSubFacets(it, subFacets) }
     return state
   }
@@ -143,8 +147,10 @@ class FacetTypeRegistryImpl : FacetTypeRegistry() {
     synchronized(myTypeRegistrationLock) {
       if (myExtensionsLoaded) return
 
-      FacetType.EP_NAME.forEachExtensionSafe {
-        registerFacetType(it)
+      //we cannot use forEachExtensionSafe here because it may throw ProcessCanceledException during iteration
+      // and we'll get partially initialized state here
+      for (type in FacetType.EP_NAME.extensions) {
+        registerFacetType(type)
       }
       FacetType.EP_NAME.addExtensionPointListener(
         object : ExtensionPointListener<FacetType<*, *>?> {

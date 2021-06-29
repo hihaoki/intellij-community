@@ -3,6 +3,7 @@ package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.AutoPopupController;
 import com.intellij.codeInsight.ExpectedTypesProvider;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.PsiTypeLookupItem;
@@ -11,6 +12,7 @@ import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.filters.FilterPositionUtil;
 import com.intellij.psi.impl.source.codeStyle.ImportHelper;
@@ -52,6 +54,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     PsiJavaCodeReferenceElement ref = position != null && position.getParent() instanceof PsiJavaCodeReferenceElement ?
                                       (PsiJavaCodeReferenceElement) position.getParent() : null;
     PsiClass psiClass = item.getObject();
+    SmartPsiElementPointer<PsiClass> classPointer = SmartPointerManager.createPointer(psiClass);
     final Project project = context.getProject();
 
     final Editor editor = context.getEditor();
@@ -90,18 +93,36 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     refEnd = context.trackOffset(context.getTailOffset(), false);
 
     context.commitDocument();
+
+    if (c == '!' || c == '?') {
+      context.setAddCompletionChar(false);
+      if (ref != null && ref.isValid() && !(ref instanceof PsiReferenceExpression) &&
+          !ref.textContains('@') && !(ref.getParent() instanceof PsiAnnotation)) {
+        NullableNotNullManager manager = NullableNotNullManager.getInstance(project);
+        String annoName = c == '!' ? manager.getDefaultNotNull() : manager.getDefaultNullable();
+        PsiClass cls = JavaPsiFacade.getInstance(project).findClass(annoName, file.getResolveScope());
+        if (cls != null) {
+          PsiJavaCodeReferenceElement newRef =
+            JavaPsiFacade.getElementFactory(project).createReferenceFromText('@' + annoName + ' ' + ref.getText(), ref);
+          JavaCodeStyleManager.getInstance(project).shortenClassReferences(ref.replace(newRef));
+        }
+      }
+    }
+
+    psiClass = classPointer.dereference();
+
     if (item.getUserData(JavaChainLookupElement.CHAIN_QUALIFIER) == null &&
         shouldInsertParentheses(file.findElementAt(context.getTailOffset() - 1))) {
       if (context.getCompletionChar() == Lookup.REPLACE_SELECT_CHAR) {
         overwriteTopmostReference(context);
         context.commitDocument();
       }
-      if (ConstructorInsertHandler.insertParentheses(context, item, psiClass, false)) {
+      if (psiClass != null && ConstructorInsertHandler.insertParentheses(context, item, psiClass, false)) {
         fillTypeArgs |= psiClass.hasTypeParameters() && PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5);
       }
     }
     else if (insertingAnnotation(context, item)) {
-      if (shouldHaveAnnotationParameters(psiClass)) {
+      if (psiClass != null && shouldHaveAnnotationParameters(psiClass)) {
         JavaCompletionUtil.insertParentheses(context, item, false, true);
       }
       if (context.getCompletionChar() == Lookup.NORMAL_SELECT_CHAR || context.getCompletionChar() == Lookup.COMPLETE_STATEMENT_SELECT_CHAR) {
@@ -117,7 +138,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
       JavaCompletionUtil.promptTypeArgs(context, context.getOffset(refEnd));
     }
     else if (context.getCompletionChar() == Lookup.COMPLETE_STATEMENT_SELECT_CHAR &&
-             psiClass.getTypeParameters().length == 1 &&
+             psiClass != null && psiClass.getTypeParameters().length == 1 &&
              PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5)) {
       wrapFollowingTypeInGenerics(context, context.getOffset(refEnd));
     }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.slicer;
 
 import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil;
@@ -16,12 +16,11 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.Set;
 
 final class SliceForwardUtil {
@@ -91,30 +90,17 @@ final class SliceForwardUtil {
     if (from instanceof PsiParameter) {
       PsiParameter parameter = (PsiParameter)from;
       PsiElement scope = parameter.getDeclarationScope();
-      Collection<PsiParameter> parametersToAnalyze = new THashSet<>();
-      if (scope instanceof PsiMethod) {
+      Collection<PsiParameter> parametersToAnalyze = new HashSet<>();
+      if (scope instanceof PsiMethod && ((PsiMethod)scope).hasModifierProperty(PsiModifier.ABSTRACT)) {
         final PsiMethod method = (PsiMethod)scope;
         int index = method.getParameterList().getParameterIndex(parameter);
+        final Set<PsiMethod> implementors = new HashSet<>();
 
-        Collection<PsiMethod> superMethods = ContainerUtil.set(method.findDeepestSuperMethods());
-        superMethods.add(method);
-        for (Iterator<PsiMethod> iterator = superMethods.iterator(); iterator.hasNext(); ) {
+        if (!OverridingMethodsSearch.search(method, parent.getScope().toSearchScope(), true).forEach(sub -> {
           ProgressManager.checkCanceled();
-          PsiMethod superMethod = iterator.next();
-          if (!parent.params.scope.contains(superMethod)) {
-            iterator.remove();
-          }
-        }
-
-        final THashSet<PsiMethod> implementors = new THashSet<>(superMethods);
-        for (PsiMethod superMethod : superMethods) {
-          ProgressManager.checkCanceled();
-          if (!OverridingMethodsSearch.search(superMethod, parent.getScope().toSearchScope(), true).forEach(sub -> {
-            ProgressManager.checkCanceled();
-            implementors.add(sub);
-            return true;
-          })) return false;
-        }
+          implementors.add(sub);
+          return true;
+        })) return false;
         for (PsiMethod implementor : implementors) {
           ProgressManager.checkCanceled();
           if (!parent.params.scope.contains(implementor)) continue;
@@ -131,12 +117,11 @@ final class SliceForwardUtil {
       }
       for (final PsiParameter psiParameter : parametersToAnalyze) {
         ProgressManager.checkCanceled();
-
         if (!searchReferencesAndProcessAssignmentTarget(psiParameter, null, parent, processor)) return false;
       }
       return true;
     }
-    if (from instanceof PsiField) {
+    else if (from instanceof PsiField) {
       return searchReferencesAndProcessAssignmentTarget(from, null, parent, processor);
     }
 
@@ -145,7 +130,7 @@ final class SliceForwardUtil {
 
       Collection<PsiMethod> superMethods = ContainerUtil.set(method.findDeepestSuperMethods());
       superMethods.add(method);
-      final Set<PsiReference> processed = new THashSet<>(); //usages of super method and overridden method can overlap
+      final Set<PsiReference> processed = new HashSet<>(); //usages of super method and overridden method can overlap
       for (final PsiMethod containingMethod : superMethods) {
         if (!MethodReferencesSearch.search(containingMethod, parent.getScope().toSearchScope(), true).forEach(reference -> {
           ProgressManager.checkCanceled();

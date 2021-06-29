@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.ide.util.EditorHelper;
@@ -45,9 +31,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+
 public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
   private static final Logger LOG = Logger.getInstance(MoveClassToInnerProcessor.class);
   public static final Key<List<NonCodeUsageInfo>> ourNonCodeUsageKey = Key.create("MoveClassToInner.NonCodeUsage");
@@ -219,7 +203,8 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
   @NotNull
   protected String getCommandName() {
     return JavaRefactoringBundle.message("move.class.to.inner.command.name",
-                                     (myClassesToMove.length > 1 ? "classes " : "class ") + StringUtil.join(myClassesToMove, psiClass -> psiClass.getName(), ", "),
+                                     myClassesToMove.length,
+                                     StringUtil.join(myClassesToMove, psiClass -> psiClass.getName(), ", "),
                                      myTargetClass.getQualifiedName());
   }
 
@@ -331,9 +316,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
       PsiElement container = ConflictsUtil.getContainer(sourceElement);
       if (!myReportedContainers.contains(container)) {
         myReportedContainers.add(container);
-        String targetDescription = (targetElement == myClassToMove)
-                                   ? "Class " + CommonRefactoringUtil.htmlEmphasize(myClassToMove.getName())
-                                   : StringUtil.capitalize(RefactoringUIUtil.getDescription(targetElement, true));
+        String targetDescription = StringUtil.capitalize(RefactoringUIUtil.getDescription(targetElement, true));
         final String message = JavaRefactoringBundle.message("element.will.no.longer.be.accessible",
                                                          targetDescription,
                                                          RefactoringUIUtil.getDescription(container, true));

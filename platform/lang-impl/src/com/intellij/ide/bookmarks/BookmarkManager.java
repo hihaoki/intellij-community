@@ -1,13 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.bookmarks;
 
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.bookmark.BookmarkType;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
@@ -22,26 +25,22 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.Trinity;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentListener;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.concurrency.NonUrgentExecutor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.util.List;
@@ -61,7 +60,7 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
   private final AtomicReference<List<Bookmark>> myPendingState = new AtomicReference<>();
 
   public static BookmarkManager getInstance(@NotNull Project project) {
-    return ServiceManager.getService(project, BookmarkManager.class);
+    return project.getService(BookmarkManager.class);
   }
 
   public BookmarkManager(@NotNull Project project) {
@@ -88,6 +87,10 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
   static final class MyStartupActivity implements StartupActivity.DumbAware {
     @Override
     public void runActivity(@NotNull Project project) {
+      if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+        return;
+      }
+
       project.getMessageBus().connect().subscribe(PsiDocumentListener.TOPIC, MyStartupActivity::documentCreated);
 
       BookmarkManager bookmarkManager = getInstance(project);
@@ -139,10 +142,10 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
     }
   }
 
-  public void editDescription(@NotNull Bookmark bookmark, @NotNull JComponent popup) {
+  public void editDescription(@NotNull Bookmark bookmark, @NotNull Component popup) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    String description = Messages.showInputDialog(popup, IdeBundle.message("action.bookmark.edit.description.dialog.message"),
-                       IdeBundle.message("action.bookmark.edit.description.dialog.title"), Messages.getQuestionIcon(),
+    String description = Messages.showInputDialog(popup, BookmarkBundle.message("action.bookmark.edit.description.dialog.message"),
+                       BookmarkBundle.message("action.bookmark.edit.description.dialog.title"), Messages.getQuestionIcon(),
                        bookmark.getDescription(), null);
     if (description != null) {
       setDescription(bookmark, description);
@@ -162,7 +165,7 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
   }
 
   @NotNull
-  public Bookmark addTextBookmark(@NotNull VirtualFile file, int lineIndex, @NotNull String description) {
+  public Bookmark addTextBookmark(@NotNull VirtualFile file, int lineIndex, @NotNull @NlsSafe String description) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
     Bookmark b = new Bookmark(myProject, file, lineIndex, description);
@@ -179,7 +182,7 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
   }
 
   @TestOnly
-  public void addFileBookmark(@NotNull VirtualFile file, @NotNull String description) {
+  public void addFileBookmark(@NotNull VirtualFile file, @NotNull @NlsSafe String description) {
     if (findFileBookmark(file) != null) {
       return;
     }
@@ -213,16 +216,31 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
     return answer;
   }
 
+  @NotNull
+  public Collection<Bookmark> getAllBookmarks() {
+    return myBookmarks.values();
+  }
+
+  @NotNull
+  public Collection<Bookmark> getFileBookmarks(@Nullable VirtualFile file) {
+    return myBookmarks.get(file);
+  }
+
   @Nullable
   public Bookmark findEditorBookmark(@NotNull Document document, int line) {
     VirtualFile file = FileDocumentManager.getInstance().getFile(document);
     if (file == null) return null;
+    return findBookmark(file, line);
+  }
+
+  @ApiStatus.Internal
+  public @Nullable Bookmark findBookmark(@NotNull VirtualFile file, int line) {
     return ContainerUtil.find(myBookmarks.get(file), bookmark -> bookmark.getLine() == line);
   }
 
   @Nullable
   public Bookmark findFileBookmark(@NotNull VirtualFile file) {
-    return ContainerUtil.find(myBookmarks.get(file), bookmark -> bookmark.getLine() == -1);
+    return findBookmark(file, -1);
   }
 
   @Nullable
@@ -245,6 +263,27 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
       bookmark.release();
       getPublisher().bookmarkRemoved(bookmark);
     }
+  }
+
+  @Nullable
+  public Bookmark findElementBookmark(@NotNull PsiElement element) {
+    if (!(element instanceof PsiNameIdentifierOwner) || !element.isValid()) return null;
+    if (element instanceof PsiCompiledElement) return null;
+
+    VirtualFile virtualFile = PsiUtilCore.getVirtualFile(element);
+    PsiElement nameIdentifier = virtualFile == null ? null : ((PsiNameIdentifierOwner)element).getNameIdentifier();
+    TextRange nameRange = nameIdentifier == null ? null : nameIdentifier.getTextRange();
+    Document document = nameRange == null ? null : FileDocumentManager.getInstance().getDocument(virtualFile);
+
+    Collection<Bookmark> bookmarks = document == null ? Collections.emptyList() : getFileBookmarks(virtualFile);
+    for (Bookmark bookmark : bookmarks) {
+      int line = bookmark.getLine();
+      if (line == -1) continue;
+      if (nameRange.intersects(document.getLineStartOffset(line), document.getLineEndOffset(line))) {
+        return bookmark;
+      }
+    }
+    return null;
   }
 
   @Override
@@ -427,16 +466,24 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
     return isWrapped && !bookmarksForDocument.isEmpty() ? bookmarksForDocument.get(0) : null;
   }
 
+  public void deleteMnemonic(@NotNull Bookmark bookmark) {
+    if (BookmarkType.DEFAULT != bookmark.getType()) updateMnemonic(bookmark, BookmarkType.DEFAULT.getMnemonic());
+  }
+
   public void setMnemonic(@NotNull Bookmark bookmark, char c) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     final Bookmark old = findBookmarkForMnemonic(c);
     if (old != null) removeBookmark(old);
-
-    bookmark.setMnemonic(c);
-    getPublisher().bookmarkChanged(bookmark);
+    updateMnemonic(bookmark, c);
   }
 
-  public void setDescription(@NotNull Bookmark bookmark, @NotNull String description) {
+  private void updateMnemonic(@NotNull Bookmark bookmark, char c) {
+    bookmark.setMnemonic(c);
+    getPublisher().bookmarkChanged(bookmark);
+    bookmark.updateHighlighter();
+  }
+
+  public void setDescription(@NotNull Bookmark bookmark, @NotNull @NlsSafe String description) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     bookmark.setDescription(description);
     getPublisher().bookmarkChanged(bookmark);

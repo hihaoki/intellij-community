@@ -23,13 +23,16 @@ import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyStringLiteralUtil;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author yole
- */
+
 public class PythonHighlightingLexer extends PythonLexer {
   private final LanguageLevel myLanguageLevel;
 
   public PythonHighlightingLexer(LanguageLevel languageLevel) {
+    this(languageLevel, PythonLexerKind.REGULAR);
+  }
+
+  public PythonHighlightingLexer(LanguageLevel languageLevel, @NotNull PythonLexerKind kind) {
+    super(kind);
     myLanguageLevel = languageLevel;
     hasUnicodeImport = false;
     hasPrintFunctionImport = false;
@@ -72,10 +75,8 @@ public class PythonHighlightingLexer extends PythonLexer {
     if (tokenType == PyTokenTypes.IDENTIFIER) {
       final String tokenText = getTokenText();
 
-      if (myLanguageLevel.hasWithStatement()) {
-        if (tokenText.equals(PyNames.WITH)) return PyTokenTypes.WITH_KEYWORD;
-        if (tokenText.equals(PyNames.AS)) return PyTokenTypes.AS_KEYWORD;
-      }
+      if (tokenText.equals(PyNames.WITH)) return PyTokenTypes.WITH_KEYWORD;
+      if (tokenText.equals(PyNames.AS)) return PyTokenTypes.AS_KEYWORD;
 
       if (myLanguageLevel.hasPrintStatement() && !hasPrintFunctionImport) {
         if (tokenText.equals(PyNames.PRINT)) return PyTokenTypes.PRINT_KEYWORD;

@@ -186,8 +186,7 @@ class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
 
         if tb is not None:
             traceback.print_exception(etype, value, tb)
-
-
+            sys.last_type, sys.last_value, sys.last_traceback = etype, value, tb
 
     #-------------------------------------------------------------------------
     # Things related to text completion
@@ -335,9 +334,9 @@ class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
 InteractiveShellABC.register(PyDevTerminalInteractiveShell)  # @UndefinedVariable
 
 #=======================================================================================================================
-# _PyDevFrontEnd
+# _PyDevIPythonFrontEnd
 #=======================================================================================================================
-class _PyDevFrontEnd:
+class _PyDevIPythonFrontEnd:
 
     version = release.__version__
 
@@ -499,9 +498,9 @@ class _PyDevFrontEndContainer:
     _last_rpc_client = None
 
 
-def get_pydev_frontend(rpc_client):
+def get_pydev_ipython_frontend(rpc_client):
     if _PyDevFrontEndContainer._instance is None:
-        _PyDevFrontEndContainer._instance = _PyDevFrontEnd()
+        _PyDevFrontEndContainer._instance = _PyDevIPythonFrontEnd()
 
     if _PyDevFrontEndContainer._last_rpc_client != rpc_client:
         _PyDevFrontEndContainer._last_rpc_client = rpc_client

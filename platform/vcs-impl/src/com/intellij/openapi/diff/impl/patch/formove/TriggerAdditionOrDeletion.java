@@ -14,6 +14,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
+import static com.intellij.openapi.vcs.VcsNotificationIdsHolder.PATCH_APPLY_NEW_FILES_ERROR;
 import static com.intellij.util.Functions.identity;
 import static com.intellij.vcsUtil.VcsUtil.groupByRoots;
 import static java.util.Objects.requireNonNull;
@@ -24,8 +25,6 @@ public class TriggerAdditionOrDeletion {
   private final Project myProject;
   private final VcsFileListenerContextHelper myVcsFileListenerContextHelper;
 
-  private final Set<FilePath> myExisting = new HashSet<>();
-  private final Set<FilePath> myDeleted = new HashSet<>();
   private final Set<FilePath> myAffected = new HashSet<>();
 
   private final Map<AbstractVcs, Set<FilePath>> myPreparedAddition = new HashMap<>();
@@ -36,27 +35,32 @@ public class TriggerAdditionOrDeletion {
     myVcsFileListenerContextHelper = VcsFileListenerContextHelper.getInstance(myProject);
   }
 
-  public void addExisting(@NotNull Collection<? extends FilePath> files) {
-    myExisting.addAll(files);
-  }
-
-  public void addDeleted(@NotNull Collection<? extends FilePath> files) {
-    myDeleted.addAll(files);
-  }
-
   public Set<FilePath> getAffected() {
     return myAffected;
   }
 
-  public void prepare() {
-    if (!myExisting.isEmpty()) {
-      processAddition();
-    }
-    if (!myDeleted.isEmpty()) {
-      processDeletion();
-    }
+  /**
+   * Notify that files should be added/deleted in VCS.
+   * <p>
+   * Should be called in the same command as file modifications. Typically - BEFORE the actual file modification.
+   * See {@link VcsFileListenerContextHelper} javadoc for exact constraints on order of events.
+   */
+  public void prepare(@NotNull Collection<? extends FilePath> toBeAdded,
+                      @NotNull Collection<? extends FilePath> toBeDeleted) {
+    processAddition(toBeAdded);
+    processDeletion(toBeDeleted);
   }
 
+  /**
+   * Should be called on EDT after the command is finished.
+   */
+  public void cleanup() {
+    myVcsFileListenerContextHelper.clearContext();
+  }
+
+  /**
+   * Called on pooled thread when all operations are completed.
+   */
   public void processIt() {
     final List<FilePath> incorrectFilePath = new ArrayList<>();
 
@@ -100,11 +104,13 @@ public class TriggerAdditionOrDeletion {
   private void notifyAndLogFiles(@NotNull List<FilePath> incorrectFilePath) {
     String message = VcsBundle.message("patch.apply.incorrectly.processed.warning", incorrectFilePath.size(), incorrectFilePath);
     LOG.warn(message);
-    VcsNotifier.getInstance(myProject).notifyImportantWarning(VcsBundle.message("patch.apply.new.files.warning"), message);
+    VcsNotifier.getInstance(myProject).notifyImportantWarning(PATCH_APPLY_NEW_FILES_ERROR,
+                                                              VcsBundle.message("patch.apply.new.files.warning"),
+                                                              message);
   }
 
-  private void processDeletion() {
-    Map<VcsRoot, List<FilePath>> map = groupByRoots(myProject, myDeleted, identity());
+  private void processDeletion(@NotNull Collection<? extends FilePath> filePaths) {
+    Map<VcsRoot, List<FilePath>> map = groupByRoots(myProject, filePaths, identity());
 
     for (VcsRoot vcsRoot : map.keySet()) {
       AbstractVcs vcs = vcsRoot.getVcs();
@@ -139,8 +145,8 @@ public class TriggerAdditionOrDeletion {
     }
   }
 
-  private void processAddition() {
-    Map<VcsRoot, List<FilePath>> map = groupByRoots(myProject, myExisting, identity());
+  private void processAddition(@NotNull Collection<? extends FilePath> filePaths) {
+    Map<VcsRoot, List<FilePath>> map = groupByRoots(myProject, filePaths, identity());
 
     for (VcsRoot vcsRoot : map.keySet()) {
       AbstractVcs vcs = vcsRoot.getVcs();

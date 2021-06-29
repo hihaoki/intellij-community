@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.ide.highlighter.ArchiveFileType;
@@ -28,17 +14,17 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.util.*;
 
-public class PathsList  {
+public final class PathsList  {
   private final List<String> myPath = new ArrayList<>();
   private final List<String> myPathTail = new ArrayList<>();
   private final Set<String> myPathSet = new HashSet<>();
 
   private static final Function<String, VirtualFile> PATH_TO_LOCAL_VFILE =
-    (NullableFunction<String, VirtualFile>)path -> StandardFileSystems.local().findFileByPath(path.replace(File.separatorChar, '/'));
+    path -> StandardFileSystems.local().findFileByPath(path.replace(File.separatorChar, '/'));
 
   private static final Function<VirtualFile, String> LOCAL_PATH = file -> PathUtil.getLocalPath(file);
 
-  private static final Function<String, VirtualFile> PATH_TO_DIR = (NullableFunction<String, VirtualFile>)s -> {
+  private static final Function<String, VirtualFile> PATH_TO_DIR = s -> {
     VirtualFile file = PATH_TO_LOCAL_VFILE.fun(s);
     if (file == null) return null;
     if (!file.isDirectory() && FileTypeRegistry.getInstance().getFileTypeByFileName(file.getNameSequence()) == ArchiveFileType.INSTANCE) {

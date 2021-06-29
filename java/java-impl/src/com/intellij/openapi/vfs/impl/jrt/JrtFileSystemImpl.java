@@ -1,14 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.jrt;
 
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.projectRoots.JdkUtil;
-import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.impl.ArchiveHandler;
 import com.intellij.openapi.vfs.jrt.JrtFileSystem;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
@@ -18,17 +20,17 @@ import com.intellij.openapi.vfs.newvfs.VfsImplUtil;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
-import gnu.trove.THashMap;
+import com.intellij.util.containers.CollectionFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class JrtFileSystemImpl extends JrtFileSystem {
-  private final Map<String, ArchiveHandler> myHandlers =
-    Collections.synchronizedMap(new THashMap<>(FileUtil.PATH_HASHING_STRATEGY));
+  private final Map<String, ArchiveHandler> myHandlers = Collections.synchronizedMap(CollectionFactory.createFilePathMap());
   private final AtomicBoolean mySubscribed = new AtomicBoolean(false);
 
   @NotNull
@@ -85,7 +87,7 @@ public class JrtFileSystemImpl extends JrtFileSystem {
     if (app.isDisposed()) return;  // we might perform a shutdown activity that includes visiting archives (IDEA-181620)
     app.getMessageBus().connect(app).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         Set<VirtualFile> toRefresh = null;
 
         for (VFileEvent e : events) {
@@ -147,7 +149,7 @@ public class JrtFileSystemImpl extends JrtFileSystem {
 
   @Override
   protected boolean isCorrectFileType(@NotNull VirtualFile local) {
-    String path = local.getPath();
+    Path path = local.toNioPath();
     return JdkUtil.isModularRuntime(path) && !JdkUtil.isExplodedModularRuntime(path);
   }
 

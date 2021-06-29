@@ -4,10 +4,12 @@ package com.intellij.refactoring.changeSignature;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,6 +21,7 @@ public interface ChangeSignatureHandler extends RefactoringActionHandler {
    * @deprecated inline this field for proper localization
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   String REFACTORING_NAME = RefactoringBundle.message("changeSignature.refactoring.name");
 
   @Nullable
@@ -33,6 +36,6 @@ public interface ChangeSignatureHandler extends RefactoringActionHandler {
   @Override
   void invoke(@NotNull Project project, PsiElement @NotNull [] elements, @Nullable DataContext dataContext);
 
-  @Nullable
+  @Nullable @NlsContexts.DialogMessage
   String getTargetNotFoundMessage();
 }

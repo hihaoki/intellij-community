@@ -1,7 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
@@ -27,7 +26,7 @@ public abstract class PsiShortNamesCache {
    * @return the cache instance.
    */
   public static PsiShortNamesCache getInstance(Project project) {
-    return ServiceManager.getService(project, PsiShortNamesCache.class);
+    return project.getService(PsiShortNamesCache.class);
   }
 
   public static final ExtensionPointName<PsiShortNamesCache> EP_NAME = ExtensionPointName.create("com.intellij.java.shortNamesCache");
@@ -58,7 +57,7 @@ public abstract class PsiShortNamesCache {
    * @param scope the scope in which classes are searched.
    * @return the list of found classes.
    */
-  public abstract PsiClass @NotNull [] getClassesByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope);
+  public abstract @NotNull PsiClass @NotNull [] getClassesByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope);
 
   /**
    * Returns the list of names of all classes in the project and
@@ -66,7 +65,7 @@ public abstract class PsiShortNamesCache {
    *
    * @return the list of all class names.
    */
-  public abstract String @NotNull [] getAllClassNames();
+  public abstract @NotNull String @NotNull [] getAllClassNames();
 
   public boolean processAllClassNames(@NotNull Processor<? super String> processor) {
     return ContainerUtil.process(getAllClassNames(), processor);
@@ -83,11 +82,11 @@ public abstract class PsiShortNamesCache {
    * @param scope the scope in which methods are searched.
    * @return the list of found methods.
    */
-  public abstract PsiMethod @NotNull [] getMethodsByName(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope);
+  public abstract @NotNull PsiMethod @NotNull [] getMethodsByName(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope);
 
-  public abstract PsiMethod @NotNull [] getMethodsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount);
+  public abstract @NotNull PsiMethod @NotNull [] getMethodsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount);
 
-  public abstract PsiField @NotNull [] getFieldsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount);
+  public abstract @NotNull PsiField @NotNull [] getFieldsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount);
 
   public abstract boolean processMethodsWithName(@NonNls @NotNull String name,
                                                  @NotNull GlobalSearchScope scope,
@@ -114,7 +113,7 @@ public abstract class PsiShortNamesCache {
    *
    * @return the list of all method names.
    */
-  public abstract String @NotNull [] getAllMethodNames();
+  public abstract @NotNull String @NotNull [] getAllMethodNames();
 
   /**
    * Returns the list of all fields with the specified name in the specified scope.
@@ -123,7 +122,7 @@ public abstract class PsiShortNamesCache {
    * @param scope the scope in which fields are searched.
    * @return the list of found fields.
    */
-  public abstract PsiField @NotNull [] getFieldsByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope);
+  public abstract @NotNull PsiField @NotNull [] getFieldsByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope);
 
   /**
    * Returns the list of names of all fields in the project and
@@ -131,7 +130,7 @@ public abstract class PsiShortNamesCache {
    *
    * @return the list of all field names.
    */
-  public abstract String @NotNull [] getAllFieldNames();
+  public abstract @NotNull String @NotNull [] getAllFieldNames();
 
   public boolean processFieldsWithName(@NotNull String name,
                                        @NotNull Processor<? super PsiField> processor,

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.ide.startup.ServiceNotReadyException;
@@ -31,7 +31,6 @@ import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.ui.UIUtil;
 import one.util.streamex.IntStreamEx;
-import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.concurrency.CancellablePromise;
 import org.jetbrains.concurrency.Promise;
@@ -78,7 +77,7 @@ public class NonBlockingReadActionTest extends LightPlatformTestCase {
 
   public void testDoNotBlockExecutorThreadWhileWaitingForEdtFinish() throws Exception {
     Semaphore semaphore = new Semaphore(1);
-    ExecutorService executor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor(getName());
+    ExecutorService executor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor(StringUtil.capitalize(getName()));
     CancellablePromise<Void> promise = ReadAction
       .nonBlocking(() -> {})
       .finishOnUiThread(ModalityState.defaultModalityState(), __ -> semaphore.up())
@@ -412,9 +411,10 @@ public class NonBlockingReadActionTest extends LightPlatformTestCase {
     AtomicReference<Throwable> loggedError = new AtomicReference<>();
     LoggedErrorProcessor.setNewInstance(new LoggedErrorProcessor() {
       @Override
-      public void processError(String message, Throwable t, String[] details, @NotNull Logger logger) {
+      public boolean processError(@NotNull String category, String message, Throwable t, String @NotNull [] details) {
         assertNotNull(t);
         loggedError.set(t);
+        return false;
       }
     });
     return loggedError;
@@ -503,7 +503,7 @@ public class NonBlockingReadActionTest extends LightPlatformTestCase {
           }
         }));
       }
-      WriteAction.run(() -> parents.forEach(Disposer::dispose));
+      parents.forEach(Disposer::dispose);
 
       futures.forEach(f -> PlatformTestUtil.waitForFuture(f, 50_000));
     }

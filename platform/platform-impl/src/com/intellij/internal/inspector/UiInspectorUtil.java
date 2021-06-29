@@ -1,7 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.inspector;
 
-import com.intellij.ide.plugins.cl.PluginClassLoader;
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader;
 import com.intellij.ide.ui.customization.CustomisedActionGroup;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +45,7 @@ public final class UiInspectorUtil {
   }
 
   @NotNull
-  public static List<PropertyBean> collectActionGroupInfo(@NotNull String prefix, @NotNull ActionGroup group, @Nullable String place) {
+  public static List<PropertyBean> collectActionGroupInfo(@NotNull @NonNls String prefix, @NotNull ActionGroup group, @Nullable String place) {
     List<PropertyBean> result = new ArrayList<>();
 
     if (place != null) {
@@ -73,13 +74,13 @@ public final class UiInspectorUtil {
     result.add(new PropertyBean("Action" + (isGroup ? " Group" : "") + " ID", getActionId(action), true));
 
     final ClassLoader classLoader = action.getClass().getClassLoader();
-    if (classLoader instanceof PluginClassLoader) {
-      result.add(new PropertyBean("Action Plugin ID", ((PluginClassLoader)classLoader).getPluginId().getIdString(), true));
+    if (classLoader instanceof PluginAwareClassLoader) {
+      result.add(new PropertyBean("Action Plugin ID", ((PluginAwareClassLoader)classLoader).getPluginId().getIdString(), true));
     }
     return result;
   }
 
-  private static void recursiveCollectGroupIds(@NotNull ActionGroup group, @NotNull Set<String> result) {
+  private static void recursiveCollectGroupIds(@NotNull ActionGroup group, @NotNull Set<? super String> result) {
     for (AnAction action : group.getChildren(null)) {
       if (action instanceof ActionGroup) {
         ActionGroup child = (ActionGroup)action;

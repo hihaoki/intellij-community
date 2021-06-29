@@ -3,7 +3,6 @@ package org.editorconfig.configmanagement.editor;
 
 import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.Language;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Document;
@@ -24,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Paths;
 
-public class EditorConfigPreviewFile extends LightVirtualFile implements CodeStyleSettingsListener, Disposable {
+public class EditorConfigPreviewFile extends LightVirtualFile implements CodeStyleSettingsListener {
   private final Project  myProject;
   private final String   myOriginalPath;
   private final Document myDocument;
@@ -52,7 +51,18 @@ public class EditorConfigPreviewFile extends LightVirtualFile implements CodeSty
 
   @Override
   public void codeStyleSettingsChanged(@NotNull CodeStyleSettingsChangeEvent event) {
-    reformat();
+    PsiFile psiFile = event.getPsiFile();
+    if (psiFile == null || isOriginalFile(psiFile)) {
+      reformat();
+    }
+  }
+
+  private boolean isOriginalFile(@NotNull PsiFile psiFile) {
+    VirtualFile file = psiFile.getVirtualFile();
+    if (file != null) {
+      return file.getPath().equals(myOriginalPath);
+    }
+    return false;
   }
 
   private void reformat() {
@@ -65,6 +75,7 @@ public class EditorConfigPreviewFile extends LightVirtualFile implements CodeSty
           if (originalPsiFile != null) {
             CodeStyleSettings settings = CodeStyle.getSettings(originalPsiFile);
             PsiFile psiFile = createPsi(originalPsiFile.getFileType());
+            psiFile.putUserData(PsiFileFactory.ORIGINAL_FILE, originalPsiFile);
             CodeStyle.doWithTemporarySettings(
               myProject, settings, () -> CodeStyleManager.getInstance(myProject).reformatText(psiFile, 0, psiFile.getTextLength()));
             myDocument.replaceString(0, myDocument.getTextLength(), psiFile.getText());
@@ -85,8 +96,7 @@ public class EditorConfigPreviewFile extends LightVirtualFile implements CodeSty
     return null;
   }
 
-  @Override
-  public void dispose() {
+  public void unregisterListener() {
     CodeStyleSettingsManager.removeListener(myProject, this);
   }
 }

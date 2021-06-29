@@ -1,6 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
+import com.intellij.CommonBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
@@ -16,7 +18,6 @@ import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.NlsContexts;
-import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.*;
@@ -45,6 +46,7 @@ import java.awt.*;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class MoveClassesOrPackagesDialog extends MoveDialogBase {
   private static final String RECENTS_KEY = "MoveClassesOrPackagesDialog.RECENTS_KEY";
@@ -163,16 +165,17 @@ public class MoveClassesOrPackagesDialog extends MoveDialogBase {
         initialTargetDirectory = null;
       }
     }
-    Pass<String> updater = new Pass<@NlsContexts.DialogMessage String>() {
-      @Override
-      public void pass(@NlsContexts.DialogMessage String s) {
-        setErrorText(s, myDestinationFolderCB);
+    Consumer<String> updater = (@NlsContexts.DialogMessage var s) -> {
+      setErrorText(s, myDestinationFolderCB);
+      if (s == null) {
+        validateButtons();
       }
     };
+    validateButtons();
+
     EditorComboBox comboBox = myHavePackages ? myWithBrowseButtonReference.getChildComponent() : myClassPackageChooser.getChildComponent();
     ((DestinationFolderComboBox)myDestinationFolderCB).setData(myProject, initialTargetDirectory, updater, comboBox);
     UIUtil.setEnabled(myTargetPanel, !getSourceRoots().isEmpty() && isMoveToPackage() && !myTargetDirectoryFixed, true);
-    validateButtons();
 
     myHelpID = HelpID.getMoveHelpID(elementsToMove[0]);
   }
@@ -312,11 +315,12 @@ public class MoveClassesOrPackagesDialog extends MoveDialogBase {
     if (isMoveToPackage()) {
       String name = getTargetPackage().trim();
       if (name.length() != 0 && !PsiNameHelper.getInstance(myManager.getProject()).isQualifiedName(name)) {
-        throw new ConfigurationException("'" + name + "' is invalid destination package name");
+        throw new ConfigurationException(JavaBundle.message("move.classes.invalid.destination.package.name.message", name));
       }
     }
     else {
-      if (findTargetClass() == null) throw new ConfigurationException("Destination class not found");
+      if (findTargetClass() == null) throw new ConfigurationException(
+        JavaBundle.message("move.classes.destination.class.not.found.message"));
       final String validationError = verifyInnerClassDestination();
       if (validationError != null) throw new ConfigurationException(validationError);
     }
@@ -337,7 +341,7 @@ public class MoveClassesOrPackagesDialog extends MoveDialogBase {
   }
 
   @Nullable
-  private static String verifyDestinationForElement(@NotNull PsiElement element, @NotNull MoveDestination moveDestination) {
+  private static @NlsContexts.DialogMessage String verifyDestinationForElement(@NotNull PsiElement element, @NotNull MoveDestination moveDestination) {
     final String message;
     if (element instanceof PsiDirectory) {
       message = moveDestination.verify((PsiDirectory)element);
@@ -412,7 +416,7 @@ public class MoveClassesOrPackagesDialog extends MoveDialogBase {
   }
 
   @Nullable
-  private String verifyInnerClassDestination() {
+  private @NlsContexts.DialogMessage String verifyInnerClassDestination() {
     PsiClass targetClass = findTargetClass();
     if (targetClass == null) return null;
 
@@ -472,9 +476,19 @@ public class MoveClassesOrPackagesDialog extends MoveDialogBase {
     RecentsManager.getInstance(myProject).registerRecentEntry(RECENTS_KEY, packageName);
     PackageWrapper targetPackage = new PackageWrapper(myManager, packageName);
     if (!targetPackage.exists()) {
-      final int ret = Messages.showYesNoDialog(myProject, JavaRefactoringBundle.message("package.does.not.exist", packageName),
-                                               RefactoringBundle.message("move.title"), Messages.getQuestionIcon());
-      if (ret != Messages.YES) return null;
+      if (isPreviewUsages()) {
+        int res = Messages.showOkCancelDialog(myProject, 
+                                              JavaRefactoringBundle.message("package.does.not.exist.preview", packageName),
+                                              RefactoringBundle.message("move.title"), 
+                                              CommonBundle.getOkButtonText(),
+                                              CommonBundle.getCancelButtonText(), null);
+        if (res != Messages.OK) return null;
+      }
+      else {
+        final int ret = Messages.showYesNoDialog(myProject, JavaRefactoringBundle.message("package.does.not.exist", packageName),
+                                                 RefactoringBundle.message("move.title"), Messages.getQuestionIcon());
+        if (ret != Messages.YES) return null;
+      }
     }
 
     return ((DestinationFolderComboBox)myDestinationFolderCB).selectDirectory(targetPackage, mySuggestToMoveToAnotherRoot);

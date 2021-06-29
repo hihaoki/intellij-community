@@ -7,20 +7,21 @@ import com.intellij.ide.DataManager;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.impl.UndoManagerImpl;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
-import com.intellij.openapi.editor.impl.DefaultEditorTextRepresentationHelper;
+import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapPainter;
@@ -31,13 +32,13 @@ import com.intellij.openapi.fileEditor.impl.CurrentEditorProvider;
 import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -45,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.locks.LockSupport;
@@ -73,8 +75,7 @@ public final class EditorTestUtil {
     return first != 0 ? first : Comparing.compare(o1.second, o2.second);
   };
 
-  public static void performTypingAction(Editor editor, char c) {
-    EditorActionManager actionManager = EditorActionManager.getInstance();
+  public static void performTypingAction(@NotNull Editor editor, char c) {
     if (c == BACKSPACE_FAKE_CHAR) {
       executeAction(editor, IdeActions.ACTION_EDITOR_BACKSPACE);
     }
@@ -106,24 +107,23 @@ public final class EditorTestUtil {
 
   public static void executeAction(@NotNull Editor editor, boolean assertActionIsEnabled, @NotNull AnAction action) {
     AnActionEvent event = AnActionEvent.createFromAnAction(action, null, "", createEditorContext(editor));
-    action.beforeActionPerformedUpdate(event);
-    if (!event.getPresentation().isEnabled()) {
-      assertFalse("Action " + action + " is disabled", assertActionIsEnabled);
-      return;
+    if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event);
     }
-    ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
-    actionManager.fireBeforeActionPerformed(action, event.getDataContext(), event);
-    action.actionPerformed(event);
-    actionManager.fireAfterActionPerformed(action, event.getDataContext(), event);
+    else if (assertActionIsEnabled) {
+      fail("Action " + action + " is disabled");
+    }
   }
 
   @NotNull
   private static DataContext createEditorContext(@NotNull Editor editor) {
-    Object hostEditor = editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
-    Map<String, Object> map = ContainerUtil.newHashMap(Pair.create(CommonDataKeys.HOST_EDITOR.getName(), hostEditor),
-                                                       Pair.createNonNull(CommonDataKeys.EDITOR.getName(), editor));
+    Editor hostEditor = editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
     DataContext parent = DataManager.getInstance().getDataContext(editor.getContentComponent());
-    return SimpleDataContext.getSimpleContext(map, parent);
+    return SimpleDataContext.builder()
+      .setParent(parent)
+      .add(CommonDataKeys.HOST_EDITOR, hostEditor)
+      .add(CommonDataKeys.EDITOR, editor)
+      .build();
   }
 
   public static void performReferenceCopy(Editor editor) {
@@ -142,6 +142,43 @@ public final class EditorTestUtil {
       iterator.advance();
     }
     return tokens;
+  }
+
+  public static void checkEditorHighlighter(Project project, Editor editor) {
+    if (!(editor instanceof EditorImpl)) return;
+    HighlighterIterator editorIterator = editor.getHighlighter().createIterator(0);
+
+    EditorHighlighter freshHighlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
+      project, ((EditorEx)editor).getVirtualFile());
+    freshHighlighter.setEditor((EditorImpl)editor);
+    freshHighlighter.setText(editor.getDocument().getImmutableCharSequence());
+    HighlighterIterator freshIterator = freshHighlighter.createIterator(0);
+
+    while (!editorIterator.atEnd() || !freshIterator.atEnd()) {
+      if (editorIterator.atEnd() || freshIterator.atEnd()
+          || editorIterator.getTokenType() != freshIterator.getTokenType()
+          || editorIterator.getStart() != freshIterator.getStart()
+          || editorIterator.getEnd() != freshIterator.getEnd()) {
+        throw new IllegalStateException("Editor highlighter failed to update incrementally:\nFresh:  " +
+                                        dumpHighlighter(freshHighlighter) +
+                                        "\nEditor: " +
+                                        dumpHighlighter(editor.getHighlighter()));
+      }
+      editorIterator.advance();
+      freshIterator.advance();
+    }
+  }
+
+  private static String dumpHighlighter(EditorHighlighter highlighter) {
+    HighlighterIterator iterator = highlighter.createIterator(0);
+    StringBuilder result = new StringBuilder();
+    int i = 0;
+    while (!iterator.atEnd()) {
+      result.append(i).append(": ").append(iterator.getTokenType()).append(" [").append(iterator.getStart()).append("-")
+        .append(iterator.getEnd()).append("], ");
+      iterator.advance();
+    }
+    return result.toString();
   }
 
   public static int getCaretPosition(@NotNull final String content) {
@@ -239,12 +276,6 @@ public final class EditorTestUtil {
 
     SoftWrapApplianceManager applianceManager = model.getApplianceManager();
     applianceManager.setWidthProvider(new TestWidthProvider(visibleWidthInPixels));
-    model.setEditorTextRepresentationHelper(new DefaultEditorTextRepresentationHelper(editor) {
-      @Override
-      public int charWidth(int c, int fontType) {
-        return charWidthInPixels;
-      }
-    });
     setEditorVisibleSizeInPixels(editor, visibleWidthInPixels, visibleHeightInPixels);
     applianceManager.registerSoftWrapIfNecessary();
     return !model.getRegisteredSoftWraps().isEmpty();
@@ -406,6 +437,24 @@ public final class EditorTestUtil {
     if (!hasChecks) {
       return; // nothing to check, so we skip caret/selection assertions
     }
+
+    try {
+      doVerifyCaretAndSelectionState(editor, caretState, message);
+    }
+    catch (AssertionError e) {
+      try {
+        assertEquals(e.getMessage(), CaretAndSelectionMarkup.renderExpectedState(editor, caretState.carets),
+                     CaretAndSelectionMarkup.renderActualState(editor));
+      }
+      catch (AssertionError exception) {
+        exception.addSuppressed(e);
+        throw exception;
+      }
+      throw e;
+    }
+  }
+
+  private static void doVerifyCaretAndSelectionState(Editor editor, CaretAndSelectionState caretState, String message) {
     String messageSuffix = message == null ? "" : (message + ": ");
     CaretModel caretModel = editor.getCaretModel();
     List<Caret> allCarets = new ArrayList<>(caretModel.getAllCarets());
@@ -435,6 +484,61 @@ public final class EditorTestUtil {
         assertFalse(messageSuffix + caretDescription + "should has no selection, but was: (" + actualSelectionStart + ", " + actualSelectionEnd + ")",
                     currentCaret.hasSelection());
       }
+    }
+  }
+
+  private static class CaretAndSelectionMarkup {
+    private final @NotNull ArrayList<Pair<Integer, String>> marks = new ArrayList<>();
+
+    static @NotNull String renderActualState(@NotNull Editor editor) {
+      CaretAndSelectionMarkup markup = new CaretAndSelectionMarkup();
+      // There's no guarantee on the order the carets are enumerated,
+      // and in any case we should be prepared that something might go wrong.
+      for (Caret caret : editor.getCaretModel().getAllCarets()) {
+        boolean hasSelection = caret.hasSelection();
+        if (hasSelection) markup.addMark(caret.getSelectionStart(), SELECTION_START_TAG);
+        markup.addMark(caret.getOffset(), CARET_TAG);
+        if (hasSelection) markup.addMark(caret.getSelectionEnd(), SELECTION_END_TAG);
+      }
+      return markup.insertMarks(editor.getDocument().getCharsSequence());
+    }
+
+    static @NotNull String renderExpectedState(@NotNull Editor editor, @NotNull List<CaretInfo> carets) {
+      CaretAndSelectionMarkup markup = new CaretAndSelectionMarkup();
+      // The expected state is properly sorted already, so it doesn't require extra sorting,
+      // but for sake of consistency we use the same approach as for the actual caret state.
+      for (CaretInfo expected : carets) {
+        LogicalPosition position = expected.position;
+        TextRange selection = expected.selection;
+
+        if (selection != null) markup.addMark(selection.getStartOffset(), SELECTION_START_TAG);
+        if (position != null) markup.addMark(editor.getDocument().getLineStartOffset(position.line) + position.column, CARET_TAG);
+        if (selection != null) markup.addMark(selection.getEndOffset(), SELECTION_END_TAG);
+      }
+      return markup.insertMarks(editor.getDocument().getCharsSequence());
+    }
+
+    private void addMark(int offset, @NotNull String s) {
+      Pair<Integer, String> mark = Pair.create(offset, s);
+      marks.add(mark);
+    }
+
+    private @NotNull String insertMarks(@NotNull @NlsSafe CharSequence text) {
+      StringBuilder sb = new StringBuilder(text);
+
+      marks.sort(Comparator.comparingInt(mark -> mark.first));
+      for (int i = marks.size() - 1; i >= 0; i--) {
+        Pair<Integer, String> mark = marks.get(i);
+        int offset = mark.first;
+        if (0 <= offset && offset <= sb.length()) {
+          sb.insert(offset, mark.second);
+        }
+        else {
+          sb.insert(Math.max(0, Math.min(offset, sb.length())), "!!!" + mark.second + "@[" + offset + "]");
+        }
+      }
+
+      return sb.toString();
     }
   }
 
@@ -469,12 +573,45 @@ public final class EditorTestUtil {
                                     boolean showAbove,
                                     int widthInPixels,
                                     Integer heightInPixels) {
-    return editor.getInlayModel().addBlockElement(offset, relatesToPrecedingText, showAbove, 0,
+    return addBlockInlay(editor, offset, relatesToPrecedingText, showAbove, false, widthInPixels, heightInPixels);
+  }
+
+
+  public static Inlay addBlockInlay(@NotNull Editor editor,
+                                    int offset,
+                                    boolean relatesToPrecedingText,
+                                    boolean showAbove,
+                                    boolean showWhenFolded,
+                                    int widthInPixels,
+                                    Integer heightInPixels) {
+    return editor.getInlayModel().addBlockElement(offset,
+                                                  new InlayProperties()
+                                                    .relatesToPrecedingText(relatesToPrecedingText)
+                                                    .showAbove(showAbove)
+                                                    .showWhenFolded(showWhenFolded),
                                                   new EmptyInlayRenderer(widthInPixels, heightInPixels));
   }
 
   public static Inlay addAfterLineEndInlay(@NotNull Editor editor, int offset, int widthInPixels) {
     return editor.getInlayModel().addAfterLineEndElement(offset, false, new EmptyInlayRenderer(widthInPixels));
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine) {
+    return addCustomFoldRegion(editor, startLine, endLine, 1);
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine, int heightInPixels) {
+    return addCustomFoldRegion(editor, startLine, endLine, 0, heightInPixels);
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine,
+                                                               int widthInPixels, int heightInPixels) {
+    CustomFoldRegion[] result = new CustomFoldRegion[1];
+    FoldingModel model = editor.getFoldingModel();
+    model.runBatchFoldingOperation(() -> {
+      result[0] = model.addCustomLinesFolding(startLine, endLine, new EmptyCustomFoldingRenderer(widthInPixels, heightInPixels));
+    });
+    return result[0];
   }
 
   public static void waitForLoading(Editor editor) {
@@ -544,6 +681,7 @@ public final class EditorTestUtil {
     if (addSelection) {
       result.add(Pair.create(caret.getSelectionEnd(), SELECTION_END_TAG));
     }
+    result.sort(Pair.comparingByFirst());
     return result;
   }
 
@@ -685,6 +823,26 @@ public final class EditorTestUtil {
                       @NotNull TextAttributes textAttributes) {}
   }
 
+  private static class EmptyCustomFoldingRenderer implements CustomFoldRegionRenderer {
+    private final int myWidth;
+    private final int myHeight;
+
+    private EmptyCustomFoldingRenderer(int width, int height) {
+      myWidth = width;
+      myHeight = height;
+    }
+
+    @Override
+    public int calcWidthInPixels(@NotNull CustomFoldRegion region) {
+      return myWidth;
+    }
+
+    @Override
+    public int calcHeightInPixels(@NotNull CustomFoldRegion region) {
+      return myHeight;
+    }
+  }
+
   public static class TestWidthProvider implements SoftWrapApplianceManager.VisibleAreaWidthProvider {
     private int myWidth;
 
@@ -701,5 +859,30 @@ public final class EditorTestUtil {
       myWidth = width;
     }
   }
-}
+
+  public static <E extends Exception> void saveEncodingsIn(@NotNull Project project, Charset newIdeCharset, Charset newProjectCharset, @NotNull ThrowableRunnable<E> task) throws E {
+    EncodingManager encodingManager = EncodingManager.getInstance();
+    String oldIde = encodingManager.getDefaultCharsetName();
+    if (newIdeCharset != null) {
+      encodingManager.setDefaultCharsetName(newIdeCharset.name());
+    }
+
+    EncodingProjectManager encodingProjectManager = EncodingProjectManager.getInstance(project);
+    String oldProject = encodingProjectManager.getDefaultCharsetName();
+    if (newProjectCharset != null) {
+      encodingProjectManager.setDefaultCharsetName(newProjectCharset.name());
+    }
+
+    try {
+      task.run();
+    }
+    finally {
+      if (newIdeCharset != null) {
+        encodingManager.setDefaultCharsetName(oldIde);
+      }
+      if (newProjectCharset != null) {
+        encodingProjectManager.setDefaultCharsetName(oldProject);
+      }
+    }
+  }}
 

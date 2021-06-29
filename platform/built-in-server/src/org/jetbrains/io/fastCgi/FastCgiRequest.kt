@@ -9,6 +9,7 @@ import io.netty.channel.Channel
 import io.netty.handler.codec.http.FullHttpRequest
 import io.netty.handler.codec.http.HttpHeaderNames
 import org.jetbrains.builtInWebServer.PathInfo
+import org.jetbrains.io.serverHeaderValue
 import java.net.InetSocketAddress
 import java.nio.CharBuffer
 import java.util.*
@@ -23,6 +24,7 @@ private const val VERSION = 1
 
 private const val MAX_CONTENT_LENGTH = 0xFFFF
 
+@Suppress("HardCodedStringLiteral")
 class FastCgiRequest(val requestId: Int, allocator: ByteBufAllocator) {
   private val params = allocator.ioBuffer(4096)
 
@@ -74,6 +76,7 @@ class FastCgiRequest(val requestId: Int, allocator: ByteBufAllocator) {
     addHeader("REMOTE_PORT", remote.port.toString())
 
     val local = clientChannel.localAddress() as InetSocketAddress
+    addHeader("SERVER_NAME", serverHeaderValue)
 
     addHeader("SERVER_ADDR", local.address.hostAddress)
     addHeader("SERVER_PORT", local.port.toString())

@@ -18,6 +18,7 @@ package com.intellij.ide.scratch;
 import com.intellij.icons.AllIcons;
 import com.intellij.lang.LangBundle;
 import com.intellij.lang.Language;
+import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
@@ -60,16 +61,19 @@ public final class ScratchRootType extends RootType {
   }
 
   @Nullable
-  public VirtualFile createScratchFile(Project project, final String fileName, final Language language, final String text) {
+  public VirtualFile createScratchFile(@Nullable Project project,
+                                       @NotNull String fileName,
+                                       @Nullable Language language,
+                                       @NotNull String text) {
     return createScratchFile(project, fileName, language, text, ScratchFileService.Option.create_new_always);
   }
 
   @Nullable
-  public VirtualFile createScratchFile(Project project,
-                                       final String fileName,
-                                       final Language language,
-                                       final String text,
-                                       final ScratchFileService.Option option) {
+  public VirtualFile createScratchFile(@Nullable Project project,
+                                       @NotNull String fileName,
+                                       @Nullable Language language,
+                                       @NotNull String text,
+                                       @NotNull ScratchFileService.Option option) {
     try {
       return
         WriteCommandAction.writeCommandAction(project).withName(UIBundle.message("file.chooser.create.new.scratch.file.command.name"))
@@ -80,8 +84,10 @@ public final class ScratchRootType extends RootType {
           // save text should go before any other manipulations that load document,
           // otherwise undo will be broken
           VfsUtil.saveText(file, text);
-
-          fileService.getScratchesMapping().setMapping(file, language);
+          if (language != null) {
+            Language fileLanguage = LanguageUtil.getFileLanguage(file);
+            fileService.getScratchesMapping().setMapping(file, fileLanguage == null || language == fileLanguage ? null : language);
+          }
           return file;
         });
     }

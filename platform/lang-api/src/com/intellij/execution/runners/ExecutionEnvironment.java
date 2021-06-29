@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
 import com.intellij.execution.*;
@@ -7,13 +7,11 @@ import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
 import com.intellij.execution.configurations.RunnerSettings;
 import com.intellij.execution.target.*;
-import com.intellij.execution.target.local.LocalTargetEnvironmentFactory;
+import com.intellij.execution.target.local.LocalTargetEnvironmentRequest;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.application.Experiments;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.UserDataHolderBase;
@@ -30,11 +28,11 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
 
   @NotNull private final Project myProject;
 
-  @NotNull private RunProfile myRunProfile;
+  @NotNull private final RunProfile myRunProfile;
   @NotNull private final Executor myExecutor;
 
-  @NotNull private ExecutionTarget myTarget;
-  private TargetEnvironmentFactory myTargetEnvironmentFactory;
+  @NotNull private final ExecutionTarget myTarget;
+  private TargetEnvironmentRequest myTargetEnvironmentRequest;
   private volatile TargetEnvironment myPrepareRemoteEnvironment;
 
   @Nullable private RunnerSettings myRunnerSettings;
@@ -44,9 +42,11 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
   private final ProgramRunner<?> myRunner;
   private long myExecutionId = 0;
   @Nullable private DataContext myDataContext;
+  @Nullable private String myModulePath;
 
   @Nullable
   private ProgramRunner.Callback callback;
+  private boolean isHeadless = false;
 
   @TestOnly
   public ExecutionEnvironment() {
@@ -55,6 +55,8 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
     myRunnerAndConfigurationSettings = null;
     myExecutor = null;
     myRunner = null;
+    myRunProfile = null;
+    myTarget = null;
   }
 
   public ExecutionEnvironment(@NotNull Executor executor,
@@ -96,52 +98,59 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
     this.callback = callback;
   }
 
-  public @NotNull TargetEnvironmentFactory getTargetEnvironmentFactory() {
-    if (myTargetEnvironmentFactory != null) {
-      return myTargetEnvironmentFactory;
+  public @NotNull TargetEnvironmentRequest getTargetEnvironmentRequest() {
+    if (myTargetEnvironmentRequest != null) {
+      return myTargetEnvironmentRequest;
     }
-    return myTargetEnvironmentFactory = createTargetEnvironmentFactory();
+    return myTargetEnvironmentRequest = createTargetEnvironmentRequest();
   }
 
   @NotNull
-  private TargetEnvironmentFactory createTargetEnvironmentFactory() {
-    if (myRunProfile instanceof TargetEnvironmentAwareRunProfile &&
-        Experiments.getInstance().isFeatureEnabled("run.targets")) {
+  private TargetEnvironmentRequest createTargetEnvironmentRequest() {
+    if (myRunProfile instanceof TargetEnvironmentAwareRunProfile) {
       String targetName = ((TargetEnvironmentAwareRunProfile)myRunProfile).getDefaultTargetName();
       if (targetName != null) {
-        TargetEnvironmentConfiguration config = TargetEnvironmentsManager.getInstance().getTargets().findByName(targetName);
+        TargetEnvironmentConfiguration config = TargetEnvironmentsManager.getInstance(myProject).getTargets().findByName(targetName);
         if (config != null) {
-          return config.createEnvironmentFactory(myProject);
+          return config.createEnvironmentRequest(myProject);
         }
       }
     }
-    return new LocalTargetEnvironmentFactory();
+    return new LocalTargetEnvironmentRequest();
   }
 
   @ApiStatus.Experimental
-  public @NotNull TargetEnvironment getPreparedTargetEnvironment(@NotNull RunProfileState runProfileState, @NotNull ProgressIndicator progressIndicator)
+  public @NotNull TargetEnvironment getPreparedTargetEnvironment(@NotNull RunProfileState runProfileState,
+                                                                 @NotNull TargetProgressIndicator targetProgressIndicator)
     throws ExecutionException {
     if (myPrepareRemoteEnvironment != null) {
       // In a correct implementation that uses the new API this condition is always true.
       return myPrepareRemoteEnvironment;
     }
     // Warning: this method executes in EDT!
-    return prepareTargetEnvironment(runProfileState, progressIndicator);
+    return prepareTargetEnvironment(runProfileState, targetProgressIndicator);
   }
 
   @ApiStatus.Experimental
-  public @NotNull TargetEnvironment prepareTargetEnvironment(@NotNull RunProfileState runProfileState, @NotNull ProgressIndicator progressIndicator)
+  public @NotNull TargetEnvironment prepareTargetEnvironment(@NotNull RunProfileState runProfileState,
+                                                             @NotNull TargetProgressIndicator targetProgressIndicator)
     throws ExecutionException {
-    TargetEnvironmentFactory factory = getTargetEnvironmentFactory();
-    TargetEnvironmentRequest request = factory.createRequest();
-    if (runProfileState instanceof TargetEnvironmentAwareRunProfileState) {
-      ((TargetEnvironmentAwareRunProfileState)runProfileState)
-        .prepareTargetEnvironmentRequest(request, factory.getTargetConfiguration(), progressIndicator);
+    TargetEnvironmentRequest request = null;
+    if (runProfileState instanceof TargetEnvironmentAwareRunProfileState &&
+        myRunProfile instanceof TargetEnvironmentAwareRunProfile && ((TargetEnvironmentAwareRunProfile) myRunProfile).getDefaultTargetName() == null) {
+      request = ((TargetEnvironmentAwareRunProfileState) runProfileState).createCustomTargetEnvironmentRequest();
     }
-    myPrepareRemoteEnvironment = factory.prepareRemoteEnvironment(request, progressIndicator);
+    if (request == null) {
+      request = getTargetEnvironmentRequest();
+    }
     if (runProfileState instanceof TargetEnvironmentAwareRunProfileState) {
       ((TargetEnvironmentAwareRunProfileState)runProfileState)
-        .handleCreatedTargetEnvironment(myPrepareRemoteEnvironment, progressIndicator);
+        .prepareTargetEnvironmentRequest(request, targetProgressIndicator);
+    }
+    myPrepareRemoteEnvironment = request.prepareEnvironment(targetProgressIndicator);
+    if (runProfileState instanceof TargetEnvironmentAwareRunProfileState) {
+      ((TargetEnvironmentAwareRunProfileState)runProfileState)
+        .handleCreatedTargetEnvironment(myPrepareRemoteEnvironment, targetProgressIndicator);
     }
     return myPrepareRemoteEnvironment;
   }
@@ -244,13 +253,17 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
     if (myRunnerAndConfigurationSettings != null) {
       return myRunnerAndConfigurationSettings.getName();
     }
-    else if (myRunProfile != null) {
-      return myRunProfile.getName();
-    }
-    else if (myContentToReuse != null) {
-      return myContentToReuse.getDisplayName();
-    }
-    return super.toString();
+    return myRunProfile.getName();
+  }
+
+  @ApiStatus.Experimental
+  public boolean isHeadless() {
+    return isHeadless;
+  }
+
+  @ApiStatus.Experimental
+  public void setHeadless() {
+    isHeadless = true;
   }
 
   void setDataContext(@NotNull DataContext dataContext) {
@@ -260,6 +273,16 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
   @Nullable
   public DataContext getDataContext() {
     return myDataContext;
+  }
+
+
+  void setModulePath(@NotNull String modulePath) {
+    this.myModulePath = modulePath;
+  }
+
+  @Nullable
+  public String getModulePath() {
+    return myModulePath;
   }
 
   private static final class CachingDataContext implements DataContext {

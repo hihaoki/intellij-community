@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.inspections;
 
 import com.intellij.codeInsight.intention.impl.AddOnDemandStaticImportAction;
@@ -7,7 +7,6 @@ import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.tree.IElementType;
@@ -19,6 +18,7 @@ import com.intellij.refactoring.typeMigration.TypeMigrationBundle;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +35,7 @@ import java.util.Map;
 public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLocalInspectionTool {
 
   private final static Logger LOG = Logger.getInstance(MigrateAssertToMatcherAssertInspection.class);
-  private final static Map<String, Pair<String, String>> ASSERT_METHODS = new HashMap<>();
+  private final static Map<String, Pair<@NonNls String, @NonNls String>> ASSERT_METHODS = new HashMap<>();
 
   static {
     ASSERT_METHODS.put("assertArrayEquals", Pair.create("$expected$, $actual$", "$actual$, {0}.is($expected$)"));
@@ -65,17 +65,18 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
-    GlobalSearchScope resolveScope = holder.getFile().getResolveScope();
-    JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(holder.getProject());
-    PsiClass coreMatchersClass = javaPsiFacade.findClass(CORE_MATCHERS_CLASS_NAME, resolveScope);
-    PsiClass matchersClass = javaPsiFacade.findClass(MATCHERS_CLASS_NAME, resolveScope);
+    final GlobalSearchScope resolveScope = holder.getFile().getResolveScope();
+    final JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(holder.getProject());
+    final PsiClass coreMatchersClass = javaPsiFacade.findClass(CORE_MATCHERS_CLASS_NAME, resolveScope);
+    final PsiClass matchersClass = javaPsiFacade.findClass(MATCHERS_CLASS_NAME, resolveScope);
     if (coreMatchersClass == null && matchersClass == null) {
       return PsiElementVisitor.EMPTY_VISITOR;
     }
     return new JavaElementVisitor() {
       @Override
       public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-        final String methodName = expression.getMethodExpression().getReferenceName();
+        final PsiReferenceExpression methodExpression = expression.getMethodExpression();
+        final String methodName = methodExpression.getReferenceName();
         if (!ASSERT_METHODS.containsKey(methodName)) return;
         final PsiClass assertClass;
         final PsiMethod assertMethod = expression.resolveMethod();
@@ -95,31 +96,39 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
           }
         }
 
-        holder
-          .registerProblem(expression.getMethodExpression(),
-                           TypeMigrationBundle.message("inspection.migrate.assert.to.matcher.description", "assertThat"),
-                           new MyQuickFix(matchersClass != null ? MATCHERS_CLASS_NAME : CORE_MATCHERS_CLASS_NAME));
+        final PsiElement referenceNameElement = methodExpression.getReferenceNameElement();
+        if (referenceNameElement != null) {
+          holder.registerProblem(referenceNameElement,
+                                 TypeMigrationBundle.message("inspection.migrate.assert.to.matcher.description", "assertThat()"),
+                                 new MigrateAssertToMatcherAssertFix(
+                                   matchersClass != null ? MATCHERS_CLASS_NAME : CORE_MATCHERS_CLASS_NAME));
+        }
       }
     };
   }
 
-  public class MyQuickFix implements LocalQuickFix {
+  public class MigrateAssertToMatcherAssertFix implements LocalQuickFix {
     private final String myMatchersClassName;
 
-    public MyQuickFix(String name) {myMatchersClassName = name;}
+    public MigrateAssertToMatcherAssertFix(String name) {
+      myMatchersClassName = name;
+    }
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return CommonQuickFixBundle.message("fix.replace.with.x", StringUtil.getShortName(myMatchersClassName) + ".assertThat");
+      return CommonQuickFixBundle.message("fix.replace.with.x", "assertThat()");
     }
 
     @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      if (element == null || !element.isValid() || !(element.getParent() instanceof PsiMethodCallExpression)) return;
-      final PsiMethodCallExpression methodCall = (PsiMethodCallExpression)element.getParent();
+      final PsiElement grandParent = element.getParent().getParent();
+      if (!(grandParent instanceof PsiMethodCallExpression)) {
+        return;
+      }
+      final PsiMethodCallExpression methodCall = (PsiMethodCallExpression)grandParent;
       final PsiMethod method = methodCall.resolveMethod();
       if (method == null) {
         return;
@@ -175,28 +184,24 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
       }
     }
 
-    private Pair<String, String> buildFullTemplate(Pair<String, String> templatePair, PsiMethod method) {
+    private Pair<@NonNls String, @NonNls String> buildFullTemplate(Pair<String, String> templatePair, PsiMethod method) {
       if (templatePair == null) {
         return null;
       }
       final boolean hasMessage = hasMessage(method);
       final String searchTemplate = "'_Assert?." + method.getName() + "(" + (hasMessage ? "$msg$, " : "") + templatePair.getFirst() + ")";
-      final PsiClass containingClass = method.getContainingClass();
-      LOG.assertTrue(containingClass != null);
-      final String qualifier = containingClass.getQualifiedName();
-      LOG.assertTrue(qualifier != null);
-      final String replaceTemplate = qualifier + ".assertThat(" + (hasMessage ? "$msg$, " : "") + templatePair.getSecond() + ")";
+      final String replaceTemplate = "org.hamcrest.MatcherAssert.assertThat(" + (hasMessage ? "$msg$, " : "") + templatePair.getSecond() + ")";
       return Pair.create(searchTemplate, replaceTemplate);
     }
 
     @Nullable
-    private Pair<String, String> getSuitableMatcherForBinaryExpressionInsideBooleanAssert(PsiBinaryExpression expression, boolean negate) {
+    private Pair<@NonNls String, @NonNls String> getSuitableMatcherForBinaryExpressionInsideBooleanAssert(PsiBinaryExpression expression, boolean negate) {
       final PsiJavaToken sign = expression.getOperationSign();
       IElementType tokenType = sign.getTokenType();
       if (negate) {
         tokenType = negate(tokenType);
       }
-      final String fromTemplate = "$left$ " + sign.getText() + "  $right$";
+      final @NonNls String fromTemplate = "$left$ " + sign.getText() + "  $right$";
       if (JavaTokenType.EQEQ.equals(tokenType) || JavaTokenType.NE.equals(tokenType)) {
         boolean isEqEqForPrimitives = true;
         for (PsiExpression operand : Arrays.asList(expression.getLOperand(), expression.getROperand())) {
@@ -205,7 +210,7 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
             break;
           }
         }
-        String rightPartOfAfterTemplate =
+        @NonNls String rightPartOfAfterTemplate =
           isEqEqForPrimitives ? "{0}.is($right$)" : "{0}.sameInstance($right$)";
         if (JavaTokenType.NE.equals(tokenType)) {
           rightPartOfAfterTemplate = "{0}.not(" + rightPartOfAfterTemplate + ")";
@@ -213,7 +218,7 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
         return  Pair.create(fromTemplate,
                            "$left$, " + rightPartOfAfterTemplate);
       }
-      String replaceTemplate = null;
+      @NonNls String replaceTemplate = null;
       if (JavaTokenType.GT.equals(tokenType)) {
         replaceTemplate = "greaterThan($right$)";
       }
@@ -257,9 +262,9 @@ public class MigrateAssertToMatcherAssertInspection extends AbstractBaseJavaLoca
   @Nullable
   private static Pair<String, String> getSuitableMatcherForMethodCallInsideBooleanAssert(PsiMethodCallExpression expression, boolean negate) {
     final String methodName = expression.getMethodExpression().getReferenceName();
-    String fromTemplate = null;
-    String toLeftPart = null;
-    String toRightPart = null;
+    @NonNls String fromTemplate = null;
+    @NonNls String toLeftPart = null;
+    @NonNls String toRightPart = null;
     if ("contains".equals(methodName)) {
       final PsiMethod method = expression.resolveMethod();
       final PsiClass containingClass;

@@ -1,3 +1,4 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
 import com.jetbrains.python.debugger.PyDebugValue;
@@ -25,7 +26,7 @@ public class ConsoleExecCommand extends AbstractFrameCommand<String> {
 
   @Override
   protected ResponseProcessor<String> createResponseProcessor() {
-    return new ResponseProcessor<String>() {
+    return new ResponseProcessor<>() {
       @Override
       protected String parseResponse(ProtocolFrame response) throws PyDebuggerException {
         final PyDebugValue value = ProtocolParser.parseValue(response.getPayload(), getDebugger().getDebugProcess());

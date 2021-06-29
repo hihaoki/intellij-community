@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.concurrency;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -7,6 +7,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.LowMemoryWatcherManager;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
@@ -19,22 +20,22 @@ import java.util.function.BiConsumer;
  * and then executing them in the owned ThreadPoolExecutor.
  * Unlike the existing {@link ScheduledThreadPoolExecutor}, this pool is unbounded.
  */
+@ApiStatus.Internal
 public final class AppScheduledExecutorService extends SchedulingWrapper {
   static final String POOLED_THREAD_PREFIX = "ApplicationImpl pooled thread ";
   @NotNull private final String myName;
   private final LowMemoryWatcherManager myLowMemoryWatcherManager;
   private final MyThreadFactory myCountingThreadFactory;
 
-  private static class Holder {
+  private static final class Holder {
     private static final AppScheduledExecutorService INSTANCE = new AppScheduledExecutorService("Global instance", 1, TimeUnit.MINUTES);
   }
 
-  @NotNull
-  static ScheduledExecutorService getInstance() {
+  static @NotNull ScheduledExecutorService getInstance() {
     return Holder.INSTANCE;
   }
 
-  private static class MyThreadFactory extends CountingThreadFactory {
+  private static final class MyThreadFactory extends CountingThreadFactory {
     private BiConsumer<? super Thread, ? super Runnable> newThreadListener;
     private final ThreadFactory myThreadFactory = Executors.privilegedThreadFactory();
 
@@ -97,7 +98,7 @@ public final class AppScheduledExecutorService extends SchedulingWrapper {
     return ContainerUtil.concat(super.doShutdownNow(), ((BackendThreadPoolExecutor)backendExecutorService).superShutdownNow());
   }
 
-  public void shutdownAppScheduledExecutorService() {
+  void shutdownAppScheduledExecutorService() {
     // LowMemoryWatcher starts background threads so stop it now to avoid RejectedExecutionException
     Disposer.dispose(myLowMemoryWatcherManager);
     delayQueue.shutdown(); // shutdown delay queue first to avoid rejected execution exceptions in Alarm
@@ -193,9 +194,8 @@ public final class AppScheduledExecutorService extends SchedulingWrapper {
     }
   }
 
-  @NotNull
-  public Thread getPeriodicTasksThread() {
-    return delayQueue.getThread();
+  public static @NotNull Thread getPeriodicTasksThread() {
+    return Holder.INSTANCE.delayQueue.getThread();
   }
 
   @TestOnly

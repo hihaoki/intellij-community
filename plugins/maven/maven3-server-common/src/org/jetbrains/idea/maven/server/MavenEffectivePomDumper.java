@@ -1,3 +1,4 @@
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server;
 
 import org.apache.maven.execution.MavenExecutionRequest;
@@ -28,12 +29,12 @@ import java.util.*;
 /**
  * @author Sergey Evdokimov
  */
-public class MavenEffectivePomDumper {
+public final class MavenEffectivePomDumper {
 
   /**
    * The POM XSD URL
    */
-  private static final String POM_XSD_URL = "http://maven.apache.org/maven-v4_0_0.xsd";
+  private static final String POM_XSD_URL = "https://maven.apache.org/maven-v4_0_0.xsd";
 
   /**
    * The Settings XSD URL
@@ -122,7 +123,7 @@ public class MavenEffectivePomDumper {
   /**
    * Copy/pasted from org.apache.maven.plugins.help.AbstractEffectiveMojo#writeHeader
    */
-  protected static void writeHeader(XMLWriter writer) {
+  private static void writeHeader(XMLWriter writer) {
     XmlWriterUtil.writeCommentLineBreak(writer);
     XmlWriterUtil.writeComment(writer, " ");
     // Use ISO8601-format for date and time
@@ -137,7 +138,7 @@ public class MavenEffectivePomDumper {
   /**
    * Copy/pasted from org.apache.maven.plugins.help.AbstractEffectiveMojo
    */
-  protected static void writeComment(XMLWriter writer, String comment) {
+  private static void writeComment(XMLWriter writer, String comment) {
     XmlWriterUtil.writeCommentLineBreak(writer);
     XmlWriterUtil.writeComment(writer, " ");
     XmlWriterUtil.writeComment(writer, comment);
@@ -186,7 +187,7 @@ public class MavenEffectivePomDumper {
   /**
    * Copy/pasted from org.apache.maven.plugins.help.AbstractEffectiveMojo
    */
-  protected static String addMavenNamespace(String effectiveXml, boolean isPom) {
+  private static String addMavenNamespace(String effectiveXml, boolean isPom) {
     SAXBuilder builder = new SAXBuilder();
 
     try {
@@ -205,8 +206,8 @@ public class MavenEffectivePomDumper {
       }
 
       ElementFilter elementFilter = new ElementFilter(Namespace.getNamespace(""));
-      for (Iterator i = rootElement.getDescendants(elementFilter); i.hasNext(); ) {
-        Element e = (Element)i.next();
+      for (Iterator<Element> i = rootElement.getDescendants(elementFilter); i.hasNext(); ) {
+        Element e = i.next();
         e.setNamespace(pomNamespace);
       }
 
@@ -241,12 +242,12 @@ public class MavenEffectivePomDumper {
      * {@inheritDoc}
      */
     @Override
-    public Set keySet() {
-      Set keynames = super.keySet();
-      Vector list = new Vector(keynames);
-      Collections.sort(list);
+    public Set<Object> keySet() {
+      Set<Object> keys = super.keySet();
+      List<Object> list = new ArrayList<Object>(keys);
+      Collections.sort(list, null);
 
-      return new LinkedHashSet(list);
+      return new LinkedHashSet<Object>(list);
     }
   }
 }

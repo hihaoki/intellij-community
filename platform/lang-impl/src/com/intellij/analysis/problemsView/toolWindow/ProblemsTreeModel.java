@@ -9,6 +9,7 @@ import com.intellij.util.concurrency.InvokerSupplier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.tree.TreePath;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -56,29 +57,25 @@ public final class ProblemsTreeModel extends BaseTreeModel<Node> implements Invo
     return children.stream().sorted(comparator.get()).collect(toList());
   }
 
-  void setComparator(@NotNull Comparator<Node> comparator) {
-    if (!comparator.equals(this.comparator.getAndSet(comparator))) structureChanged();
+  public void setComparator(@NotNull Comparator<Node> comparator) {
+    if (!comparator.equals(this.comparator.getAndSet(comparator))) structureChanged(null);
   }
 
   boolean isRoot(@NotNull Root root) {
     return root == this.root.get();
   }
 
-  void setRoot(@Nullable Root root) {
+  public void setRoot(@Nullable Root root) {
     Root old = this.root.getAndSet(root);
     if (old != root && old != null) Disposer.dispose(old);
-    structureChanged();
+    structureChanged(null);
   }
 
-  void structureChanged() {
-    treeStructureChanged(null, null, null);
+  public void structureChanged(@Nullable TreePath path) {
+    treeStructureChanged(path, null, null);
   }
 
-  void structureChanged(@NotNull Node node) {
-    treeStructureChanged(node.getPath(), null, null);
-  }
-
-  void nodeChanged(@NotNull Node node) {
-    treeNodesChanged(node.getPath(), null, null);
+  void nodeChanged(@NotNull TreePath path) {
+    treeNodesChanged(path, null, null);
   }
 }

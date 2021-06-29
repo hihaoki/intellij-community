@@ -1,10 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.CommonBundle;
 import com.intellij.codeEditor.printing.ExportToHTMLSettings;
 import com.intellij.codeInsight.TestFrameworks;
-import com.intellij.coverage.listeners.CoverageListener;
+import com.intellij.coverage.listeners.java.CoverageListener;
 import com.intellij.coverage.view.CoverageViewExtension;
 import com.intellij.coverage.view.CoverageViewManager;
 import com.intellij.coverage.view.JavaCoverageViewExtension;
@@ -13,7 +13,10 @@ import com.intellij.execution.application.ApplicationConfiguration;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.configurations.coverage.CoverageEnabledConfiguration;
 import com.intellij.execution.configurations.coverage.JavaCoverageEnabledConfiguration;
+import com.intellij.execution.target.RunTargetsEnabled;
+import com.intellij.execution.target.TargetEnvironmentAwareRunProfile;
 import com.intellij.execution.testframework.AbstractTestProxy;
+import com.intellij.execution.wsl.WslDistributionManager;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.highlighter.JavaClassFileType;
 import com.intellij.java.coverage.JavaCoverageBundle;
@@ -51,6 +54,7 @@ import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.SwitchData;
 import com.intellij.testIntegration.TestFramework;
 import jetbrains.coverage.report.ReportGenerationFailedException;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.JavaSourceRootType;
@@ -72,10 +76,17 @@ public class JavaCoverageEngine extends CoverageEngine {
   }
 
   @Override
-  public boolean isApplicableTo(@Nullable final RunConfigurationBase conf) {
+  public boolean isApplicableTo(@NotNull final RunConfigurationBase conf) {
     if (conf instanceof CommonJavaRunConfigurationParameters) {
       return true;
     }
+
+    if (RunTargetsEnabled.get()
+        && conf instanceof TargetEnvironmentAwareRunProfile
+        && willRunOnTarget((TargetEnvironmentAwareRunProfile)conf)) {
+      return false;
+    }
+
     for (JavaCoverageEngineExtension extension : JavaCoverageEngineExtension.EP_NAME.getExtensionList()) {
       if (extension.isApplicableTo(conf)) {
         return true;
@@ -84,8 +95,21 @@ public class JavaCoverageEngine extends CoverageEngine {
     return false;
   }
 
+  private static boolean willRunOnTarget(@NotNull final TargetEnvironmentAwareRunProfile configuration) {
+    return configuration.getDefaultTargetName() != null || isProjectUnderWsl(((RunConfigurationBase<?>)configuration).getProject());
+  }
+
+  private static boolean isProjectUnderWsl(@NotNull Project project) {
+    Sdk projectSdk = ProjectRootManager.getInstance(project).getProjectSdk();
+    if (projectSdk == null) {
+      return false;
+    }
+    String projectSdkHomePath = projectSdk.getHomePath();
+    return projectSdkHomePath != null && WslDistributionManager.isWslPath(projectSdkHomePath);
+  }
+
   @Override
-  public boolean canHavePerTestCoverage(@Nullable RunConfigurationBase conf) {
+  public boolean canHavePerTestCoverage(@NotNull RunConfigurationBase conf) {
     return !(conf instanceof ApplicationConfiguration) && conf instanceof CommonJavaRunConfigurationParameters;
   }
 
@@ -207,7 +231,7 @@ public class JavaCoverageEngine extends CoverageEngine {
 
   @NotNull
   @Override
-  public CoverageEnabledConfiguration createCoverageEnabledConfiguration(@Nullable final RunConfigurationBase conf) {
+  public CoverageEnabledConfiguration createCoverageEnabledConfiguration(@NotNull final RunConfigurationBase conf) {
     return new JavaCoverageEnabledConfiguration(conf, this);
   }
 
@@ -309,9 +333,13 @@ public class JavaCoverageEngine extends CoverageEngine {
       if (suite.isModuleChecked(module)) return false;
       suite.checkModule(module);
       final Runnable runnable = () -> {
-        if (Messages.showOkCancelDialog(
-          JavaCoverageBundle.message("project.class.files.are.out.of.date"),
-          JavaCoverageBundle.message("project.is.out.of.date"), Messages.getWarningIcon()) == Messages.OK) {
+        final int choice = Messages.showOkCancelDialog(project,
+                                                       JavaCoverageBundle.message("project.class.files.are.out.of.date"),
+                                                       JavaCoverageBundle.message("project.is.out.of.date"),
+                                                       JavaCoverageBundle.message("coverage.recompile"),
+                                                       JavaCoverageBundle.message("coverage.hide.report"),
+                                                       Messages.getWarningIcon());
+        if (choice == Messages.OK) {
           final CompilerManager compilerManager = CompilerManager.getInstance(project);
           compilerManager.make(compilerManager.createProjectCompileScope(project), (aborted, errors, warnings, compileContext) -> {
             if (aborted || errors != 0) return;
@@ -456,7 +484,7 @@ public class JavaCoverageEngine extends CoverageEngine {
                                     @Nullable LineData lineData) {
 
     final StringBuilder buf = new StringBuilder();
-    buf.append("Hits: ");
+    buf.append(CoverageBundle.message("hits.title", ""));
     if (lineData == null) {
       buf.append(0);
       return buf.toString();
@@ -517,24 +545,24 @@ public class JavaCoverageEngine extends CoverageEngine {
       int hits = 0;
       final String indent = "    ";
       if (lineData.getJumps() != null) {
-        for (Object o : lineData.getJumps()) {
-          final JumpData jumpData = (JumpData)o;
+        for (JumpData jumpData : lineData.getJumps()) {
           if (jumpData.getTrueHits() + jumpData.getFalseHits() > 0) {
             final PsiExpression expression = expressions.get(idx++);
             final PsiElement parentExpression = expression.getParent();
             boolean reverse = parentExpression instanceof PsiPolyadicExpression && ((PsiPolyadicExpression)parentExpression).getOperationTokenType() == JavaTokenType.OROR
                               || parentExpression instanceof PsiDoWhileStatement || parentExpression instanceof PsiAssertStatement;
             buf.append(indent).append(expression.getText()).append("\n");
-            buf.append(indent).append(indent).append("true hits: ").append(reverse ? jumpData.getFalseHits() : jumpData.getTrueHits()).append("\n");
-            buf.append(indent).append(indent).append("false hits: ").append(reverse ? jumpData.getTrueHits() : jumpData.getFalseHits()).append("\n");
+            buf.append(indent).append(indent).append(PsiKeyword.TRUE).append(" ").append(CoverageBundle.message("hits.message", reverse ? jumpData.getFalseHits() : jumpData
+              .getTrueHits())).append("\n");
+            buf.append(indent).append(indent).append(PsiKeyword.FALSE).append(" ").append(CoverageBundle.message("hits.message", reverse ? jumpData
+              .getTrueHits() : jumpData.getFalseHits())).append("\n");
             hits += jumpData.getTrueHits() + jumpData.getFalseHits();
           }
         }
       }
 
       if (lineData.getSwitches() != null) {
-        for (Object o : lineData.getSwitches()) {
-          final SwitchData switchData = (SwitchData)o;
+        for (SwitchData switchData : lineData.getSwitches()) {
           final PsiExpression conditionExpression = expressions.get(idx++);
           buf.append(indent).append(conditionExpression.getText()).append("\n");
           int i = 0;
@@ -558,12 +586,12 @@ public class JavaCoverageEngine extends CoverageEngine {
         }
       }
       if (lineData.getHits() > hits && hits > 0) {
-        buf.append("Unknown outcome: ").append(lineData.getHits() - hits);
+        buf.append(JavaCoverageBundle.message("report.unknown.outcome",lineData.getHits() - hits));
       }
     }
     catch (Exception e) {
       LOG.info(e);
-      return "Hits: " + lineData.getHits();
+      return CoverageBundle.message("hits.title", lineData.getHits());
     }
     return buf.toString();
   }
@@ -695,8 +723,8 @@ public class JavaCoverageEngine extends CoverageEngine {
   }
 
   @Override
-  public String getPresentableText() {
-    return "Java Coverage";
+  public @Nls String getPresentableText() {
+    return JavaCoverageBundle.message("java.coverage.engine.presentable.text");
   }
 
   @Override

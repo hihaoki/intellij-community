@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.diagnostic.PluginException;
@@ -37,9 +37,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/**
- * @author yole
- */
+
 @ApiStatus.Internal
 public final class CompletionInitializationUtil {
   private static final Logger LOG = Logger.getInstance(CompletionInitializationUtil.class);
@@ -84,7 +82,7 @@ public final class CompletionInitializationUtil {
         }
       };
     Project project = psiFile.getProject();
-    FileBasedIndex.getInstance().ignoreDumbMode(() -> {
+    DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(() -> {
       for (final CompletionContributor contributor : CompletionContributor.forLanguageHonorDumbness(context.getPositionLanguage(), project)) {
         current.set(contributor);
         contributor.beforeCompletion(context);
@@ -93,7 +91,7 @@ public final class CompletionInitializationUtil {
                                                                                              contributor +
                                                                                              " left the document uncommitted";
       }
-    }, DumbModeAccessType.RELIABLE_DATA_ONLY);
+    });
     return context;
   }
 
@@ -114,19 +112,20 @@ public final class CompletionInitializationUtil {
     OffsetsInFile topLevelOffsets = indicator.getHostOffsets();
     final Consumer<Supplier<Disposable>> registerDisposable = supplier -> indicator.registerChildDisposable(supplier);
 
-    return doInsertDummyIdentifier(initContext, topLevelOffsets, registerDisposable);
+    return doInsertDummyIdentifier(initContext, topLevelOffsets, registerDisposable, false);
   }
 
   //need for code with me
-  public static Supplier<OffsetsInFile> insertDummyIdentifier(CompletionInitializationContext initContext, OffsetsInFile topLevelOffsets, Disposable parentDisposable) {
+  public static Supplier<OffsetsInFile> insertDummyIdentifier(CompletionInitializationContext initContext, OffsetsInFile topLevelOffsets, Disposable parentDisposable, Boolean noWriteLock) {
     final Consumer<Supplier<Disposable>> registerDisposable = supplier -> Disposer.register(parentDisposable, supplier.get());
 
-    return doInsertDummyIdentifier(initContext, topLevelOffsets, registerDisposable);
+    return doInsertDummyIdentifier(initContext, topLevelOffsets, registerDisposable, noWriteLock);
   }
 
   private static Supplier<OffsetsInFile> doInsertDummyIdentifier(CompletionInitializationContext initContext,
                                                                  OffsetsInFile topLevelOffsets,
-                                                                 Consumer<Supplier<Disposable>> registerDisposable) {
+                                                                 Consumer<Supplier<Disposable>> registerDisposable,
+                                                                 Boolean noWriteLock) {
 
     CompletionAssertions.checkEditorValid(initContext.getEditor());
     if (initContext.getDummyIdentifier().isEmpty()) {
@@ -137,7 +136,7 @@ public final class CompletionInitializationUtil {
     Editor hostEditor = editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
     OffsetMap hostMap = topLevelOffsets.getOffsets();
 
-    PsiFile hostCopy = obtainFileCopy(topLevelOffsets.getFile());
+    PsiFile hostCopy = obtainFileCopy(topLevelOffsets.getFile(), noWriteLock);
     Document copyDocument = Objects.requireNonNull(hostCopy.getViewProvider().getDocument());
 
     String dummyIdentifier = initContext.getDummyIdentifier();
@@ -146,9 +145,13 @@ public final class CompletionInitializationUtil {
 
     Supplier<OffsetsInFile> apply = topLevelOffsets.replaceInCopy(hostCopy, startOffset, endOffset, dummyIdentifier);
 
+
     // despite being non-physical, the copy file should only be modified in a write action,
     // because it's reused in multiple completions and it can also escapes uncontrollably into other threads (e.g. quick doc)
-    return () -> WriteAction.compute(() -> {
+
+    //kskrygan: this check is non-relevant for CWM (quick doc and other features work separately)
+    //and we are trying to avoid useless write locks during completion
+    return skipWriteLockIfNeeded(noWriteLock, () -> {
       registerDisposable.accept(() -> new OffsetTranslator(hostEditor.getDocument(), initContext.getFile(), copyDocument, startOffset, endOffset, dummyIdentifier));
       OffsetsInFile copyOffsets = apply.get();
 
@@ -156,6 +159,15 @@ public final class CompletionInitializationUtil {
 
       return copyOffsets;
     });
+  }
+
+  private static Supplier<OffsetsInFile> skipWriteLockIfNeeded(Boolean skipWriteLock, Supplier<OffsetsInFile> toWrap) {
+    if (skipWriteLock)
+      return toWrap;
+    else
+      return () -> WriteAction.compute(() -> {
+        return toWrap.get();
+      });
   }
 
   public static OffsetsInFile toInjectedIfAny(PsiFile originalFile, OffsetsInFile hostCopyOffsets) {
@@ -243,9 +255,9 @@ public final class CompletionInitializationUtil {
     return insertedElement;
   }
 
-  private static PsiFile obtainFileCopy(PsiFile file) {
+  private static PsiFile obtainFileCopy(PsiFile file, Boolean forbidCaching) {
     final VirtualFile virtualFile = file.getVirtualFile();
-    boolean mayCacheCopy = file.isPhysical() &&
+    boolean mayCacheCopy = !forbidCaching && file.isPhysical() &&
                            // we don't want to cache code fragment copies even if they appear to be physical
                            virtualFile != null && virtualFile.isInLocalFileSystem();
     if (mayCacheCopy) {

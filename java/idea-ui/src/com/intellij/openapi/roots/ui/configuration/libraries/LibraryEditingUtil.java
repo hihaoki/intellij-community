@@ -17,9 +17,9 @@ import com.intellij.openapi.roots.ui.configuration.FacetsProvider;
 import com.intellij.openapi.roots.ui.configuration.classpath.ClasspathPanel;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.LibrariesModifiableModel;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ModuleStructureConfigurable;
-import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureValidator;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.ParameterizedRunnable;
@@ -86,11 +86,13 @@ public final class LibraryEditingUtil {
         final Library source = ((LibraryEx)library).getSource();
         if (source != null && result.contains(source)) return false;
       }
-      PersistentLibraryKind<?> kind = ((LibraryEx)library).getKind();
-      if (kind != null) {
-        LibraryType type = LibraryType.findByKind(kind);
-        if (!type.isSuitableModule(rootModel.getModule(), facetsProvider)) {
-          return false;
+      if (library instanceof LibraryEx) {
+        PersistentLibraryKind<?> kind = ((LibraryEx)library).getKind();
+        if (kind != null) {
+          LibraryType type = LibraryType.findByKind(kind);
+          if (!type.isSuitableModule(rootModel.getModule(), facetsProvider)) {
+            return false;
+          }
         }
       }
       return true;
@@ -138,13 +140,14 @@ public final class LibraryEditingUtil {
     return table.getPresentation();
   }
 
-  public static List<LibraryType> getSuitableTypes(ClasspathPanel classpathPanel) {
-    List<LibraryType> suitableTypes = new ArrayList<>();
-    suitableTypes.add(null);
+  public static List<TypeForNewLibrary> getSuitableTypes(ClasspathPanel classpathPanel) {
+    List<TypeForNewLibrary> suitableTypes = new ArrayList<>();
+    suitableTypes.add(new TypeForNewLibrary(null, JavaUiBundle.message("create.default.library.type.action.name")));
     final Module module = classpathPanel.getRootModel().getModule();
     for (LibraryType libraryType : LibraryType.EP_NAME.getExtensions()) {
-      if (libraryType.getCreateActionName() != null && libraryType.isSuitableModule(module, classpathPanel.getModuleConfigurationState().getFacetsProvider())) {
-        suitableTypes.add(libraryType);
+      String createActionName = libraryType.getCreateActionName();
+      if (createActionName != null && libraryType.isSuitableModule(module, classpathPanel.getModuleConfigurationState().getFacetsProvider())) {
+        suitableTypes.add(new TypeForNewLibrary(libraryType, createActionName));
       }
     }
     return suitableTypes;
@@ -154,25 +157,26 @@ public final class LibraryEditingUtil {
     return getSuitableTypes(panel).size() > 1;
   }
 
-  public static BaseListPopupStep<LibraryType> createChooseTypeStep(final ClasspathPanel classpathPanel,
+  public static BaseListPopupStep<TypeForNewLibrary> createChooseTypeStep(final ClasspathPanel classpathPanel,
                                                                     final ParameterizedRunnable<? super LibraryType> action) {
-    return new BaseListPopupStep<LibraryType>(JavaUiBundle.message("popup.title.select.library.type"), getSuitableTypes(classpathPanel)) {
-          @NotNull
-          @Override
-          public String getTextFor(LibraryType value) {
-            return value != null ? value.getCreateActionName() : JavaUiBundle.message("create.default.library.type.action.name");
-          }
+    return new BaseListPopupStep<>(JavaUiBundle.message("popup.title.select.library.type"), getSuitableTypes(classpathPanel)) {
+      @NotNull
+      @Override
+      public String getTextFor(TypeForNewLibrary value) {
+        //noinspection HardCodedStringLiteral
+        return value.getCreateActionName();
+      }
 
-          @Override
-          public Icon getIconFor(LibraryType aValue) {
-            return aValue != null ? aValue.getIcon(null) : PlatformIcons.LIBRARY_ICON;
-          }
+      @Override
+      public Icon getIconFor(TypeForNewLibrary aValue) {
+        return aValue.getIcon();
+      }
 
-          @Override
-          public PopupStep onChosen(final LibraryType selectedValue, boolean finalChoice) {
-            return doFinalStep(() -> action.run(selectedValue));
-          }
-        };
+      @Override
+      public PopupStep onChosen(final TypeForNewLibrary selectedValue, boolean finalChoice) {
+        return doFinalStep(() -> action.run(selectedValue.getType()));
+      }
+    };
   }
 
   public static List<Module> getSuitableModules(@NotNull ModuleStructureConfigurable rootConfigurable,
@@ -196,9 +200,26 @@ public final class LibraryEditingUtil {
     return modules;
   }
 
-  public static void showDialogAndAddLibraryToDependencies(@NotNull Library library,
-                                                           @NotNull Project project,
-                                                           boolean allowEmptySelection) {
-    ProjectStructureValidator.showDialogAndAddLibraryToDependencies(library, project, allowEmptySelection);
+  public static class TypeForNewLibrary {
+    private final LibraryType<?> myType;
+    private final @NlsContexts.Label String myCreateActionName;
+
+    private TypeForNewLibrary(@Nullable LibraryType<?> type, @NlsContexts.Label String createActionName) {
+      myType = type;
+      myCreateActionName = createActionName;
+    }
+
+    public String getCreateActionName() {
+      return myCreateActionName;
+    }
+
+    public Icon getIcon() {
+      Icon icon = myType != null ? myType.getIcon(null) : null;
+      return icon != null ? icon : PlatformIcons.LIBRARY_ICON;
+    }
+
+    public LibraryType<?> getType() {
+      return myType;
+    }
   }
 }

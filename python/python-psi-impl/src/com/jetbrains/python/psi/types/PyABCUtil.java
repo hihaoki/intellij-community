@@ -100,9 +100,6 @@ public final class PyABCUtil {
     if (PyNames.AWAITABLE.equals(superClassName)) {
       return hasMethod(subClass, PyNames.DUNDER_AWAIT, inherited, context);
     }
-    if (PyNames.BUILTIN_PATH_LIKE.equals(superClassName)) {
-      return hasMethod(subClass, PyNames.FSPATH, inherited, context);
-    }
     return false;
   }
 
@@ -126,15 +123,7 @@ public final class PyABCUtil {
       }
     }
     if (type instanceof PyUnionType) {
-      final PyUnionType unionType = (PyUnionType)type;
-      for (PyType m : unionType.getMembers()) {
-        if (m != null) {
-          if (isSubtype(m, superClassName, context)) {
-            return true;
-          }
-        }
-      }
-      return false;
+      return PyTypeUtil.toStream(type).nonNull().anyMatch(it -> isSubtype(it, superClassName, context));
     }
     return false;
   }

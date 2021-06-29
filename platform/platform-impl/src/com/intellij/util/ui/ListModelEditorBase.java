@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.CollectionListModel;
 import com.intellij.ui.MutableCollectionComboBoxModel;
@@ -35,7 +36,7 @@ public abstract class ListModelEditorBase<T> extends CollectionModelEditor<T, Li
     model.replaceAll(items);
   }
 
-  public final void ensureNonEmptyNames(@NotNull String errorMessage) throws ConfigurationException {
+  public final void ensureNonEmptyNames(@NotNull @NlsContexts.DialogMessage String errorMessage) throws ConfigurationException {
     List<T> items = getItems();
     for (int i = items.size() - 1; i >= 0; i--) {
       T item = items.get(i);
@@ -82,8 +83,7 @@ public abstract class ListModelEditorBase<T> extends CollectionModelEditor<T, Li
   }
 
   protected final class MyModel extends MutableCollectionComboBoxModel<T> {
-    @NotNull
-    final List<T> items() {
+    @NotNull List<T> items() {
       return super.getInternalList();
     }
 

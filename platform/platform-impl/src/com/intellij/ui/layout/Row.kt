@@ -1,7 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.layout
 
+import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.panel.ComponentPanelBuilder
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.ui.components.Label
 import com.intellij.ui.components.noteComponent
 import org.jetbrains.annotations.Nls
@@ -11,7 +13,7 @@ import javax.swing.JLabel
 import kotlin.reflect.KMutableProperty0
 
 interface BaseBuilder {
-  fun withButtonGroup(title: String?, buttonGroup: ButtonGroup, body: () -> Unit)
+  fun withButtonGroup(@NlsContexts.BorderTitle title: String?, buttonGroup: ButtonGroup, body: () -> Unit)
 
   fun withButtonGroup(buttonGroup: ButtonGroup, body: () -> Unit) {
     withButtonGroup(null, buttonGroup, body)
@@ -21,7 +23,7 @@ interface BaseBuilder {
     buttonGroup(null, init)
   }
 
-  fun buttonGroup(title:String? = null, init: () -> Unit) {
+  fun buttonGroup(@NlsContexts.BorderTitle title:String? = null, init: () -> Unit) {
     withButtonGroup(title, ButtonGroup(), init)
   }
 }
@@ -44,7 +46,7 @@ interface RowBuilder : BaseBuilder {
     return createChildRow(label?.let { Label(it) }, isSeparated = separated).apply(init)
   }
 
-  fun titledRow(@Nls title: String, init: Row.() -> Unit): Row
+  fun titledRow(@NlsContexts.BorderTitle title: String, init: Row.() -> Unit): Row
 
   /**
    * Creates row with a huge gap after it, that can be used to group related components.
@@ -56,7 +58,7 @@ interface RowBuilder : BaseBuilder {
    * Creates row with hideable decorator.
    * It allows to hide some information under the titled decorator
    */
-  fun hideableRow(@Nls title: String, init: Row.() -> Unit): Row
+  fun hideableRow(@NlsContexts.Separator title: String, init: Row.() -> Unit): Row
 
   /**
    * Hyperlinks are supported (`<a href=""></a>`), new lines and `<br>` are supported only if no links (file issue if need).
@@ -68,6 +70,11 @@ interface RowBuilder : BaseBuilder {
   fun commentRow(@Nls text: String) {
     createNoteOrCommentRow(ComponentPanelBuilder.createCommentComponent(text, true, -1, true))
   }
+
+  /**
+   * Creates a nested UI DSL panel, with a grid which is independent of this pane.
+   */
+  fun nestedPanel(@NlsContexts.BorderTitle title: String? = null, init: LayoutBuilder.() -> Unit): CellBuilder<DialogPanel>
 
   fun onGlobalApply(callback: () -> Unit): Row
   fun onGlobalReset(callback: () -> Unit): Row
@@ -154,11 +161,6 @@ abstract class Row : Cell(), RowBuilder {
   operator fun JComponent.invoke(vararg constraints: CCFlags, gapLeft: Int = 0, growPolicy: GrowPolicy? = null) {
     invoke(constraints = *constraints, growPolicy = growPolicy).withLeftGap(gapLeft)
   }
-
-  @Deprecated(level = DeprecationLevel.ERROR,
-              message = "Do not create standalone panel, if you want layout components in vertical flow mode, use cell(isVerticalFlow = true)")
-  fun panel(vararg constraints: LCFlags, title: String? = null, init: LayoutBuilder.() -> Unit) {
-  }
 }
 
 enum class GrowPolicy {
@@ -168,4 +170,9 @@ enum class GrowPolicy {
 fun Row.enableIf(predicate: ComponentPredicate) {
   enabled = predicate()
   predicate.addListener { enabled = it }
+}
+
+fun Row.enableSubRowsIf(predicate: ComponentPredicate) {
+  subRowsEnabled = predicate()
+  predicate.addListener { subRowsEnabled = it }
 }

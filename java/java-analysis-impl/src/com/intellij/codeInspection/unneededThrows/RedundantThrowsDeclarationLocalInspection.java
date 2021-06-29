@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.unneededThrows;
 
 import com.intellij.codeInsight.ExceptionUtil;
@@ -12,24 +12,27 @@ import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.lang.jvm.JvmModifier;
+import com.intellij.openapi.diagnostic.Attachment;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiSearchHelper;
+import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.PairProcessor;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.JavaOverridingMethodUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -37,6 +40,8 @@ import static com.intellij.psi.PsiModifier.ABSTRACT;
 
 @SuppressWarnings("InspectionDescriptionNotFoundInspection") // delegates
 public final class RedundantThrowsDeclarationLocalInspection extends AbstractBaseJavaLocalInspectionTool {
+  private static final Logger LOGGER = Logger.getInstance(RedundantThrowsDeclarationLocalInspection.class.getName());
+
   @NotNull private final RedundantThrowsDeclarationInspection myGlobalTool;
 
   @TestOnly
@@ -83,16 +88,20 @@ public final class RedundantThrowsDeclarationLocalInspection extends AbstractBas
   @Contract(pure = true)
   static StreamEx<ThrowRefType> getRedundantThrowsCandidates(@Nullable final PsiMethod method, final boolean ignoreEntryPoints) {
     if (method == null) return StreamEx.empty();
+    if (method instanceof SyntheticElement) return StreamEx.empty();
     if (ignoreEntryPoints && UnusedDeclarationInspectionBase.isDeclaredAsEntryPoint(method)) return StreamEx.empty();
     if (method.hasModifier(JvmModifier.NATIVE)) return StreamEx.empty();
     if (JavaHighlightUtil.isSerializationRelatedMethod(method, method.getContainingClass())) return StreamEx.empty();
 
     final PsiReferenceList throwsList = method.getThrowsList();
-    final StreamEx<ThrowRefType> redundantInThrowsList = StreamEx.zip(throwsList.getReferenceElements(),
-                                                                      throwsList.getReferencedTypes(),
-                                                                      ThrowRefType::new);
 
-    return redundantInThrowsList
+    checkInconsistency(throwsList, method.getClass().getSimpleName());
+
+    final PsiJavaCodeReferenceElement[] referenceElements = throwsList.getReferenceElements();
+
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(method.getProject());
+    return StreamEx.of(referenceElements)
+      .map(ref -> new ThrowRefType(ref, factory.createType(ref)))
       .filter(ThrowRefType::isCheckedException)
       .filter(p -> !p.isRemoteExceptionInRemoteMethod(method));
   }
@@ -111,6 +120,7 @@ public final class RedundantThrowsDeclarationLocalInspection extends AbstractBas
       getRedundantThrowsCandidates(method, myIgnoreEntryPoints)
         .filter(throwRefType -> !throwRefType.isThrownIn(method))
         .filter(throwRefType -> !throwRefType.isInOverridenOf(method))
+        .filter(throwRefType -> !throwRefType.isCaught(method))
         .forEach(throwRefType -> {
           final PsiElement reference = throwRefType.myReference;
           final PsiClassType exceptionType = throwRefType.myType;
@@ -233,10 +243,15 @@ public final class RedundantThrowsDeclarationLocalInspection extends AbstractBas
        * @return the set of throws declarations as strings from the throws list excluding the currently eliminated throws declaration
        */
       private static List<PsiClassType> getThrowsListWithoutCurrent(@NotNull final PsiReferenceList throwsList,
-                                                                   @NotNull final PsiJavaCodeReferenceElement currentRef) {
-        return StreamEx.zip(throwsList.getReferenceElements(), throwsList.getReferencedTypes(), Pair::create)
-          .filter(pair -> pair.getFirst() != currentRef)
-          .map(pair -> pair.getSecond())
+                                                                    @NotNull final PsiJavaCodeReferenceElement currentRef) {
+        final PsiJavaCodeReferenceElement[] referenceElements = throwsList.getReferenceElements();
+
+        checkInconsistency(throwsList);
+
+        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(throwsList.getProject());
+        return StreamEx.of(referenceElements)
+          .filter(ref -> ref != currentRef)
+          .map(factory::createType)
           .toList();
       }
     }
@@ -303,8 +318,29 @@ public final class RedundantThrowsDeclarationLocalInspection extends AbstractBas
 
     @Contract(pure = true)
     private boolean isInThrowsListOf(@NotNull final PsiMethod method) {
-      return Arrays.stream(method.getThrowsList().getReferencedTypes())
-        .anyMatch(myType::isAssignableFrom);
+      return ContainerUtil.exists(method.getThrowsList().getReferencedTypes(), myType::isAssignableFrom);
+    }
+
+    public boolean isCaught(@NotNull final PsiMethod method) {
+      if (method.getUseScope() instanceof GlobalSearchScope) {
+        final PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(method.getProject());
+        final PsiSearchHelper.SearchCostResult search = searchHelper.isCheapEnoughToSearch(method.getName(),
+                                                                                           (GlobalSearchScope)method.getUseScope(),
+                                                                                           null,
+                                                                                           null);
+        if (search == PsiSearchHelper.SearchCostResult.ZERO_OCCURRENCES) return false;
+        if (search == PsiSearchHelper.SearchCostResult.TOO_MANY_OCCURRENCES) return true;
+      }
+
+      final Collection<PsiReference> references = ReferencesSearch.search(method).findAll();
+      for (PsiReference reference : references) {
+        if (!(reference instanceof PsiElement)) continue;
+        final PsiElement element = (PsiElement)reference;
+        final PsiClass clazz = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+        final boolean catchSectionAbsent = PsiTreeUtil.treeWalkUp(element, clazz, new TryBlockCatchTypeProcessor(myType));
+        if (!catchSectionAbsent) return true;
+      }
+      return false;
     }
 
     @Contract(pure = true)
@@ -328,6 +364,62 @@ public final class RedundantThrowsDeclarationLocalInspection extends AbstractBas
 
     @NotNull PsiClassType getType() {
       return myType;
+    }
+
+    private static class TryBlockCatchTypeProcessor implements PairProcessor<PsiElement, PsiElement> {
+
+      private final @NotNull PsiClassType myType;
+
+      private TryBlockCatchTypeProcessor(@NotNull PsiClassType type) {
+        myType = type;
+      }
+
+      @Override
+      public boolean process(PsiElement curr, PsiElement prev) {
+        if (!(curr instanceof PsiTryStatement)) return true;
+
+        final PsiTryStatement tryStatement = (PsiTryStatement)curr;
+
+        return Arrays.stream(tryStatement.getCatchSections())
+          .map(PsiCatchSection::getCatchType)
+          .filter(Objects::nonNull)
+          .filter(e -> ! ExceptionUtil.isGeneralExceptionType(e))
+          .noneMatch(e -> e.isAssignableFrom(myType));
+      }
+    }
+  }
+
+  /**
+   * See {@link #checkInconsistency(PsiReferenceList, String)}
+   * @param throwsList
+   */
+  private static void checkInconsistency(@NotNull PsiReferenceList throwsList) {
+    checkInconsistency(throwsList, null);
+  }
+
+  /**
+   * Check the weird inconsistencies when the length of {@link PsiReferenceList#getReferencedTypes} varies from
+   * {@link PsiReferenceList#getReferenceElements} in the throws list
+   * @param throwsList the throws list element to examine
+   * @param methodClassName the class of the method the throws list is from. If the value is null then calculate it with
+   * {@link PsiTreeUtil#getParentOfType}
+   */
+  private static void checkInconsistency(@NotNull PsiReferenceList throwsList, @Nullable String methodClassName) {
+
+    final PsiJavaCodeReferenceElement[] referenceElements = throwsList.getReferenceElements();
+
+    final PsiClassType[] referencedTypes = throwsList.getReferencedTypes();
+
+    if (referenceElements.length != referencedTypes.length) {
+      if (methodClassName == null) {
+        final PsiMethod method = PsiTreeUtil.getParentOfType(throwsList, PsiMethod.class);
+
+        methodClassName = method != null ? method.getClass().getSimpleName() : "null";
+      }
+      LOGGER.error("Stub-PSI inconsistency detected. " +
+                   "The number of elements in the throws list doesn't match the number of types in the throws list. " +
+                   "The method's class is " + methodClassName,
+                   new Attachment("throwsList.sourcePsi.txt", throwsList.isValid() ? throwsList.getText() : "<invalid>"));
     }
   }
 }

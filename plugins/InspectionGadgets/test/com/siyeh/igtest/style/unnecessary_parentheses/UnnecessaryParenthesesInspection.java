@@ -6,6 +6,15 @@ import java.util.ArrayList;
 public class UnnecessaryParenthesesInspection
 {
 
+  void concatenations() {
+    System.out.println("a" + <warning descr="Parentheses around '(1 + \"b\" + \"c\")' are unnecessary">(1 + "b" + "c")</warning>);
+    System.out.println("a" + (1 + 2 + "b" + "c"));
+    System.out.println("a" + <warning descr="Parentheses around '(\"b\" + 1 + 2 + \"c\")' are unnecessary">("b" + 1 + 2 + "c")</warning>);
+
+    // test no exception on incomplete code
+    System.out.println("a" + ("b" +<error descr="Expression expected"> </error>));
+  }
+
     void switchExpressions() {
       String s = (switch(1) {
         case 1 -> "one";
@@ -90,10 +99,10 @@ public class UnnecessaryParenthesesInspection
     }
 
     class ParenthesesAroundLambda {
-      <error descr="Inner classes cannot have static declarations">interface I</error> {
+      <error descr="Static declarations in inner classes are not supported at language level '15'">interface I</error> {
         void foo(int x, int y);
       }
-      <error descr="Inner classes cannot have static declarations">interface J</error> {
+      <error descr="Static declarations in inner classes are not supported at language level '15'">interface J</error> {
         void foo(int x);
       }
 
@@ -138,10 +147,14 @@ public class UnnecessaryParenthesesInspection
   public java.util.function.IntFunction context() {
     return <error descr="Incompatible types. Found: 'int', required: '<lambda expression>'">(a -> a)=1</error>;
   }
+
+  void conditionals(boolean prevConnect, boolean nextConnect) {
+    char c = prevConnect ? <warning descr="Parentheses around '(nextConnect ? 'a' : 'b')' are unnecessary">(nextConnect ? 'a' : 'b')</warning> : <warning descr="Parentheses around '(nextConnect ? 'c' : 'd')' are unnecessary">(nextConnect ? 'c' : 'd')</warning>;
+  }
 }
 class A{
 
   A() {
-    ((<error descr="Expression expected"><</error><error descr="Cannot resolve symbol 'x'">x</error>><error descr="Expression expected">)</error><EOLError descr="';' expected"></EOLError>
+    ((<error descr="Expression expected"><</error><error descr="Cannot resolve symbol 'x'">x</error>><error descr="Expression expected">)</error>
   }
 }

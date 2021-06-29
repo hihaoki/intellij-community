@@ -17,7 +17,7 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.daemon.quickFix.ExternalLibraryResolver;
-import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
+import com.intellij.openapi.module.LanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.roots.ExternalLibraryDescriptor;
 import com.intellij.pom.java.LanguageLevel;
@@ -32,7 +32,7 @@ public class JetBrainsAnnotationsExternalLibraryResolver extends ExternalLibrary
    * It must be equal to version of jetbrains-annotations library which is bundled with the IDE, the both should refer to version of the library
    * which is fully supported by the current state of IDE's inspections.
    */
-  private static final String VERSION = "19.0.0";
+  private static final String VERSION = "20.1.0";
   private static final ExternalLibraryDescriptor JAVA5 = new ExternalLibraryDescriptor("org.jetbrains", "annotations-java5",
                                                                                        null, null, VERSION);
   private static final ExternalLibraryDescriptor JAVA8 = new ExternalLibraryDescriptor("org.jetbrains", "annotations",
@@ -50,7 +50,7 @@ public class JetBrainsAnnotationsExternalLibraryResolver extends ExternalLibrary
 
   @NotNull
   public static ExternalLibraryDescriptor getAnnotationsLibraryDescriptor(@NotNull Module contextModule) {
-    boolean java8 = EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(contextModule).isAtLeast(LanguageLevel.JDK_1_8);
+    boolean java8 = LanguageLevelUtil.getEffectiveLanguageLevel(contextModule).isAtLeast(LanguageLevel.JDK_1_8);
     return java8 ? JAVA8 : JAVA5;
   }
 

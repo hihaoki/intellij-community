@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
@@ -15,14 +15,18 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.annotation.ProblemGroup;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.objectTree.ThrowableInterner;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.DeprecatedMethodException;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -31,7 +35,7 @@ import java.util.List;
 class B implements AnnotationBuilder {
   @NotNull
   private final AnnotationHolderImpl myHolder;
-  private final String message;
+  private final @Nls String message;
   @NotNull
   private final PsiElement myCurrentElement;
   @NotNull
@@ -45,12 +49,12 @@ class B implements AnnotationBuilder {
   private TextAttributesKey textAttributes;
   private ProblemHighlightType highlightType;
   private Boolean needsUpdateOnTyping;
-  private String tooltip;
+  private @NlsContexts.Tooltip String tooltip;
   private List<FixB> fixes;
   private boolean created;
   private final Throwable myDebugCreationPlace;
 
-  B(@NotNull AnnotationHolderImpl holder, @NotNull HighlightSeverity severity, String message, @NotNull PsiElement currentElement) {
+  B(@NotNull AnnotationHolderImpl holder, @NotNull HighlightSeverity severity, @Nls String message, @NotNull PsiElement currentElement) {
     myHolder = holder;
     this.severity = severity;
     this.message = message;
@@ -58,11 +62,11 @@ class B implements AnnotationBuilder {
     holder.annotationBuilderCreated(this);
 
     Application app = ApplicationManager.getApplication();
-    myDebugCreationPlace = app.isUnitTestMode() && !ApplicationInfoImpl.isInStressTest() || app.isInternal() ?
+    myDebugCreationPlace = app.isUnitTestMode() && !ApplicationManagerEx.isInStressTest() || app.isInternal() ?
                            ThrowableInterner.intern(new Throwable()) : null;
   }
 
-  private void assertNotSet(Object o, String description) {
+  private void assertNotSet(Object o, @NonNls String description) {
     if (o != null) {
       markNotAbandoned(); // it crashed, not abandoned
       throw new IllegalStateException(description + " was set already");
@@ -139,7 +143,7 @@ class B implements AnnotationBuilder {
     }
 
     @Override
-    public String toString() {
+    public @NonNls String toString() {
       return fix+(range==null?"":" at "+range)+(batch == null ? "" : " batch")+(universal == null ? "" : " universal");
     }
   }
@@ -338,11 +342,13 @@ class B implements AnnotationBuilder {
     }
   }
 
+  @NotNull
   private static String omitIfEmpty(Object o, String name) {
     return o == null ? "" : ", " + name + "=" + o;
   }
+
   @Override
-  public String toString() {
+  public @NonNls String toString() {
     return "Builder{" +
            "message='" + message + '\'' +
            ", myCurrentElement=" + myCurrentElement +
@@ -359,5 +365,60 @@ class B implements AnnotationBuilder {
            omitIfEmpty(tooltip, "tooltip") +
            omitIfEmpty(fixes, "fixes") +
            '}';
+  }
+
+  @Override
+  public Annotation createAnnotation() {
+    DeprecatedMethodException.report("Use create() instead");
+    if (range == null) {
+      range = myCurrentElement.getTextRange();
+    }
+    if (tooltip == null && message != null) {
+      tooltip = XmlStringUtil.wrapInHtml(XmlStringUtil.escapeString(message));
+    }
+    Annotation annotation = new Annotation(range.getStartOffset(), range.getEndOffset(), severity, message, tooltip);
+    if (needsUpdateOnTyping != null) {
+      annotation.setNeedsUpdateOnTyping(needsUpdateOnTyping);
+    }
+    if (highlightType != null) {
+      annotation.setHighlightType(highlightType);
+    }
+    if (textAttributes != null) {
+      annotation.setTextAttributes(textAttributes);
+    }
+    if (enforcedAttributes != null) {
+      annotation.setEnforcedTextAttributes(enforcedAttributes);
+    }
+    if (problemGroup != null) {
+      annotation.setProblemGroup(problemGroup);
+    }
+    if (gutterIconRenderer != null) {
+      annotation.setGutterIconRenderer(gutterIconRenderer);
+    }
+    if (fileLevel != null) {
+      annotation.setFileLevelAnnotation(fileLevel);
+    }
+    if (afterEndOfLine != null) {
+      annotation.setAfterEndOfLine(afterEndOfLine);
+    }
+    if (fixes != null) {
+      for (FixB fb : fixes) {
+        IntentionAction fix = fb.fix;
+        TextRange finalRange = fb.range == null ? this.range : fb.range;
+        if (fb.batch != null && fb.batch) {
+          registerBatchFix(annotation, fix, finalRange, fb.key);
+        }
+        else if (fb.universal != null && fb.universal) {
+          registerBatchFix(annotation, fix, finalRange, fb.key);
+          annotation.registerFix(fix, finalRange, fb.key);
+        }
+        else {
+          annotation.registerFix(fix, finalRange, fb.key);
+        }
+      }
+    }
+    myHolder.add(annotation);
+    myHolder.annotationCreatedFrom(this);
+    return annotation;
   }
 }

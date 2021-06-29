@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.structureView;
 
 import com.intellij.lang.properties.IProperty;
@@ -7,31 +7,31 @@ import com.intellij.lang.properties.ResourceBundle;
 import com.intellij.lang.properties.ResourceBundleImpl;
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.SoftFactoryMap;
 import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.XMap;
-import gnu.trove.TIntLongHashMap;
-import gnu.trove.TIntProcedure;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.IntConsumer;
 
 @State(name = "PropertiesSeparatorManager")
-public class PropertiesSeparatorManager implements PersistentStateComponent<PropertiesSeparatorManager.PropertiesSeparatorManagerState> {
+public final class PropertiesSeparatorManager implements PersistentStateComponent<PropertiesSeparatorManager.PropertiesSeparatorManagerState> {
   private final Project myProject;
 
   public static PropertiesSeparatorManager getInstance(final Project project) {
-    return ServiceManager.getService(project, PropertiesSeparatorManager.class);
+    return project.getService(PropertiesSeparatorManager.class);
   }
 
   private PropertiesSeparatorManagerState myUserDefinedSeparators = new PropertiesSeparatorManagerState();
-  private final SoftFactoryMap<ResourceBundleImpl, String> myGuessedSeparators = new SoftFactoryMap<ResourceBundleImpl, String>() {
+  private final SoftFactoryMap<ResourceBundleImpl, String> myGuessedSeparators = new SoftFactoryMap<>() {
     @Override
     protected String create(ResourceBundleImpl resourceBundle) {
       return guessSeparator(resourceBundle);
@@ -49,12 +49,12 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
     }
     final ResourceBundleImpl resourceBundleImpl = (ResourceBundleImpl)resourceBundle;
     String separator = myUserDefinedSeparators.getSeparators().get(resourceBundleImpl.getUrl());
-    return separator == null ? myGuessedSeparators.get(resourceBundleImpl) : separator;
+    return separator == null ? Objects.requireNonNull(myGuessedSeparators.get(resourceBundleImpl)) : separator;
   }
 
   //returns most probable separator in properties files
   private static String guessSeparator(final ResourceBundleImpl resourceBundle) {
-    final TIntLongHashMap charCounts = new TIntLongHashMap();
+    final Int2LongOpenHashMap charCounts = new Int2LongOpenHashMap();
     for (PropertiesFile propertiesFile : resourceBundle.getPropertiesFiles()) {
       if (propertiesFile == null) continue;
       List<IProperty> properties = propertiesFile.getProperties();
@@ -71,16 +71,15 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
     }
 
     final char[] mostProbableChar = new char[]{'.'};
-    charCounts.forEachKey(new TIntProcedure() {
+    charCounts.keySet().forEach(new IntConsumer() {
       long count = -1;
       @Override
-      public boolean execute(int ch) {
+      public void accept(int ch) {
         long charCount = charCounts.get(ch);
         if (charCount > count) {
           count = charCount;
           mostProbableChar[0] = (char)ch;
         }
-        return true;
       }
     });
     if (mostProbableChar[0] == 0) {

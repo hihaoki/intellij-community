@@ -13,6 +13,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.*;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
@@ -21,6 +22,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.util.Locale;
 
 /**
  * @author gregsh
@@ -28,7 +30,7 @@ import java.beans.PropertyChangeListener;
 @ApiStatus.Experimental
 public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Context<T>,
                                                     ItemListener, MouseListener, MouseMotionListener, MouseWheelListener,
-                                                    PropertyChangeListener, AncestorListener {
+                                                    PropertyChangeListener, AncestorListener, Accessible {
 
   public static final String CLIENT_PROP = "ComboBox.jbPopup";
   public static final String USE_LIVE_UPDATE_MODEL = "ComboBox.jbPopup.supportUpdateModel";
@@ -38,12 +40,16 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
   private ComboBoxPopup<T> myPopup;
   private boolean myJustClosedViaClick;
 
+  private AccessibleDarculaJBPopupComboPopup accessibleContext;
+
   public DarculaJBPopupComboPopup(@NotNull JComboBox<T> comboBox) {
     myComboBox = comboBox;
-    myProxyList.setModel(comboBox.getModel());
-    myComboBox.addPropertyChangeListener(this);
+    myProxyList.setModel(myComboBox.getModel());
+    myProxyList.setSelectedValue(myComboBox.getModel().getSelectedItem(), false);
+    myProxyList.setCellRenderer(myComboBox.getRenderer());
     myComboBox.addItemListener(this);
     myComboBox.addAncestorListener(this);
+    myComboBox.addPropertyChangeListener(this);
   }
 
   @Nullable
@@ -87,6 +93,7 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
     T selectedItem = (T)myComboBox.getSelectedItem();
     myPopup = createPopup(selectedItem);
     myPopup.addListener(new JBPopupListener() {
+
       @Override
       public void beforeShown(@NotNull LightweightWindowEvent event) {
         myComboBox.firePopupMenuWillBecomeVisible();
@@ -101,14 +108,10 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
       public void onClosed(@NotNull LightweightWindowEvent event) {
         myComboBox.firePopupMenuWillBecomeInvisible();
         myPopup = null;
-        myProxyList.setCellRenderer(new DefaultListCellRenderer());
-        myProxyList.setModel(myComboBox.getModel());
       }
     });
+    myPopup.addListener((AccessibleDarculaJBPopupComboPopup)getAccessibleContext());
 
-    JList<T> list = myPopup.getList();
-    myProxyList.setCellRenderer(list.getCellRenderer());
-    myProxyList.setModel(list.getModel());
     myPopup.setMinimumSize(myComboBox.getSize());
     myPopup.showUnderneathOf(myComboBox);
   }
@@ -163,6 +166,12 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
 
   @Override
   public void propertyChange(PropertyChangeEvent e) {
+    if ("model".equals(e.getPropertyName()) && (myPopup == null)) {
+      myProxyList.setModel(myComboBox.getModel());
+      myProxyList.setCellRenderer(myComboBox.getRenderer());
+      myProxyList.setSelectedValue(myComboBox.getModel().getSelectedItem(), false);
+    }
+
     if (!isVisible()) return;
 
     String propertyName = e.getPropertyName();
@@ -187,6 +196,9 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
 
   @Override
   public void itemStateChanged(ItemEvent e) {
+    if ((e.getStateChange() == ItemEvent.SELECTED) && (e.getItem() != null)) {
+      myProxyList.setSelectedValue(e.getItem(), false);
+    }
   }
 
   @Override
@@ -259,7 +271,7 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
   }
 
   protected ComboBoxPopup<T> createPopup(@Nullable T selectedItem) {
-    return new ComboBoxPopup<T>(this, selectedItem, value -> myComboBox.setSelectedItem(value)) {
+    return new ComboBoxPopup<>(this, selectedItem, value -> myComboBox.setSelectedItem(value)) {
       @Override
       public void cancel(InputEvent e) {
         if (e instanceof MouseEvent) {
@@ -272,5 +284,89 @@ public class DarculaJBPopupComboPopup<T> implements ComboPopup, ComboBoxPopup.Co
         super.cancel(e);
       }
     };
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleDarculaJBPopupComboPopup();
+    }
+    return accessibleContext;
+  }
+
+  private class AccessibleDarculaJBPopupComboPopup extends AccessibleContext implements JBPopupListener {
+
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.POPUP_MENU;
+    }
+
+    @Override
+    public AccessibleStateSet getAccessibleStateSet() {
+      AccessibleStateSet stateSet = new AccessibleStateSet();
+      if (DarculaJBPopupComboPopup.this.isVisible()) {
+        stateSet.add(AccessibleState.VISIBLE);
+      }
+      stateSet.add(AccessibleState.ENABLED);
+      AccessibleContext ac = myComboBox.getAccessibleContext();
+      if (ac != null) {
+        Accessible ap = ac.getAccessibleParent();
+        if (ap != null) {
+          AccessibleContext pac = ap.getAccessibleContext();
+          if (pac != null) {
+            AccessibleSelection as = pac.getAccessibleSelection();
+            if (as != null) {
+              stateSet.add(AccessibleState.SELECTABLE);
+              int i = ac.getAccessibleIndexInParent();
+              if (i >= 0) {
+                if (as.isAccessibleChildSelected(i)) {
+                  stateSet.add(AccessibleState.SELECTED);
+                }
+              }
+            }
+          }
+        }
+      }
+      return stateSet;
+    }
+
+    @Override
+    public int getAccessibleIndexInParent() {
+      return 0;
+    }
+
+    @Override
+    public int getAccessibleChildrenCount() {
+      return 0;
+    }
+
+    @Override
+    public Accessible getAccessibleChild(int i) {
+      return null;
+    }
+
+    @Override
+    public Locale getLocale() throws IllegalComponentStateException {
+      return myComboBox.getLocale();
+    }
+
+    @Override
+    public void beforeShown(@NotNull LightweightWindowEvent event) {
+      handlePopupIsVisibleEvent(true);
+    }
+
+    @Override
+    public void onClosed(@NotNull LightweightWindowEvent event) {
+      handlePopupIsVisibleEvent(false);
+    }
+
+    private void handlePopupIsVisibleEvent(boolean visible) {
+      if (visible) {
+        firePropertyChange(ACCESSIBLE_STATE_PROPERTY, null, AccessibleState.VISIBLE);
+      }
+      else {
+        firePropertyChange(ACCESSIBLE_STATE_PROPERTY, AccessibleState.VISIBLE, null);
+      }
+    }
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView.impl.nodes;
 
@@ -10,6 +10,7 @@ import com.intellij.ide.projectView.ProjectViewNode;
 import com.intellij.ide.projectView.ProjectViewSettings;
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.CompoundProjectViewNodeDecorator;
+import com.intellij.ide.tags.TagManager;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.ValidateableNode;
 import com.intellij.navigation.NavigationItem;
@@ -29,10 +30,12 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.ui.ColoredText;
 import com.intellij.ui.IconManager;
 import com.intellij.ui.LayeredIcon;
 import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.AstLoadingFilter;
+import com.intellij.util.IconUtil;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,6 +45,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Objects;
+
+import static com.intellij.ide.util.treeView.NodeRenderer.getSimpleTextAttributes;
 
 /**
  * Class for node descriptors based on PsiElements. Subclasses should define
@@ -147,21 +152,44 @@ public abstract class AbstractPsiBasedNode<Value> extends ProjectViewNode<Value>
       LOG.assertTrue(value.isValid());
 
       int flags = getIconableFlags();
-
+      Icon icon = null;
+      boolean deprecated = false;
       try {
-        Icon icon = value.getIcon(flags);
-        data.setIcon(icon);
+        icon = value.getIcon(flags);
       }
       catch (IndexNotReadyException ignored) {
       }
+      try {
+        deprecated = isDeprecated();
+      }
+      catch (IndexNotReadyException ignored) {
+      }
+
+      final Icon tagIcon;
+      final ColoredText tagText;
+      if (!TagManager.isEnabled()) {
+        Bookmark bookmark = BookmarkManager.getInstance(myProject).findElementBookmark(value);
+        tagIcon = bookmark == null ? null : bookmark.getIcon();
+        tagText = null;
+      }
+      else {
+        var tagIconAndText = TagManager.getTagIconAndText(value);
+        tagIcon = tagIconAndText.first;
+        tagText = tagIconAndText.second;
+      }
+      data.setIcon(IconUtil.rowIcon(tagIcon, icon));
       data.setPresentableText(myName);
-
-      try {
-        if (isDeprecated()) {
-          data.setAttributesKey(CodeInsightColors.DEPRECATED_ATTRIBUTES);
-        }
+      if (deprecated) {
+        data.setAttributesKey(CodeInsightColors.DEPRECATED_ATTRIBUTES);
       }
-      catch (IndexNotReadyException ignored) {
+      if (tagText != null) {
+        var fragments = tagText.fragments();
+        for (ColoredText.Fragment fragment : fragments) {
+          data.getColoredText().add(new ColoredFragment(fragment.fragmentText(), fragment.fragmentAttributes()));
+        }
+        if (!fragments.isEmpty()) {
+          data.getColoredText().add(new ColoredFragment(myName, getSimpleTextAttributes(data)));
+        }
       }
       updateImpl(data);
       data.setIcon(patchIcon(myProject, data.getIcon(true), getVirtualFile()));
@@ -235,7 +263,7 @@ public abstract class AbstractPsiBasedNode<Value> extends ProjectViewNode<Value>
         NavigationUtil.openFileWithPsiElement(extractPsiFromValue(), requestFocus, requestFocus);
       }
       else {
-        getNavigationItem().navigate(requestFocus);
+        getNavigationItem().navigate(false);
       }
     }
   }

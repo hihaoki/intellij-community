@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2021 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 package com.siyeh.ig.errorhandling;
 
+import com.intellij.codeInspection.ui.InspectionOptionsPanel;
 import com.intellij.codeInspection.ui.ListTable;
 import com.intellij.codeInspection.ui.ListWrappingTableModel;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiThrowStatement;
 import com.intellij.psi.PsiType;
@@ -38,7 +40,7 @@ public class BadExceptionThrownInspection extends BaseInspection {
   @SuppressWarnings("PublicField")
   public final ExternalizableStringSet exceptions =
     new ExternalizableStringSet(
-      "java.lang.Throwable",
+      CommonClassNames.JAVA_LANG_THROWABLE,
       "java.lang.Exception",
       "java.lang.Error",
       "java.lang.RuntimeException",
@@ -60,7 +62,14 @@ public class BadExceptionThrownInspection extends BaseInspection {
   @Override
   public JComponent createOptionsPanel() {
     final ListTable table = new ListTable(new ListWrappingTableModel(exceptions, InspectionGadgetsBundle.message( "exception.class.column.name")));
-    return UiUtils.createAddRemoveTreeClassChooserPanel(table, InspectionGadgetsBundle.message("choose.exception.class"), "java.lang.Throwable");
+    final var panel = new InspectionOptionsPanel();
+    panel.addGrowing(UiUtils.createAddRemoveTreeClassChooserPanel(
+      InspectionGadgetsBundle.message("choose.exception.class"),
+      InspectionGadgetsBundle.message("choose.exception.label"),
+      table,
+      true,
+      CommonClassNames.JAVA_LANG_THROWABLE));
+    return panel;
   }
 
   @Override

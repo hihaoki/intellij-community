@@ -1,7 +1,6 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.ui;
 
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.util.containers.ContainerUtil;
@@ -33,8 +32,8 @@ public abstract class NestedGroupFragment<S extends FragmentedSettings> extends 
 
   protected NestedGroupFragment(String id,
                                 @Nls(capitalization = Nls.Capitalization.Sentence) String name,
-                                @Nls(capitalization = Nls.Capitalization.Sentence) String group,
-                                Predicate<S> initialSelection) {
+                                @Nls(capitalization = Nls.Capitalization.Title) String group,
+                                Predicate<? super S> initialSelection) {
     super(id, name, group, null, null, null, initialSelection);
   }
 
@@ -55,6 +54,11 @@ public abstract class NestedGroupFragment<S extends FragmentedSettings> extends 
   }
 
   @Override
+  public boolean isSelected() {
+    return ContainerUtil.exists(getChildren(), fragment -> fragment.isSelected());
+  }
+
+  @Override
   public boolean isInitiallyVisible(S s) {
     return super.isInitiallyVisible(s) || ContainerUtil.exists(getChildren(), fragment -> fragment.isInitiallyVisible(s));
   }
@@ -72,7 +76,7 @@ public abstract class NestedGroupFragment<S extends FragmentedSettings> extends 
   }
 
   @Override
-  protected void applyEditorTo(@NotNull S s) throws ConfigurationException {
+  protected void applyEditorTo(@NotNull S s) {
     for (SettingsEditorFragment<S, ?> child : getChildren()) {
       child.applyEditorTo(s);
     }
@@ -82,7 +86,7 @@ public abstract class NestedGroupFragment<S extends FragmentedSettings> extends 
 
     @Override
   protected @NotNull JComponent createEditor() {
-     myGroupComponent = new FragmentedSettingsBuilder<>(getChildren(), this).createCompoundEditor();
+     myGroupComponent = new FragmentedSettingsBuilder<>(getChildren(), this, this).createCompoundEditor();
      if (myComponent == null) myComponent = myGroupComponent;
      updateVisibility();
      return myGroupComponent;

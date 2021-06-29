@@ -2,20 +2,45 @@
 package org.jetbrains.idea.maven.importing
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.externalSystem.importing.ExternalSystemSetupProjectTest
 import com.intellij.openapi.externalSystem.importing.ExternalSystemSetupProjectTestCase
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import junit.framework.TestCase
 import org.jetbrains.idea.maven.MavenImportingTestCase
+import org.jetbrains.idea.maven.MavenMultiVersionImportingTestCase
+import org.jetbrains.idea.maven.MavenTestCase
 import org.jetbrains.idea.maven.importing.xml.MavenBuildFileBuilder
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.project.MavenWorkspaceSettingsComponent
 import org.jetbrains.idea.maven.project.actions.AddFileAsMavenProjectAction
 import org.jetbrains.idea.maven.project.actions.AddManagedFilesAction
 import org.jetbrains.idea.maven.utils.MavenUtil.SYSTEM_ID
+import org.junit.Test
 
 class MavenSetupProjectTest : ExternalSystemSetupProjectTest, MavenImportingTestCase() {
   override fun getSystemId(): ProjectSystemId = SYSTEM_ID
+
+
+  @Test
+  fun `test settings are not reset`() {
+    val projectInfo = generateProject("A")
+    val linkedProjectInfo = generateProject("L")
+    waitForImport {
+      openProjectFrom(projectInfo.projectFile)
+    }.use {
+      assertModules(it, projectInfo)
+      MavenWorkspaceSettingsComponent.getInstance(it).settings.getGeneralSettings().isWorkOffline = true
+      waitForImport {
+        attachProject(it, linkedProjectInfo.projectFile)
+      }
+      assertModules(it, projectInfo, linkedProjectInfo)
+      TestCase.assertTrue(MavenWorkspaceSettingsComponent.getInstance (it).settings.getGeneralSettings().isWorkOffline)
+    }
+  }
 
   override fun generateProject(id: String): ExternalSystemSetupProjectTestCase.ProjectInfo {
     val name = "${System.currentTimeMillis()}-$id"
@@ -30,18 +55,20 @@ class MavenSetupProjectTest : ExternalSystemSetupProjectTest, MavenImportingTest
     return ExternalSystemSetupProjectTestCase.ProjectInfo(projectFile, "$name-project", "$name-module", "$name-external-module")
   }
 
-  override fun assertDefaultProjectSettings(project: Project) {
-  }
-
-  override fun doAttachProject(project: Project, projectFile: VirtualFile) {
+  override fun attachProject(project: Project, projectFile: VirtualFile) {
     AddManagedFilesAction().perform(project, selectedFile = projectFile)
+    waitForImportCompletion(project)
   }
 
-  override fun doAttachProjectFromScript(project: Project, projectFile: VirtualFile) {
+  override fun attachProjectFromScript(project: Project, projectFile: VirtualFile) {
     AddFileAsMavenProjectAction().perform(project, selectedFile = projectFile)
+    waitForImportCompletion(project)
   }
 
-  override fun waitForImportCompletion(project: Project) {
+  override fun <R> waitForImport(action: () -> R): R = action()
+
+  private fun waitForImportCompletion(project: Project) {
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
     val projectManager = MavenProjectsManager.getInstance(project)
     ApplicationManager.getApplication().invokeAndWait {
       projectManager.waitForResolvingCompletion()

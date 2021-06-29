@@ -1,10 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.core;
 
+import com.intellij.DynamicBundle;
 import com.intellij.codeInsight.folding.CodeFoldingSettings;
 import com.intellij.concurrency.Job;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.ide.plugins.DisabledPluginsState;
+import com.intellij.ide.plugins.IdeaPluginDescriptorImpl;
+import com.intellij.ide.plugins.PluginDescriptorLoader;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.lang.*;
 import com.intellij.lang.impl.PsiBuilderFactoryImpl;
@@ -18,6 +21,7 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.impl.CoreCommandProcessor;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.extensions.*;
+import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeExtension;
@@ -46,6 +50,7 @@ import com.intellij.util.KeyedLazyInstanceEP;
 import com.intellij.util.Processor;
 import com.intellij.util.graph.GraphAlgorithms;
 import com.intellij.util.graph.impl.GraphAlgorithmsImpl;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.picocontainer.MutablePicoContainer;
@@ -57,9 +62,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
-/**
- * @author yole
- */
+
 public class CoreApplicationEnvironment {
   private final CoreFileTypeRegistry myFileTypeRegistry;
   protected final MockApplication myApplication;
@@ -78,7 +81,7 @@ public class CoreApplicationEnvironment {
     myParentDisposable = parentDisposable;
     myUnitTestMode = unitTestMode;
 
-    DisabledPluginsState.dontLoadDisabledPlugins();
+    DisabledPluginsState.setIgnoreDisabledPlugins(true);
 
     myFileTypeRegistry = new CoreFileTypeRegistry();
 
@@ -90,9 +93,7 @@ public class CoreApplicationEnvironment {
     myJarFileSystem = createJarFileSystem();
     myJrtFileSystem = createJrtFileSystem();
 
-    registerApplicationService(FileDocumentManager.class, new MockFileDocumentManagerImpl(charSequence -> {
-      return new DocumentImpl(charSequence);
-    }, null));
+    registerApplicationService(FileDocumentManager.class, new MockFileDocumentManagerImpl(null, DocumentImpl::new));
 
     registerApplicationExtensionPoint(new ExtensionPointName<>("com.intellij.virtualFileManagerListener"), VirtualFileManagerListener.class);
     List<VirtualFileSystem> fs = myJrtFileSystem != null
@@ -117,6 +118,8 @@ public class CoreApplicationEnvironment {
     registerApplicationService(GraphAlgorithms.class, new GraphAlgorithmsImpl());
 
     myApplication.registerService(ApplicationInfo.class, ApplicationInfoImpl.class);
+
+    registerApplicationExtensionPoint(DynamicBundle.LanguageBundleEP.EP_NAME, DynamicBundle.LanguageBundleEP.class);
   }
 
   public <T> void registerApplicationService(@NotNull Class<T> serviceInterface, @NotNull T serviceImplementation) {
@@ -161,7 +164,7 @@ public class CoreApplicationEnvironment {
         if (onDoneCallback != null) {
           onDoneCallback.consume(CompletableFuture.completedFuture(null));
         }
-        return Job.NULL_JOB;
+        return Job.nullJob();
       }
     };
   }
@@ -203,7 +206,7 @@ public class CoreApplicationEnvironment {
     }
   }
 
-  public void registerFileType(@NotNull FileType fileType, @NotNull String extension) {
+  public void registerFileType(@NotNull FileType fileType, @NotNull @NonNls String extension) {
     myFileTypeRegistry.registerFileType(fileType, extension);
   }
 
@@ -251,19 +254,47 @@ public class CoreApplicationEnvironment {
   }
 
   public static <T> void registerExtensionPoint(@NotNull ExtensionsArea area, @NotNull String name, @NotNull Class<? extends T> aClass) {
+    registerExtensionPoint(area, name, aClass, false);
+  }
+
+  public static <T> void registerDynamicExtensionPoint(@NotNull ExtensionsArea area, @NotNull String name, @NotNull Class<? extends T> aClass) {
+    registerExtensionPoint(area, name, aClass, true);
+  }
+
+  @SuppressWarnings("TestOnlyProblems")
+  private static <T> void registerExtensionPoint(@NotNull ExtensionsArea area,
+                                                 @NotNull String name,
+                                                 @NotNull Class<? extends T> aClass,
+                                                 boolean isDynamic) {
     if (!area.hasExtensionPoint(name)) {
       ExtensionPoint.Kind kind = aClass.isInterface() || Modifier.isAbstract(aClass.getModifiers()) ? ExtensionPoint.Kind.INTERFACE : ExtensionPoint.Kind.BEAN_CLASS;
-      //noinspection TestOnlyProblems
-      area.registerExtensionPoint(name, aClass.getName(), kind);
+      area.registerExtensionPoint(name, aClass.getName(), kind, isDynamic);
     }
   }
 
+  @SuppressWarnings("deprecation")
   public static <T> void registerApplicationExtensionPoint(@NotNull ExtensionPointName<T> extensionPointName, @NotNull Class<? extends T> aClass) {
     registerExtensionPoint(Extensions.getRootArea(), extensionPointName, aClass);
   }
 
+  @SuppressWarnings("deprecation")
+  public static <T> void registerApplicationDynamicExtensionPoint(@NotNull String extensionPointName, @NotNull Class<? extends T> aClass) {
+    registerDynamicExtensionPoint(Extensions.getRootArea(), extensionPointName, aClass);
+  }
+
   public static void registerExtensionPointAndExtensions(@NotNull Path pluginRoot, @NotNull String fileName, @NotNull ExtensionsArea area) {
-    PluginManagerCore.registerExtensionPointAndExtensions(pluginRoot, fileName, area);
+    IdeaPluginDescriptorImpl descriptor = PluginDescriptorLoader.loadForCoreEnv(pluginRoot, fileName);
+    if (descriptor == null) {
+      PluginManagerCore.getLogger().error("Cannot load " + fileName + " from " + pluginRoot);
+      return;
+    }
+
+    List<ExtensionPointDescriptor> extensionPoints = descriptor.appContainerDescriptor.extensionPoints;
+    ExtensionsAreaImpl areaImpl = (ExtensionsAreaImpl)area;
+    if (extensionPoints != null) {
+      areaImpl.registerExtensionPoints(extensionPoints, descriptor);
+    }
+    descriptor.registerExtensions(areaImpl.extensionPoints, descriptor.appContainerDescriptor, null);
   }
 
   @NotNull

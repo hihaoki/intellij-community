@@ -22,7 +22,12 @@ class SwitchExpressions {
     );
 
     System.out.println(switch (E.valueOf("E1")) {
-      case <error descr="Constant expression required">null</error> -> 0;
+      case <error descr="Patterns in switch are not supported at language level '15'">null</error> -> 0;
+      case E1 -> 1;
+      case E2 -> 2;
+    });
+
+    System.out.println(switch (E.valueOf("E1")) {
       case <error descr="An enum switch case label must be the unqualified name of an enumeration constant">E.E1</error> -> 1;
       case E2 -> 2;
       case <error descr="Incompatible types. Found: 'int', required: 'SwitchExpressions.E'">1</error> -> 1;
@@ -55,7 +60,7 @@ class SwitchExpressions {
         case -1: <error descr="Return outside of enclosing switch expression">return;</error>
         case -2: <error descr="Continue outside of enclosing switch expression">continue lab;</error>
         case -3: <error descr="Continue outside of enclosing switch expression">continue;</error>
-        default: <error descr="Break outside of enclosing switch expression">break lab;</error>
+        default: <error descr="Break out of switch expression is not allowed">break lab;</error>
       });
     }
   }
@@ -64,5 +69,11 @@ class SwitchExpressions {
   
   boolean testEmpty(Empty e) {
     return switch (<error descr="'switch' expression does not have any case clauses">e</error>) {};
+  }
+  
+  byte assignability(String s) {
+    return switch(s) {
+      default -> 42;
+    };
   }
 }

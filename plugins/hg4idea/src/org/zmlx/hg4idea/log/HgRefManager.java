@@ -1,8 +1,7 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.log;
 
 import com.intellij.dvcs.repo.RepositoryManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.JBColor;
 import com.intellij.util.containers.ContainerUtil;
@@ -15,6 +14,7 @@ import com.intellij.vcs.log.util.VcsLogUtil;
 import org.jetbrains.annotations.CalledInAny;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.branch.HgBranchManager;
 import org.zmlx.hg4idea.branch.HgBranchType;
 import org.zmlx.hg4idea.repo.HgRepository;
@@ -98,7 +98,7 @@ public class HgRefManager implements VcsLogRefManager {
 
   public HgRefManager(@NotNull Project project, @NotNull RepositoryManager<HgRepository> repositoryManager) {
     myRepositoryManager = repositoryManager;
-    myBranchManager = ServiceManager.getService(project, HgBranchManager.class);
+    myBranchManager = project.getService(HgBranchManager.class);
   }
 
   @NotNull
@@ -130,8 +130,8 @@ public class HgRefManager implements VcsLogRefManager {
       }
     }
 
-    if (!branches.isEmpty()) result.add(new SimpleRefGroup("Branches", branches, false));
-    if (!bookmarks.isEmpty()) result.add(new SimpleRefGroup("Bookmarks", bookmarks, false));
+    if (!branches.isEmpty()) result.add(new SimpleRefGroup(HgBundle.message("hg.ref.group.name.branches"), branches, false));
+    if (!bookmarks.isEmpty()) result.add(new SimpleRefGroup(HgBundle.message("hg.ref.group.name.bookmarks"), bookmarks, false));
 
     return result;
   }

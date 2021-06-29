@@ -1,5 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.folding.impl;
 
 import com.intellij.diagnostic.AttachmentFactory;
@@ -19,7 +18,6 @@ import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.EmptyRunnable;
-import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
@@ -39,6 +37,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 public final class FoldingUpdate {
   private static final Logger LOG = Logger.getInstance(FoldingUpdate.class);
@@ -63,7 +62,7 @@ public final class FoldingUpdate {
     CachedValue<Runnable> value = editor.getUserData(CODE_FOLDING_KEY);
 
     if (value != null && !applyDefaultState) {
-      Getter<Runnable> cached = value.getUpToDateOrNull();
+      Supplier<Runnable> cached = value.getUpToDateOrNull();
       if (cached != null) {
         return cached.get();
       }
@@ -251,7 +250,8 @@ public final class FoldingUpdate {
     Comparator<Language> preferBaseLanguage = Comparator.comparing((Language l) -> l != viewProvider.getBaseLanguage());
     List<Language> languages = ContainerUtil.sorted(viewProvider.getLanguages(), preferBaseLanguage.thenComparing(Language::getID));
 
-    DocumentEx copyDoc = languages.size() > 1 ? new DocumentImpl(document.getImmutableCharSequence()) : null;
+    boolean slashR = document instanceof DocumentImpl && ((DocumentImpl)document).acceptsSlashR();
+    DocumentEx copyDoc = languages.size() > 1 ? new DocumentImpl(document.getImmutableCharSequence(), slashR, true) : null;
     List<RangeMarker> hardRefToRangeMarkers = new ArrayList<>();
 
     for (Language language : languages) {
@@ -301,8 +301,7 @@ public final class FoldingUpdate {
     if (range1.equals(range2)) return true;
     if (range1.contains(range2) || range2.contains(range1)) return false;
 
-    TextRange intersection = range1.intersection(range2);
-    return intersection != null && !intersection.isEmpty();
+    return range1.intersectsStrict(range2);
   }
 
   private static void diagnoseIncorrectRange(@NotNull PsiFile file,
@@ -316,7 +315,8 @@ public final class FoldingUpdate {
                      ", PSI element: " + psiElement +
                      ", PSI element range: " + psiElement.getTextRange() + "; " + DebugUtil.diagnosePsiDocumentInconsistency(psiElement, document);
     LOG.error(message, ApplicationManager.getApplication().isInternal()
-                               ? new Attachment[]{AttachmentFactory.createAttachment(document), new Attachment("psiTree.txt", DebugUtil.psiToString(file, false, true))}
+                               ? new Attachment[]{AttachmentFactory.createAttachment(document), new Attachment("psiTree.txt", DebugUtil.psiToString(file,
+                                                                                                                                                    true, true))}
                                : Attachment.EMPTY_ARRAY);
   }
 

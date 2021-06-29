@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.search;
 
@@ -23,20 +23,18 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+
 public final class FilenameIndex {
   @ApiStatus.Internal
   @NonNls
   public static final ID<String, Void> NAME = ID.create("FilenameIndex");
 
-  public static String @NotNull [] getAllFilenames(@Nullable Project project) {
+  public static @NotNull String @NotNull [] getAllFilenames(@NotNull Project project) {
     Set<String> names = new HashSet<>();
     processAllFileNames((String s) -> {
       names.add(s);
       return true;
-    }, project == null ? new EverythingGlobalScope() : GlobalSearchScope.allScope(project), null);
+    }, GlobalSearchScope.allScope(project), null);
     return ArrayUtilRt.toStringArray(names);
   }
 
@@ -44,8 +42,17 @@ public final class FilenameIndex {
     FileBasedIndex.getInstance().processAllKeys(NAME, processor, scope, filter);
   }
 
+  /**
+   * Use {@link FilenameIndex#getVirtualFilesByName(String, GlobalSearchScope)}
+   */
+  @Deprecated
   @NotNull
   public static Collection<VirtualFile> getVirtualFilesByName(final Project project, @NotNull String name, @NotNull GlobalSearchScope scope) {
+    return getVirtualFilesByName(name, scope);
+  }
+
+  @NotNull
+  public static Collection<VirtualFile> getVirtualFilesByName(@NotNull String name, @NotNull GlobalSearchScope scope) {
     return getVirtualFilesByName(name, scope, null);
   }
 
@@ -58,8 +65,25 @@ public final class FilenameIndex {
     return getVirtualFilesByNameIgnoringCase(name, scope, null);
   }
 
-  public static PsiFile @NotNull [] getFilesByName(@NotNull Project project, @NotNull String name, @NotNull GlobalSearchScope scope) {
+  public static @NotNull PsiFile @NotNull [] getFilesByName(@NotNull Project project, @NotNull String name, @NotNull GlobalSearchScope scope) {
     return (PsiFile[])getFilesByName(project, name, scope, false);
+  }
+
+  public static boolean processFilesByName(@NotNull final String name,
+                                           boolean directories,
+                                           @NotNull Processor<? super PsiFileSystemItem> processor,
+                                           @NotNull GlobalSearchScope scope,
+                                           @NotNull Project project) {
+    return processFilesByName(name, directories, true, processor, scope, project, null);
+  }
+
+  public static boolean processFilesByName(@NotNull final String name,
+                                           boolean directories,
+                                           boolean caseSensitively,
+                                           @NotNull Processor<? super PsiFileSystemItem> processor,
+                                           @NotNull final GlobalSearchScope scope,
+                                           @NotNull final Project project) {
+    return processFilesByName(name, directories, caseSensitively, processor, scope, project, null);
   }
 
   public static boolean processFilesByName(@NotNull final String name,
@@ -130,13 +154,13 @@ public final class FilenameIndex {
     return files;
   }
 
-  public static PsiFileSystemItem @NotNull [] getFilesByName(@NotNull Project project,
-                                                             @NotNull String name,
-                                                             @NotNull final GlobalSearchScope scope,
-                                                             boolean directories) {
+  public static @NotNull PsiFileSystemItem @NotNull [] getFilesByName(@NotNull Project project,
+                                                                      @NotNull String name,
+                                                                      @NotNull final GlobalSearchScope scope,
+                                                                      boolean directories) {
     SmartList<PsiFileSystemItem> result = new SmartList<>();
     Processor<PsiFileSystemItem> processor = Processors.cancelableCollectProcessor(result);
-    processFilesByName(name, directories, processor, scope, project, null);
+    processFilesByName(name, directories, processor, scope, project);
 
     if (directories) {
       return result.toArray(new PsiFileSystemItem[0]);

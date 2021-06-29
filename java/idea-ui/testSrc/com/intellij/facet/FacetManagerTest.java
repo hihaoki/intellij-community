@@ -1,9 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.facet;
 
 import com.intellij.ProjectTopics;
-import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.facet.mock.MockFacet;
 import com.intellij.facet.mock.MockFacetConfiguration;
 import com.intellij.facet.mock.MockFacetType;
@@ -15,14 +13,9 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
-import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.serialization.facet.FacetManagerState;
-import org.junit.Assume;
 
 import java.io.File;
-
 
 public class FacetManagerTest extends FacetTestCase {
   public void testAddDeleteFacet() {
@@ -105,6 +98,26 @@ public class FacetManagerTest extends FacetTestCase {
     assertNull(getFacetManager().getFacetByType(MockFacetType.ID));
   }
 
+  public void testTwoSubFacets() {
+    MockFacet mockFacet = addFacet();
+    Facet<?> subFacet1 = addSubFacet(mockFacet, "sub1");
+    Facet<?> subFacet2 = addSubFacet(mockFacet, "sub2");
+    assertSameElements(getFacetManager().getFacetsByType(mockFacet, MockSubFacetType.ID), subFacet1, subFacet2);
+
+    ModifiableFacetModel model = getFacetManager().createModifiableModel();
+    model.removeFacet(subFacet1);
+    commit(model);
+
+    assertSameElements(getFacetManager().getFacetsByType(mockFacet, MockSubFacetType.ID), subFacet2);
+    assertSameElements(getFacetManager().getFacetsByType(MockSubFacetType.ID), subFacet2);
+
+    model = getFacetManager().createModifiableModel();
+    model.removeFacet(mockFacet);
+    commit(model);
+    assertNull(getFacetManager().getFacetByType(MockFacetType.ID));
+    assertNull(getFacetManager().getFacetByType(MockSubFacetType.ID));
+  }
+
   public void testChangeFacetConfiguration() {
     String configData = "data";
     ModifiableFacetModel model = getFacetManager().createModifiableModel();
@@ -164,7 +177,7 @@ public class FacetManagerTest extends FacetTestCase {
   public void testListeners() {
     final FacetManager manager = getFacetManager();
     final MyFacetManagerListener listener = new MyFacetManagerListener();
-    myModule.getMessageBus().connect(/*getTestRootDisposable()*/).subscribe(FacetManager.FACETS_TOPIC, listener);
+    myModule.getProject().getMessageBus().connect(/*getTestRootDisposable()*/).subscribe(FacetManager.FACETS_TOPIC, listener);
 
     ModifiableFacetModel model = manager.createModifiableModel();
     final MockFacet facet = new MockFacet(myModule, "1");
@@ -172,6 +185,13 @@ public class FacetManagerTest extends FacetTestCase {
     assertEquals("", listener.getEvents());
     commit(model);
     assertEquals("before added[1]\nadded[1]\n", listener.getEvents());
+
+    FacetManager.getInstance(myModule).facetConfigurationChanged(facet);
+    assertEquals("changed[1]\n", listener.getEvents());
+
+    facet.getConfiguration().setData("updated");
+    FacetManager.getInstance(myModule).facetConfigurationChanged(facet);
+    assertEquals("changed[1]\n", listener.getEvents());
 
     model = manager.createModifiableModel();
     model.rename(facet, "3");
@@ -190,48 +210,6 @@ public class FacetManagerTest extends FacetTestCase {
     model.removeFacet(facet2);
     commit(model);
     assertTrue(listener.getEvents().isEmpty());
-  }
-
-  @Nullable
-  private Element write() {
-    FacetManagerState state = ((FacetManagerImpl)getFacetManager()).getState();
-    return XmlSerializer.serialize(state);
-  }
-
-  private void read(@Nullable Element element) {
-    ((FacetManagerImpl)getFacetManager()).loadState(element == null ? new FacetManagerState() : XmlSerializer.deserialize(element, FacetManagerState.class));
-  }
-
-  public void testExternalization() {
-    FacetManager manager = getFacetManager();
-    Assume.assumeTrue("Not applicable to workspace model", manager instanceof FacetManagerImpl);
-    assertNull(write());
-
-    addFacet();
-
-    writeAndRead();
-
-    final Facet facet = assertOneElement(manager.getAllFacets());
-    assertSame(MockFacetType.getInstance(), facet.getType());
-
-    addSubFacet((MockFacet)facet, "subfacet");
-
-    writeAndRead();
-
-    final Facet[] facets = manager.getSortedFacets();
-    assertEquals(2, facets.length);
-    assertSame(MockFacetType.getInstance(), facets[0].getType());
-    assertSame(MockSubFacetType.getInstance(), facets[1].getType());
-    assertSame(facets[0], facets[1].getUnderlyingFacet());
-
-    addFacet("facet3");
-    writeAndRead();
-    assertEquals(3, manager.getAllFacets().length);
-    assertOneElement(manager.getFacetsByType(MockSubFacetType.ID));
-  }
-
-  private void writeAndRead() {
-    read(write());
   }
 
   public void testGetSortedFacets() {

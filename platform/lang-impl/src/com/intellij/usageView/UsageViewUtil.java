@@ -8,6 +8,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.GeneratedSourcesFilter;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
@@ -16,6 +17,7 @@ import com.intellij.psi.ElementDescriptionUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.MoveRenameUsageInfo;
 import com.intellij.refactoring.util.NonCodeUsageInfo;
@@ -37,24 +39,24 @@ public final class UsageViewUtil {
   private UsageViewUtil() { }
 
   @NotNull
-  public static String createNodeText(@NotNull PsiElement element) {
+  public static @NlsSafe String createNodeText(@NotNull PsiElement element) {
     return ElementDescriptionUtil.getElementDescription(element, UsageViewNodeTextLocation.INSTANCE);
   }
 
   @NotNull
-  public static String getShortName(@NotNull PsiElement psiElement) {
-    LOG.assertTrue(psiElement.isValid(), psiElement);
+  public static @NlsSafe String getShortName(@NotNull PsiElement psiElement) {
+    PsiUtilCore.ensureValid(psiElement);
     return ElementDescriptionUtil.getElementDescription(psiElement, UsageViewShortNameLocation.INSTANCE);
   }
 
   @NotNull
-  public static String getLongName(@NotNull PsiElement psiElement) {
-    LOG.assertTrue(psiElement.isValid(), psiElement);
+  public static @NlsSafe String getLongName(@NotNull PsiElement psiElement) {
+    PsiUtilCore.ensureValid(psiElement);
     return ElementDescriptionUtil.getElementDescription(psiElement, UsageViewLongNameLocation.INSTANCE);
   }
 
   @NotNull
-  public static String getType(@NotNull PsiElement psiElement) {
+  public static @NlsSafe String getType(@NotNull PsiElement psiElement) {
     return ElementDescriptionUtil.getElementDescription(psiElement, UsageViewTypeLocation.INSTANCE);
   }
 

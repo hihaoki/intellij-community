@@ -2,12 +2,14 @@
 package org.jetbrains.plugins.terminal
 
 import com.intellij.execution.configuration.EnvironmentVariablesData
+import com.intellij.execution.wsl.WslPath
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.text.Strings
 import com.intellij.util.xmlb.annotations.Property
 import java.io.File
 import kotlin.reflect.KMutableProperty0
@@ -18,7 +20,7 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
 
   private val state = State()
 
-  override fun getState(): State? {
+  override fun getState(): State {
     return state
   }
 
@@ -72,13 +74,42 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
     return dir?.canonicalPath
   }
 
-  var shellPath: String by ValueWithDefault(state::shellPath) { defaultShellPath() }
+  var shellPath: String
+    get() {
+      val workingDirectoryLazy : Lazy<String?> = lazy { startingDirectory }
+      val shellPath = if (isProjectLevelShellPath(workingDirectoryLazy::value)) {
+        state.shellPath
+      }
+      else {
+        TerminalOptionsProvider.instance.shellPath
+      }
+      if (shellPath.isNullOrBlank()) {
+        return findDefaultShellPath(workingDirectoryLazy::value)
+      }
+      return shellPath
+    }
+    set(value) {
+      val workingDirectoryLazy : Lazy<String?> = lazy { startingDirectory }
+      val valueToStore = Strings.nullize(value, findDefaultShellPath(workingDirectoryLazy::value))
+      if (isProjectLevelShellPath((workingDirectoryLazy::value))) {
+        state.shellPath = valueToStore
+      }
+      else {
+        TerminalOptionsProvider.instance.shellPath = valueToStore
+      }
+    }
 
-  fun defaultShellPath(): String {
+  private fun isProjectLevelShellPath(workingDirectory: () -> String?): Boolean {
+    return SystemInfo.isWindows && findWslDistributionName(workingDirectory()) != null
+  }
+
+  fun defaultShellPath(): String = findDefaultShellPath { startingDirectory }
+
+  private fun findDefaultShellPath(workingDirectory: () -> String?): String {
     if (SystemInfo.isWindows) {
-      val wslDistribution = findWslDistribution(startingDirectory)
-      if (wslDistribution != null) {
-        return "wsl.exe --distribution $wslDistribution"
+      val wslDistributionName = findWslDistributionName(workingDirectory())
+      if (wslDistributionName != null) {
+        return "wsl.exe --distribution $wslDistributionName"
       }
     }
     val shell = System.getenv("SHELL")
@@ -92,15 +123,11 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
       }
       return "/bin/sh"
     }
-    return "cmd.exe"
+    return "powershell.exe"
   }
 
-  private fun findWslDistribution(directory: String?): String? {
-    if (directory == null) return null
-    val prefix = "\\\\wsl$\\"
-    if (!directory.startsWith(prefix)) return null
-    val endInd = directory.indexOf('\\', prefix.length)
-    return if (endInd >= 0) directory.substring(prefix.length, endInd) else null
+  private fun findWslDistributionName(directory: String?): String? {
+    return if (directory == null) null else WslPath.parseWindowsUncPath(directory)?.distributionId
   }
 
   companion object {
@@ -108,17 +135,7 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
 
     @JvmStatic
     fun getInstance(project: Project): TerminalProjectOptionsProvider {
-      val provider = project.getService(TerminalProjectOptionsProvider::class.java)
-      val oldState = project.getService(TerminalProjectOptionsProviderOld::class.java).getAndClear()
-      if (oldState != null &&
-          provider.state.startingDirectory == null &&
-          provider.state.shellPath == null &&
-          provider.state.envDataOptions.get() == EnvironmentVariablesData.DEFAULT) {
-        provider.state.startingDirectory = oldState.myStartingDirectory
-        provider.state.shellPath = oldState.myShellPath
-        provider.state.envDataOptions.set(oldState.envDataOptions.get())
-      }
-      return provider
+      return project.getService(TerminalProjectOptionsProvider::class.java)
     }
   }
 

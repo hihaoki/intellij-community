@@ -1,5 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
+
 package com.intellij.testFramework
 
 import com.intellij.ReviseWhenPortedToJDK
@@ -12,10 +13,7 @@ import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.doLoadApp
 import com.intellij.execution.process.ProcessIOExecutorService
-import com.intellij.ide.DataManager
-import com.intellij.ide.GeneratedSourceFileChangeTracker
-import com.intellij.ide.GeneratedSourceFileChangeTrackerImpl
-import com.intellij.ide.IdeEventQueue
+import com.intellij.ide.*
 import com.intellij.ide.impl.HeadlessDataManager
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.ide.structureView.StructureViewFactory
@@ -23,9 +21,9 @@ import com.intellij.ide.structureView.impl.StructureViewFactoryImpl
 import com.intellij.idea.StartupUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataProvider
-import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.command.WriteCommandAction
@@ -34,15 +32,16 @@ import com.intellij.openapi.command.impl.UndoManagerImpl
 import com.intellij.openapi.command.undo.DocumentReferenceManager
 import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.components.serviceIfCreated
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.ProjectManagerImpl
+import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
@@ -51,18 +50,22 @@ import com.intellij.psi.impl.PsiManagerImpl
 import com.intellij.psi.templateLanguages.TemplateDataLanguageMappings
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.ui.UiInterceptors
+import com.intellij.util.MemoryDumpHelper
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.AppScheduledExecutorService
+import com.intellij.util.lang.Java11Shim
 import com.intellij.util.ref.GCUtil
 import com.intellij.util.throwIfNotEmpty
 import com.intellij.util.ui.UIUtil
-import com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeTestFrameworkUtils
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.ModuleRootComponentBridge
 import junit.framework.AssertionFailedError
 import org.jetbrains.annotations.ApiStatus
 import sun.awt.AWTAutoShutdown
 import java.awt.EventQueue
 import java.awt.Toolkit
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util.concurrent.DelayQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,8 +74,13 @@ import javax.swing.Timer
 
 class TestApplicationManager private constructor() {
   companion object {
+    init {
+      Java11Shim.INSTANCE = StartupUtil.Java11ShimImpl()
+    }
+
     @Volatile
     private var ourInstance: TestApplicationManager? = null
+
     @Volatile
     private var bootstrapError: Throwable? = null
     private val isBootstrappingAppNow = AtomicBoolean()
@@ -119,7 +127,8 @@ class TestApplicationManager private constructor() {
       HeavyPlatformTestCase.doAutodetectPlatformPrefix()
       doLoadApp {
         if (EventQueue.isDispatchThread()) {
-          StartupUtil.replaceSystemEventQueue(logger<TestApplicationManager>())
+          // replaces system event queue
+          IdeEventQueue.getInstance()
         }
         else {
           replaceIdeEventQueueSafely()
@@ -169,13 +178,17 @@ fun replaceIdeEventQueueSafely() {
   EventQueue.invokeAndWait(EmptyRunnable.getInstance())
 }
 
-inline fun <reified T : Any, reified TI : Any> Application.serviceIfCreated(): TI? = this.getServiceIfCreated(T::class.java) as TI?
+inline fun <reified T : Any, reified TI : Any> Application.serviceIfCreated(): TI? = this.getServiceIfCreated(T::class.java) as? TI
 
 private var testCounter = 0
 
 // Kotlin allows to easily debug code and to get clear and short stack traces
 @ApiStatus.Internal
 fun tearDownProjectAndApp(project: Project) {
+  if (project.isDisposed) {
+    return
+  }
+
   val isLightProject = ProjectManagerImpl.isLight(project)
   val l = mutableListOf<Throwable>()
   val app = ApplicationManager.getApplication()
@@ -227,7 +240,7 @@ fun tearDownProjectAndApp(project: Project) {
   l.catchAndStoreExceptions { (project.serviceIfCreated<StructureViewFactory>() as StructureViewFactoryImpl?)?.cleanupForNextTest() }
 
   l.catchAndStoreExceptions { waitForProjectLeakingThreads(project) }
-  l.catchAndStoreExceptions { LegacyBridgeTestFrameworkUtils.dropCachesOnTeardown(project) }
+  l.catchAndStoreExceptions { dropModuleRootCaches(project) }
 
   // reset data provider before disposing project to ensure that disposed project is not accessed
   l.catchAndStoreExceptions { TestApplicationManager.getInstanceIfCreated()?.setDataProvider(null) }
@@ -249,6 +262,14 @@ fun tearDownProjectAndApp(project: Project) {
   throwIfNotEmpty(l)
 }
 
+private fun dropModuleRootCaches(project: Project) {
+  WriteAction.runAndWait<RuntimeException> {
+    for (module in ModuleManager.getInstance(project).modules) {
+      (ModuleRootManager.getInstance(module) as ModuleRootComponentBridge).dropCaches()
+    }
+  }
+}
+
 /**
  * Disposes the application (it also stops some application-related threads)
  * and checks for project leaks.
@@ -261,13 +282,13 @@ fun disposeApplicationAndCheckForLeaks() {
     l.catchAndStoreExceptions { UIUtil.dispatchAllInvocationEvents() }
 
     l.catchAndStoreExceptions {
-      val app = ApplicationManager.getApplication() as? ApplicationImpl
-      if (app != null) {
-        println(app.writeActionStatistics())
-      }
-      println(ActionUtil.ActionPauses.STAT.statistics())
       println((AppExecutorUtil.getAppScheduledExecutorService() as AppScheduledExecutorService).statistics())
       println("ProcessIOExecutorService threads created: ${(ProcessIOExecutorService.INSTANCE as ProcessIOExecutorService).threadCounter}")
+    }
+
+    l.catchAndStoreExceptions {
+      val app = ApplicationManager.getApplication() as? ApplicationImpl
+      app?.messageBus?.syncPublisher(AppLifecycleListener.TOPIC)?.appWillBeClosed(false)
     }
 
     l.catchAndStoreExceptions { UsefulTestCase.waitForAppLeakingThreads(10, TimeUnit.SECONDS) }
@@ -277,11 +298,11 @@ fun disposeApplicationAndCheckForLeaks() {
         LeakHunter.checkNonDefaultProjectLeak()
       }
       catch (e: AssertionError) {
-        HeavyPlatformTestCase.publishHeapDump("leakedProjects")
+        publishHeapDump("leakedProjects")
         throw e
       }
       catch (e: Exception) {
-        HeavyPlatformTestCase.publishHeapDump("leakedProjects")
+        publishHeapDump("leakedProjects")
         throw e
       }
     }
@@ -295,11 +316,11 @@ fun disposeApplicationAndCheckForLeaks() {
       Disposer.assertIsEmpty(true)
     }
     catch (e: AssertionError) {
-      HeavyPlatformTestCase.publishHeapDump("disposerNonEmpty")
+      publishHeapDump("disposerNonEmpty")
       throw e
     }
     catch (e: Exception) {
-      HeavyPlatformTestCase.publishHeapDump("disposerNonEmpty")
+      publishHeapDump("disposerNonEmpty")
       throw e
     }
   }
@@ -339,5 +360,22 @@ fun waitForProjectLeakingThreads(project: Project, timeout: Long = 10, timeUnit:
     project.stopServicePreloading()
   }
 
-  (project.serviceIfCreated<GeneratedSourceFileChangeTracker>() as GeneratedSourceFileChangeTrackerImpl?)?.cancelAllAndWait(timeout, timeUnit)
+  (project.serviceIfCreated<GeneratedSourceFileChangeTracker>() as GeneratedSourceFileChangeTrackerImpl?)?.cancelAllAndWait(timeout,
+                                                                                                                            timeUnit)
+}
+
+fun publishHeapDump(fileNamePrefix: String): String {
+  val fileName = "$fileNamePrefix.hprof.zip"
+  val dumpFile = Paths.get(System.getProperty("teamcity.build.tempDir", System.getProperty("java.io.tmpdir")), fileName)
+  try {
+    Files.deleteIfExists(dumpFile)
+    MemoryDumpHelper.captureMemoryDumpZipped(dumpFile)
+  }
+  catch (e: Exception) {
+    e.printStackTrace()
+  }
+
+  val dumpPath = dumpFile.toAbsolutePath().toString()
+  println("##teamcity[publishArtifacts '$dumpPath']")
+  return dumpPath
 }

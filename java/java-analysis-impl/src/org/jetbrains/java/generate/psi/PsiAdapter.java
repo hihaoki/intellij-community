@@ -615,7 +615,7 @@ public final class PsiAdapter {
      * @param typeFQClassName the FQ classname to test against.
      * @return true if the given type is assignable of FQ classname.
      */
-    protected static boolean isTypeOf(PsiElementFactory factory, PsiType type, String typeFQClassName) {
+    private static boolean isTypeOf(PsiElementFactory factory, PsiType type, String typeFQClassName) {
         // fix for IDEA where fields can have 'void' type and generate NPE.
         if (isTypeOfVoid(type)) {
             return false;
@@ -642,7 +642,7 @@ public final class PsiAdapter {
     public static String @NotNull [] getImplementsClassnames(PsiClass clazz) {
         PsiClass[] interfaces = clazz.getInterfaces();
 
-        if (interfaces == null || interfaces.length == 0) {
+        if (interfaces.length == 0) {
           return ArrayUtilRt.EMPTY_STRING_ARRAY;
         }
 

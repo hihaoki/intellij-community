@@ -3,6 +3,7 @@ package com.intellij.ide.structureView.newStructureView;
 
 import com.intellij.ide.CopyPasteDelegator;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.PsiCopyPasteManager;
 import com.intellij.ide.dnd.aware.DnDAwareTree;
 import com.intellij.ide.structureView.*;
@@ -23,7 +24,6 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.keymap.impl.IdeMouseEventDispatcher;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
@@ -61,6 +61,7 @@ import org.jetbrains.concurrency.CancellablePromise;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.concurrency.Promises;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.event.TreeModelEvent;
 import javax.swing.tree.TreePath;
@@ -204,7 +205,9 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
 
   @NotNull
   private JComponent createToolbar() {
-    return ActionManager.getInstance().createActionToolbar(ActionPlaces.STRUCTURE_VIEW_TOOLBAR, createActionGroup(), true).getComponent();
+    ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.STRUCTURE_VIEW_TOOLBAR, createActionGroup(), true);
+    toolbar.setTargetComponent(myTree);
+    return toolbar.getComponent();
   }
 
   private void setupTree() {
@@ -279,6 +282,10 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
 
   private void addTreeMouseListeners() {
     EditSourceOnDoubleClickHandler.install(getTree());
+    installTreePopupHandlers();
+  }
+
+  protected void installTreePopupHandlers() {
     CustomizationUtil.installPopupHandler(getTree(), IdeActions.GROUP_STRUCTURE_VIEW_POPUP, ActionPlaces.STRUCTURE_VIEW_POPUP);
   }
 
@@ -417,7 +424,7 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
       }
       return Promises.resolvedPromise(path);
     };
-    Function<TreePath, Promise<TreePath>> fallback = new Function<TreePath, Promise<TreePath>>() {
+    Function<TreePath, Promise<TreePath>> fallback = new Function<>() {
       @Override
       public Promise<TreePath> fun(TreePath path) {
         if (myCurrentFocusPromise != result) {
@@ -878,7 +885,7 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
     }
   }
 
-  private static class MyTree extends DnDAwareTree implements PlaceProvider<String> {
+  private static class MyTree extends DnDAwareTree implements PlaceProvider {
     MyTree(javax.swing.tree.TreeModel model) {
       super(model);
       HintUpdateSupply.installDataContextHintUpdateSupply(this);
@@ -891,8 +898,17 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
 
     @Override
     public void processMouseEvent(MouseEvent event) {
-      IdeMouseEventDispatcher.requestFocusInNonFocusedWindow(event);
+      if (event.getID() == MouseEvent.MOUSE_PRESSED) requestFocus();
       super.processMouseEvent(event);
+    }
+
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = super.getAccessibleContext();
+        accessibleContext.setAccessibleName(IdeBundle.message("structure.view.tree.accessible.name"));
+      }
+      return accessibleContext;
     }
   }
 

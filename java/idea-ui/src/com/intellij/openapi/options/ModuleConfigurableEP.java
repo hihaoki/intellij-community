@@ -2,16 +2,14 @@
 package com.intellij.openapi.options;
 
 import com.intellij.openapi.module.Module;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
- * To provide an additional tab for a module editor register implementation of {@link Configurable} in the plugin.xml:
- * <p/>
- * &lt;extensions defaultExtensionNs="com.intellij"&gt;<br>
- * &nbsp;&nbsp;&lt;moduleConfigurable instance="class-name"/&gt;<br>
- * &lt;/extensions&gt;
- * <p>
- * A new instance of the specified class will be created each time then the Project Structure dialog is opened
+ * @deprecated use {@link com.intellij.openapi.roots.ui.configuration.ModuleConfigurationEditorProvider} instead
  */
+@ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+@SuppressWarnings("DeprecatedIsStillUsed")
+@Deprecated
 public final class ModuleConfigurableEP extends ConfigurableEP<Configurable> {
   public ModuleConfigurableEP(Module module) {
     super(module);

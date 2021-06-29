@@ -2,7 +2,6 @@
 package com.intellij.ui.tabs.impl;
 
 import com.intellij.ui.tabs.TabInfo;
-import com.intellij.ui.tabs.impl.tabsLayout.TabsLayout;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,20 +31,8 @@ public abstract class LayoutPassInfo {
    * then your code probably should be realized inside the {@link TabsLayout} implementation.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
   public abstract int getRowCount();
-
-
-  /**
-   * @deprecated see {@link #getRowCount()}
-   */
-  @Deprecated
-  public abstract int getColumnCount(int row);
-
-  /**
-   * @deprecated see {@link #getRowCount()}
-   */
-  @Deprecated
-  public abstract TabInfo getTabAt(int row, int column);
 
   public abstract Rectangle getHeaderRectangle();
 

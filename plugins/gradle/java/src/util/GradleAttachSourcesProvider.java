@@ -21,6 +21,7 @@ import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -28,10 +29,13 @@ import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.containers.ContainerUtil;
-import org.gradle.initialization.BuildLayoutParameters;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.gradle.execution.build.CachedModuleDataFinder;
+import org.jetbrains.plugins.gradle.execution.target.GradleTargetUtil;
+import org.jetbrains.plugins.gradle.service.GradleInstallationManager;
+import org.jetbrains.plugins.gradle.service.execution.BuildLayoutParameters;
 import org.jetbrains.plugins.gradle.service.project.GradleProjectResolverUtil;
 import org.jetbrains.plugins.gradle.service.task.GradleTaskManager;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
@@ -81,12 +85,15 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
 
         String artifactCoordinates = StringUtil.trimStart(libraryName, GradleConstants.SYSTEM_ID.getReadableName() + ": ");
         if (StringUtil.equals(libraryName, artifactCoordinates)) return ActionCallback.REJECTED;
-        final String gradlePath = GradleProjectResolverUtil.getGradlePath(module);
-        if (gradlePath == null) return ActionCallback.REJECTED;
+
+        GradleModuleData gradleModuleData = CachedModuleDataFinder.getGradleModuleData(module);
+        if (gradleModuleData == null)  return ActionCallback.REJECTED;
+
+        final String gradlePath = gradleModuleData.getGradlePath();
 
         String sourceArtifactNotation = getSourcesArtifactNotation(artifactIdCandidate -> {
           VirtualFile[] rootFiles = libraryOrderEntry.getRootFiles(OrderRootType.CLASSES);
-          return rootFiles.length == 0 || Arrays.stream(rootFiles).anyMatch(file -> file.getName().startsWith(artifactIdCandidate));
+          return rootFiles.length == 0 || ContainerUtil.exists(rootFiles, file -> file.getName().startsWith(artifactIdCandidate));
         }, artifactCoordinates);
         final String sourcesLocationFilePath;
         final File sourcesLocationFile;
@@ -109,12 +116,17 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
                             "        doLast {\n" +
                             "          def configuration = null\n" +
                             "          def repository = project.repositories.toList().find {\n" +
+                            "              logger.lifecycle('Attempt to download sources from ' + it.name)\n" +
                             "              project.repositories.clear()\n" +
                             "              project.repositories.add(it)\n" +
-                            "              configuration = project.configurations.create('downloadSourcesFrom_' + it.name + '_' + UUID.randomUUID())\n" +
+                            "              configuration = project.configurations.create('downloadSourcesFrom_' + UUID.randomUUID())\n" +
                             "              configuration.transitive = false\n" +
                             "              project.dependencies.add(configuration.name, '" + sourceArtifactNotation + "')\n" +
-                            "              configuration.resolvedConfiguration.lenientConfiguration.getFiles().any()\n" +
+                            "              def files = null\n" +
+                            "              try {\n" +
+                            "                files = configuration.resolvedConfiguration.lenientConfiguration.getFiles()\n" +
+                            "              } catch (java.lang.Throwable ignore) { }\n" +
+                            "              return files && !files.isEmpty()\n" +
                             "          }\n" +
                             "          if (!repository) {\n" +
                             "              configuration = project.configurations.create('downloadSources_' + UUID.randomUUID())\n" +
@@ -122,7 +134,11 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
                             "              project.dependencies.add(configuration.name, '" + sourceArtifactNotation + "')\n" +
                             "              configuration.resolve()\n" +
                             "          }\n" +
-                            "          new File('" + sourcesLocationFilePath + "').write configuration?.singleFile?.path\n" +
+                            "          def sourcesPath = configuration?.singleFile?.path\n" +
+                            "          if (sourcesPath) {\n" +
+                            "            logger.lifecycle('Sources were downloaded to ' + sourcesPath)\n" +
+                            "            new File('" + sourcesLocationFilePath + "').write sourcesPath\n" +
+                            "          } else throw new RuntimeException('Sources download failed')\n" +
                             "        }\n" +
                             "      }\n" +
                             "    }\n" +
@@ -134,9 +150,9 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
 
         String gradleVmOptions = GradleSettings.getInstance(project).getGradleVmOptions();
         ExternalSystemTaskExecutionSettings settings = new ExternalSystemTaskExecutionSettings();
-        settings.setExecutionName("Download sources");
-        settings.setExternalProjectPath(ExternalSystemApiUtil.getExternalRootProjectPath(module));
-        settings.setTaskNames(Collections.singletonList(taskName));
+        settings.setExecutionName(getName());
+        settings.setExternalProjectPath(gradleModuleData.getDirectoryToRunTask());
+        settings.setTaskNames(Collections.singletonList(gradleModuleData.getTaskPath(taskName, true)));
         settings.setVmOptions(gradleVmOptions);
         settings.setExternalSystemIdString(GradleConstants.SYSTEM_ID.getId());
         ExternalSystemUtil.runTask(
@@ -145,7 +161,7 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
             @Override
             public void onSuccess() {
               VirtualFile classesFile = libraryOrderEntry.getFiles(OrderRootType.CLASSES)[0];
-              File sourceJar = getSourceFile(artifactCoordinates, classesFile, project);
+              File sourceJar = getSourceFile(artifactCoordinates, classesFile, project, settings.getExternalProjectPath());
               if (sourceJar == null) {
                 try {
                   sourceJar = new File(FileUtil.loadFile(sourcesLocationFile));
@@ -171,9 +187,11 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
             @Override
             public void onFailure() {
               resultWrapper.setRejected();
-              String message = ("<html>Sources not found for: " + artifactCoordinates) + "</html>";
-              NotificationData notification = new NotificationData(
-                "Sources download failed", message, NotificationCategory.WARNING, NotificationSource.PROJECT_SYNC);
+              String title = GradleBundle.message("gradle.notifications.sources.download.failed.title");
+              String message = GradleBundle.message("gradle.notifications.sources.download.failed.content", artifactCoordinates);
+              NotificationData notification =
+                new NotificationData(title, message, NotificationCategory.WARNING, NotificationSource.PROJECT_SYNC);
+              notification.setBalloonNotification(true);
               ExternalSystemNotificationManager.getInstance(project).showNotification(GradleConstants.SYSTEM_ID, notification);
             }
           }, ProgressExecutionMode.IN_BACKGROUND_ASYNC, false, userData);
@@ -204,13 +222,16 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
   }
 
   @Nullable
-  private static File getSourceFile(String artifactCoordinates, VirtualFile classesFile, Project project) {
+  private static File getSourceFile(@NotNull String artifactCoordinates,
+                                    VirtualFile classesFile,
+                                    @NotNull Project project,
+                                    @NotNull @NlsSafe String projectPath) {
     LibraryData data = new LibraryData(GradleConstants.SYSTEM_ID, artifactCoordinates);
     data.addPath(LibraryPathType.BINARY, VfsUtil.getLocalFile(classesFile).getPath());
-    String serviceDirectory = GradleSettings.getInstance(project).getServiceDirectoryPath();
-    File gradleUserHome =
-      serviceDirectory != null ? new File(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir();
-    attachSourcesAndJavadocFromGradleCacheIfNeeded(gradleUserHome, data);
+    BuildLayoutParameters buildLayoutParameters = GradleInstallationManager.getInstance().guessBuildLayoutParameters(project, projectPath);
+    String gradleUserHome = GradleTargetUtil.maybeGetLocalValue(buildLayoutParameters.getGradleUserHome());
+    if (gradleUserHome == null) return null;
+    attachSourcesAndJavadocFromGradleCacheIfNeeded(new File(gradleUserHome), data);
     Iterator<String> iterator = data.getPaths(LibraryPathType.SOURCE).iterator();
     return iterator.hasNext() ? new File(iterator.next()) : null;
   }

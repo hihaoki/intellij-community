@@ -7,19 +7,24 @@ import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.actions.CreateFromTemplateAction;
 import com.intellij.ide.fileTemplates.actions.CreateFromTemplateGroup;
 import com.intellij.ide.fileTemplates.impl.FileTemplateManagerImpl;
+import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.testFramework.TestActionEvent;
-import com.intellij.testFramework.TestDataProvider;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
+import com.intellij.util.containers.ContainerUtil;
 
 import java.util.Arrays;
-import java.util.stream.Stream;
 
 public class JavaFileTemplatesTest extends LightJavaCodeInsightFixtureTestCase {
   public void testCreateFromTemplateGroup() {
     myFixture.configureByText("foo.java", "");
-    AnAction[] children = new CreateFromTemplateGroup().getChildren(new TestActionEvent(new TestDataProvider(getProject())));
-    assertTrue(Stream.of(children).noneMatch(action -> isTemplateAction(action, "Class")));
+    DataContext context = ((EditorEx)myFixture.getEditor()).getDataContext();
+    AnActionEvent event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, context);
+    AnAction[] children = new CreateFromTemplateGroup().getChildren(event);
+    assertFalse(ContainerUtil.exists(children, action -> isTemplateAction(action, "Class")));
   }
 
   private static boolean isTemplateAction(AnAction action, String name) {
@@ -34,9 +39,11 @@ public class JavaFileTemplatesTest extends LightJavaCodeInsightFixtureTestCase {
       for (int i = 0; i < 30; i++) {
         templateManager.addTemplate("foo" + i, "java");
       }
-      AnAction[] children = new CreateFromTemplateGroup().getChildren(new TestActionEvent(new TestDataProvider(getProject())));
+      DataContext context = SimpleDataContext.getProjectContext(myFixture.getProject());
+      AnActionEvent event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, context);
+      AnAction[] children = new CreateFromTemplateGroup().getChildren(event);
       assertEquals(3, children.length);
-      assertTrue(IdeBundle.message("action.from.file.template").equals(children[0].getTemplatePresentation().getText()));
+      assertEquals(IdeBundle.message("action.from.file.template"), children[0].getTemplatePresentation().getText());
     }
     finally {
       templateManager.setTemplates(FileTemplateManager.DEFAULT_TEMPLATES_CATEGORY, Arrays.asList(before));

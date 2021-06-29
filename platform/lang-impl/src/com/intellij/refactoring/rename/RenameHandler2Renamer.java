@@ -1,11 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.rename;
 
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.project.Project;
 import com.intellij.refactoring.actions.BaseRefactoringAction;
-import org.jetbrains.annotations.Nls;
+import com.intellij.util.SlowOperations;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 final class RenameHandler2Renamer implements Renamer {
@@ -26,13 +27,15 @@ final class RenameHandler2Renamer implements Renamer {
   }
 
   @Override
-  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getPresentableText() {
-    return RenameHandlerRegistry.getHandlerTitle(myHandler);
+  public @NotNull String getPresentableText() {
+    return UIUtil.removeMnemonic(RenameHandlerRegistry.getHandlerTitle(myHandler));
   }
 
   @Override
   public void performRename() {
-    IdeEventQueue.getInstance().setEventCount(myEventCount); // Make DataContext valid again.
-    BaseRefactoringAction.performRefactoringAction(myProject, myDataContext, myHandler);
+    SlowOperations.allowSlowOperations(() -> {
+      IdeEventQueue.getInstance().setEventCount(myEventCount); // Make DataContext valid again.
+      BaseRefactoringAction.performRefactoringAction(myProject, myDataContext, myHandler);
+    });
   }
 }

@@ -1,8 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.jcef;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.cef.callback.CefCookieVisitor;
 import org.cef.misc.BoolRef;
 import org.cef.network.CefCookie;
@@ -31,7 +32,7 @@ import static com.intellij.openapi.util.Clock.getTime;
  *
  * @author Aleksey.Rostovskiy
  */
-public class JBCefCookieManager {
+public final class JBCefCookieManager {
   private static final int DEFAULT_TIMEOUT_FOR_SYNCHRONOUS_FUNCTION = 200;
   private static final Logger LOG = Logger.getInstance(JBCefCookieManager.class);
 
@@ -278,7 +279,7 @@ public class JBCefCookieManager {
       if (cookies == null) {
         return false;
       }
-      return cookies.stream().noneMatch(cefCookie -> cefCookie.getName().equals(cookieName));
+      return !ContainerUtil.exists(cookies, cefCookie -> cefCookie.getName().equals(cookieName));
     };
 
     return deleteCookies(url, cookieName, checkFunction, maxTimeToWait);

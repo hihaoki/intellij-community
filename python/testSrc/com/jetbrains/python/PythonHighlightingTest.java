@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.openapi.editor.colors.EditorColorsManager;
@@ -6,20 +6,25 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.documentation.PyDocumentationSettings;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 
 /**
  * Test highlighting added by annotators.
- *
- * @author yole
  */
 public class PythonHighlightingTest extends PyTestCase {
+
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
+  }
 
   public void testBuiltins() {
     EditorColorsScheme scheme = createTemporaryColorScheme();
@@ -201,6 +206,25 @@ public class PythonHighlightingTest extends PyTestCase {
 
     TextAttributesKey xKey = TextAttributesKey.find("PY.FUNC_DEFINITION");
     TextAttributes xAttributes = new TextAttributes(Color.red, Color.black, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    doTest();
+  }
+
+  // PY-33235
+  public void testNestedFunction() {
+    EditorColorsScheme scheme = createTemporaryColorScheme();
+
+    TextAttributesKey xKey = TextAttributesKey.find("PY.CLASS_DEFINITION");
+    TextAttributes xAttributes = new TextAttributes(Color.blue, Color.black, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    xKey = TextAttributesKey.find("PY.FUNC_DEFINITION");
+    xAttributes = new TextAttributes(Color.red, Color.black, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    xKey = TextAttributesKey.find("PY.NESTED_FUNC_DEFINITION");
+    xAttributes = new TextAttributes(Color.green, Color.blue, Color.white, EffectType.BOXED, Font.BOLD);
     scheme.setAttributes(xKey, xAttributes);
 
     doTest();
@@ -467,6 +491,31 @@ public class PythonHighlightingTest extends PyTestCase {
   // PY-36004
   public void testNamedUnicode() {
     doTest(LanguageLevel.PYTHON38, false, false);
+  }
+
+  // PY-36478
+  public void testAssignmentExpressionAsATarget() {
+    doTest(LanguageLevel.getLatest(), false, false);
+  }
+
+  // PY-43619
+  public void testAssignmentExpressionInAnIterable() {
+    doTest(LanguageLevel.getLatest(), false, false);
+  }
+
+  // PY-48008
+  public void testMatchAndCaseKeywords() {
+    doTest(LanguageLevel.PYTHON310, false, true);
+  }
+
+  // PY-44974
+  public void testBitwiseOrUnionInOlderVersionsError() {
+    doTest(LanguageLevel.PYTHON39, false, false);
+  }
+
+  // PY-44974
+  public void testBitwiseOrUnionInOlderVersionsErrorIsInstance() {
+    doTest(LanguageLevel.PYTHON39, false, false);
   }
 
   @NotNull

@@ -18,7 +18,7 @@ private val WARNINGS_FILTER = Predicate { node: ExecutionNode -> node.hasWarning
 
 @ApiStatus.Experimental
 fun createFilteringActionsGroup(filterable: Filterable<ExecutionNode>): DefaultActionGroup {
-  val actionGroup = DefaultActionGroup("Filters", true)
+  val actionGroup = DefaultActionGroup(LangBundle.message("action.filters.text"), true)
   actionGroup.templatePresentation.icon = AllIcons.Actions.Show
   actionGroup.add(WarningsToggleAction(filterable))
   actionGroup.add(SuccessfulStepsToggleAction(filterable))
@@ -34,7 +34,7 @@ fun install(filterable: Filterable<ExecutionNode>) {
 }
 
 @ApiStatus.Experimental
-open class FilterToggleAction constructor(text: @NlsContexts.Command String,
+open class FilterToggleAction constructor(@NlsContexts.Command text: String,
                                           private val stateKey: String?,
                                           private val filterable: Filterable<ExecutionNode>,
                                           private val filter: Predicate<ExecutionNode>,

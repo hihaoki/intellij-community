@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.sm.runner;
 
 import com.intellij.execution.executors.DefaultRunExecutor;
@@ -19,6 +19,7 @@ import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,6 +35,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -55,7 +57,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
 
       myTestsOutputConsolePrinter = new TestsOutputConsolePrinter(this, consoleProperties, null) {
         @Override
-        public void print(final String text, final ConsoleViewContentType contentType) {
+        public void print(final @NotNull String text, final @NotNull ConsoleViewContentType contentType) {
           myMockResettablePrinter.print(text, contentType);
         }
       };
@@ -618,9 +620,10 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
 
     mySuite.addChild(mySimpleTest);
     for (int i = 0; i < 550; i++) {
-      String message = "line" + i + "\n";
+      String message = "line" + i + "\u0000 a < b \n";
       mySimpleTest.addLast(printer -> printer.print(message, ConsoleViewContentType.NORMAL_OUTPUT));
     }
+    mySimpleTest.setTestComparisonFailed("empty", null, "\u0000", "a < b");
     mySimpleTest.setFinished();
     mySuite.setFinished();
 
@@ -631,7 +634,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     File output = FileUtil.createTempFile("output", "");
     try {
       FileUtilRt.createParentDirs(output);
-      handler.setResult(new StreamResult(new FileWriter(output)));
+      handler.setResult(new StreamResult(new FileWriter(output, StandardCharsets.UTF_8)));
       MockRuntimeConfiguration configuration = new MockRuntimeConfiguration(getProject());
       TestResultsXmlFormatter.execute(mySuite, configuration, new SMTRunnerConsoleProperties(configuration, "framework", new DefaultRunExecutor()), handler);
 
@@ -647,7 +650,67 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
       SMTestProxy testProxy = children.get(0);
       MockPrinter mockPrinter = new MockPrinter();
       testProxy.printOn(mockPrinter);
-      assertSize(550, mockPrinter.getAllOut().split("\n"));
+      String allOut = mockPrinter.getAllOut();
+      assertSize(559, allOut.split("\n"));
+      assertTrue(allOut.contains("a < b"));
+    }
+    finally {
+      FileUtil.delete(output);
+    }
+  }
+
+  public void testComparisonFailureImport() throws Exception {
+
+    mySuite.addChild(mySimpleTest);
+    mySimpleTest.addLast(printer -> printer.print("message", ConsoleViewContentType.NORMAL_OUTPUT));
+    mySimpleTest.setTestComparisonFailed("localized", "stacktrace", "actual", "expected");
+    mySimpleTest.setFinished();
+    mySuite.setFinished();
+
+    SAXTransformerFactory transformerFactory = (SAXTransformerFactory)TransformerFactory.newInstance();
+    TransformerHandler handler = transformerFactory.newTransformerHandler();
+    handler.getTransformer().setOutputProperty(OutputKeys.INDENT, "yes");
+    handler.getTransformer().setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
+    File output = FileUtil.createTempFile("output", "");
+    try {
+      FileUtilRt.createParentDirs(output);
+      handler.setResult(new StreamResult(new FileWriter(output, StandardCharsets.UTF_8)));
+      MockRuntimeConfiguration configuration = new MockRuntimeConfiguration(getProject());
+      TestResultsXmlFormatter.execute(mySuite, configuration, new SMTRunnerConsoleProperties(configuration, "framework", new DefaultRunExecutor()), handler);
+
+      String savedText = FileUtil.loadFile(output);
+      assertTrue(StringUtil.convertLineSeparators(savedText)
+                   .endsWith("<count name=\"total\" value=\"1\"/>\n" +
+                                    "    <count name=\"failed\" value=\"1\"/>\n" +
+                                    "    <config configId=\"MockRuntimeConfiguration\" name=\"\">\n" +
+                                    "        <method v=\"2\"/>\n" +
+                                    "    </config>\n" +
+                                    "    <test locationUrl=\"file://test.text\" name=\"test\" status=\"failed\">\n" +
+                                    "        <diff actual=\"actual\" expected=\"expected\"/>\n" +
+                                    "        <output type=\"stdout\">message\n" +
+                                    "</output>\n" +
+                                    "        <output type=\"stderr\">localizedstacktrace\n" +
+                                    "</output>\n" +
+                                    "    </test>\n" +
+                                    "</testrun>\n"));
+
+      myEventsProcessor.onStartTesting();
+      ImportedToGeneralTestEventsConverter.parseTestResults(() -> new StringReader(savedText), myEventsProcessor);
+      myEventsProcessor.onFinishTesting();
+
+      List<? extends SMTestProxy> children = myResultsViewer.getTestsRootNode().getChildren();
+      assertSize(1, children);
+      SMTestProxy testProxy = children.get(0);
+      MockPrinter mockPrinter = new MockPrinter();
+      testProxy.printOn(mockPrinter);
+      assertEquals("message\n" +
+                   "\n" +
+                   "\n" +
+                   "Expected :expected\n" +
+                   "Actual   :actual\n" +
+                   "\n" +
+                   "\n" +
+                   "localizedstacktrace", StringUtil.convertLineSeparators(mockPrinter.getAllOut().trim()));
     }
     finally {
       FileUtil.delete(output);

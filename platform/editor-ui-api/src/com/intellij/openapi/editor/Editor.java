@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.event.EditorMouseEventArea;
 import com.intellij.openapi.editor.event.EditorMouseListener;
 import com.intellij.openapi.editor.event.EditorMouseMotionListener;
+import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -253,6 +254,18 @@ public interface Editor extends UserDataHolder {
   VisualPosition offsetToVisualPosition(int offset, boolean leanForward, boolean beforeSoftWrap);
 
   /**
+   * Maps an offset in the document to a visual line in editor.
+   *
+   * @param offset         the offset in the document.
+   * @param beforeSoftWrap flag to resolve the ambiguity, if there's a soft wrap at target offset. If {@code true}, visual line ending in
+   *                       soft wrap will be returned, otherwise - visual line following the wrap.
+   * @return the visual line.
+   */
+  default int offsetToVisualLine(int offset, boolean beforeSoftWrap) {
+    return offsetToVisualPosition(offset, false /* doesn't matter if only visual line is needed */, beforeSoftWrap).line;
+  }
+
+  /**
    * Maps the pixel coordinates in the editor to a logical position.
    *
    * @param p the coordinates relative to the top left corner of the {@link #getContentComponent() content component}.
@@ -310,6 +323,19 @@ public interface Editor extends UserDataHolder {
 
   default int yToVisualLine(int y) {
     return xyToVisualPosition(new Point(0, y)).line;
+  }
+
+  /**
+   * Returns the range of Y coordinates corresponding to the given visual line (not including associated block inlays).
+   *
+   * @return array of length 2, containing boundaries of the target Y range
+   */
+  default int @NotNull [] visualLineToYRange(int visualLine) {
+    int startY = visualLineToY(visualLine);
+    int startOffset = visualPositionToOffset(new VisualPosition(visualLine, 0));
+    FoldRegion foldRegion = getFoldingModel().getCollapsedRegionAtOffset(startOffset);
+    int endY = startY + (foldRegion instanceof CustomFoldRegion ? ((CustomFoldRegion)foldRegion).getHeightInPixels() : getLineHeight());
+    return new int[] {startY, endY};
   }
 
   /**
@@ -449,6 +475,11 @@ public interface Editor extends UserDataHolder {
 
   @NotNull
   EditorKind getEditorKind();
+
+  @NotNull
+  default EditorHighlighter getHighlighter() {
+    return EditorCoreUtil.createEmptyHighlighter(getProject(), getDocument());
+  }
 
   /**
    * Vertical distance, in pixels, between the top of visual line (corresponding coordinate is returned by {@link #visualLineToY(int)},

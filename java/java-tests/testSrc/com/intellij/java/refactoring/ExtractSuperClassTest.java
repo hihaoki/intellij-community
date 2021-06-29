@@ -1,10 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.refactoring;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.*;
 import com.intellij.refactoring.LightMultiFileTestCase;
+import com.intellij.refactoring.extractSuperclass.ExtractSuperBaseProcessor;
 import com.intellij.refactoring.extractSuperclass.ExtractSuperClassProcessor;
 import com.intellij.refactoring.extractSuperclass.ExtractSuperClassUtil;
 import com.intellij.refactoring.memberPullUp.PullUpConflictsUtil;
@@ -19,10 +20,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.function.Function;
 
-/**
- * @author yole
- */
+
 public class ExtractSuperClassTest extends LightMultiFileTestCase {
   @NotNull
   @Override
@@ -166,15 +166,16 @@ public class ExtractSuperClassTest extends LightMultiFileTestCase {
       PsiClass psiClass = myFixture.findClass(className);
       assertNotNull(psiClass);
       final MemberInfo[] members = RefactoringTestUtil.findMembers(psiClass, membersToFind);
-      doTest(members, newClassName, targetPackageName, psiClass, conflicts);
+      doTest(members, targetPackageName, psiClass, conflicts, 
+             targetDirectory -> new ExtractSuperClassProcessor(getProject(), targetDirectory, newClassName, psiClass, members, false, new DocCommentPolicy<>(DocCommentPolicy.ASIS)));
     });
   }
 
-  private void doTest(MemberInfo[] members,
-                      @NonNls String newClassName,
-                      String targetPackageName,
-                      PsiClass psiClass,
-                      String[] conflicts) {
+  protected void doTest(MemberInfo[] members,
+                        String targetPackageName,
+                        PsiClass psiClass,
+                        String[] conflicts,
+                        Function<PsiDirectory, ExtractSuperBaseProcessor> createProcessor) {
     PsiDirectory targetDirectory;
     if (targetPackageName == null) {
       targetDirectory = psiClass.getContainingFile().getContainingDirectory();
@@ -183,12 +184,7 @@ public class ExtractSuperClassTest extends LightMultiFileTestCase {
       assertNotNull(aPackage);
       targetDirectory = aPackage.getDirectories()[0];
     }
-    ExtractSuperClassProcessor processor = new ExtractSuperClassProcessor(getProject(),
-                                                                          targetDirectory,
-                                                                          newClassName,
-                                                                          psiClass, members,
-                                                                          false,
-                                                                          new DocCommentPolicy<>(DocCommentPolicy.ASIS));
+    ExtractSuperBaseProcessor processor = createProcessor.apply(targetDirectory);
     final PsiPackage targetPackage;
     if (targetDirectory != null) {
       targetPackage = JavaDirectoryService.getInstance().getPackage(targetDirectory);

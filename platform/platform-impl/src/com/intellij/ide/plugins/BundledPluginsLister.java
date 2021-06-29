@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
 import com.google.gson.stream.JsonWriter;
@@ -8,6 +8,7 @@ import com.intellij.openapi.fileTypes.FileNameMatcher;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.PlainTextLikeFileType;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
+@NonNls
 final class BundledPluginsLister implements ApplicationStarter {
   @Override
   public String getCommandName() {
@@ -52,7 +54,7 @@ final class BundledPluginsLister implements ApplicationStarter {
         for (IdeaPluginDescriptor plugin : plugins) {
           pluginIds.add(plugin.getPluginId().getIdString());
 
-          for (PluginId pluginId : ((IdeaPluginDescriptorImpl)plugin).getModules()) {
+          for (PluginId pluginId : ((IdeaPluginDescriptorImpl)plugin).modules) {
             modules.add(pluginId.getIdString());
           }
         }

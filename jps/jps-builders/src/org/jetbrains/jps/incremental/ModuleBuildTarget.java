@@ -1,25 +1,12 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.SmartList;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.FileCollectionFactory;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ProjectPaths;
@@ -48,6 +35,8 @@ import org.jetbrains.jps.model.module.JpsTypedModuleSourceRoot;
 import org.jetbrains.jps.service.JpsServiceManager;
 
 import java.io.File;
+import java.io.FileFilter;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -60,7 +49,7 @@ import java.util.Set;
  */
 public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRootDescriptor> {
   private static final Logger LOG = Logger.getInstance(ModuleBuildTarget.class);
-  
+
   public static final Boolean REBUILD_ON_DEPENDENCY_CHANGE = Boolean.valueOf(
     System.getProperty(GlobalOptions.REBUILD_ON_DEPENDENCY_CHANGE_OPTION, "true")
   );
@@ -102,7 +91,7 @@ public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRoot
   }
 
   @Override
-  public final boolean isCompiledBeforeModuleLevelBuilders() {
+  public boolean isCompiledBeforeModuleLevelBuilders() {
     return false;
   }
 
@@ -170,12 +159,12 @@ public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRoot
       if (profile.isEnabled()) {
         final File outputDir = ProjectPaths.getAnnotationProcessorGeneratedSourcesOutputDir(myModule, JavaSourceRootType.TEST_SOURCE == sourceRoot.getRootType(), profile);
         if (outputDir != null && FileUtil.isAncestor(sourceRoot.getFile(), outputDir, true)) {
-          excludes = ContainerUtil.newTroveSet(FileUtil.FILE_HASHING_STRATEGY, excludes);
+          excludes = FileCollectionFactory.createCanonicalFileSet(excludes);
           excludes.add(outputDir);
         }
       }
-
-      roots.add(new JavaSourceRootDescriptor(sourceRoot.getFile(), this, false, false, packagePrefix, excludes));
+      FileFilter filterForExcludedPatterns = index.getModuleFileFilterHonorExclusionPatterns(myModule);
+      roots.add(new JavaSourceRootDescriptor(sourceRoot.getFile(), this, false, false, packagePrefix, excludes, filterForExcludedPatterns));
     }
     return roots;
   }
@@ -191,7 +180,7 @@ public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRoot
     final JpsModule module = getModule();
     final PathRelativizerService relativizer = pd.dataManager.getRelativizer();
 
-    final StringBuilder logBuilder = LOG.isDebugEnabled()? new StringBuilder() : null;
+    final StringBuilder logBuilder = LOG.isDebugEnabled() ? new StringBuilder() : null;
 
     int fingerprint = getDependenciesFingerprint(logBuilder, relativizer);
 
@@ -203,7 +192,7 @@ public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRoot
       }
       fingerprint += pathHashCode(path);
     }
-    
+
     final LanguageLevel level = JpsJavaExtensionService.getInstance().getLanguageLevel(module);
     if (level != null) {
       if (logBuilder != null) {
@@ -233,7 +222,27 @@ public final class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRoot
     final String hash = Integer.toHexString(fingerprint);
     out.write(hash);
     if (logBuilder != null) {
-      LOG.debug("Configuration hash for " + getPresentableName() + ": " + hash + "\n" + logBuilder);
+      File configurationTextFile = new File(pd.getTargetsState().getDataPaths().getTargetDataRoot(this), "config.dat.debug.txt");
+      @NonNls String oldText;
+      try {
+        oldText = FileUtil.loadFile(configurationTextFile);
+      }
+      catch (IOException e) {
+        oldText = null;
+      }
+      String newText = logBuilder.toString();
+      if (!newText.equals(oldText)) {
+        if (oldText != null) {
+          LOG.debug("Configuration differs from the last recorded one for " + getPresentableName() + ".\nRecorded configuration:\n" + oldText +
+                    "\nCurrent configuration (hash=" + hash + "):\n" + newText);
+        }
+        try {
+          FileUtil.writeToFile(configurationTextFile, newText);
+        }
+        catch (IOException e) {
+          LOG.debug(e);
+        }
+      }
     }
   }
 

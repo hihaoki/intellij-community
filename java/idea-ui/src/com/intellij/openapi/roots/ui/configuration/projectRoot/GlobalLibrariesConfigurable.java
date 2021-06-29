@@ -16,18 +16,18 @@
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
 import com.intellij.ide.JavaUiBundle;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.libraries.LibraryTablePresentation;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class GlobalLibrariesConfigurable extends BaseLibrariesConfigurable {
-
-  public GlobalLibrariesConfigurable(final Project project) {
-    super(project, LibraryTablesRegistrar.APPLICATION_LEVEL);
+  public GlobalLibrariesConfigurable(ProjectStructureConfigurable projectStructureConfigurable) {
+    super(projectStructureConfigurable, LibraryTablesRegistrar.APPLICATION_LEVEL);
   }
 
   @Override
@@ -48,9 +48,13 @@ public class GlobalLibrariesConfigurable extends BaseLibrariesConfigurable {
     return "global.libraries";
   }
 
-
+  /**
+   * @deprecated use {@link ProjectStructureConfigurable#getGlobalLibrariesConfigurable()}
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static GlobalLibrariesConfigurable getInstance(final Project project) {
-    return ServiceManager.getService(project, GlobalLibrariesConfigurable.class);
+    return ProjectStructureConfigurable.getInstance(project).getGlobalLibrariesConfigurable();
   }
 
   @Override
@@ -65,7 +69,7 @@ public class GlobalLibrariesConfigurable extends BaseLibrariesConfigurable {
 
   @Override
   public BaseLibrariesConfigurable getOppositeGroup() {
-    return ProjectLibrariesConfigurable.getInstance(myProject);
+    return myProjectStructureConfigurable.getProjectLibrariesConfigurable();
   }
 
   @Override

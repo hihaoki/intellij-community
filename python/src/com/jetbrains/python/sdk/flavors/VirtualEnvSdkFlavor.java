@@ -15,12 +15,12 @@ import com.jetbrains.python.sdk.BasePySdkExtKt;
 import com.jetbrains.python.sdk.PySdkExtKt;
 import com.jetbrains.python.sdk.PythonSdkUtil;
 import icons.PythonIcons;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -32,13 +32,6 @@ public final class VirtualEnvSdkFlavor extends CPythonSdkFlavor {
   private VirtualEnvSdkFlavor() {
   }
   private final static String[] NAMES = new String[]{"jython", "pypy", "python.exe", "jython.bat", "pypy.exe"};
-
-  /**
-   * @deprecated Use {@link #getInstance()}
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  public final static VirtualEnvSdkFlavor INSTANCE = new VirtualEnvSdkFlavor();
 
   public static VirtualEnvSdkFlavor getInstance() {
     return PythonSdkFlavor.EP_NAME.findExtension(VirtualEnvSdkFlavor.class);
@@ -54,14 +47,16 @@ public final class VirtualEnvSdkFlavor extends CPythonSdkFlavor {
   public Collection<String> suggestHomePaths(@Nullable Module module, @Nullable UserDataHolder context) {
     return ReadAction.compute(() -> {
       final List<String> candidates = new ArrayList<>();
-      if (module != null) {
-        VirtualFile baseDir = BasePySdkExtKt.getBaseDir(module);
-        if (baseDir == null && context != null && context.getUserData(PySdkExtKt.getBASE_DIR()) != null) {
-          //noinspection ConstantConditions
-          baseDir = VfsUtil.findFile(context.getUserData(PySdkExtKt.getBASE_DIR()), false);
-        }
-        if (baseDir != null) {
-          candidates.addAll(findInBaseDirectory(baseDir));
+      final VirtualFile baseDirFromModule = module == null ? null : BasePySdkExtKt.getBaseDir(module);
+      final Path baseDirFromContext = context == null ? null : context.getUserData(PySdkExtKt.getBASE_DIR());
+
+      if (baseDirFromModule != null) {
+        candidates.addAll(findInBaseDirectory(baseDirFromModule));
+      }
+      else if (baseDirFromContext != null) {
+        final VirtualFile dir = VfsUtil.findFile(baseDirFromContext, false);
+        if (dir != null) {
+          candidates.addAll(findInBaseDirectory(dir));
         }
       }
 
@@ -101,12 +96,9 @@ public final class VirtualEnvSdkFlavor extends CPythonSdkFlavor {
       return LocalFileSystem.getInstance().findFileByPath(FileUtil.expandUserHome(path).replace('\\','/'));
     }
 
-    final VirtualFile userHome = LocalFileSystem.getInstance().findFileByPath(SystemProperties.getUserHome().replace('\\','/'));
+    final VirtualFile userHome = VfsUtil.getUserHomeDir();
     if (userHome != null) {
-      final VirtualFile predefinedFolder = userHome.findChild(".virtualenvs");
-      if (predefinedFolder == null)
-        return userHome;
-      return predefinedFolder;
+      return userHome.findChild(".virtualenvs");
     }
     return null;
   }

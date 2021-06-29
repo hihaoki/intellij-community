@@ -1,45 +1,50 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.impl
 
 import groovy.transform.CompileStatic
-import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.ProductProperties
 
 @CompileStatic
-class VmOptionsGenerator {
-  static final List<String> COMMON_VM_OPTIONS =
-    [
-      '-XX:+UseConcMarkSweepGC', '-XX:SoftRefLRUPolicyMSPerMB=50',
-      '-ea',
-      '-XX:CICompilerCount=2',
-      '-Dsun.io.useCanonPrefixCache=false',
-      '-Djdk.http.auth.tunneling.disabledSchemes=""',
-      '-XX:+HeapDumpOnOutOfMemoryError',
-      '-XX:-OmitStackTraceInFastThrow',
-      '-Djdk.attach.allowAttachSelf=true',
-      '-Dkotlinx.coroutines.debug=off',
-      '-Djdk.module.illegalAccess.silent=true',
-    ]
+final class VmOptionsGenerator {
+  @SuppressWarnings('SpellCheckingInspection')
+  static final List<String> COMMON_VM_OPTIONS = List.of(
+    '-XX:+UseG1GC',
+    '-XX:SoftRefLRUPolicyMSPerMB=50',
+    '-XX:CICompilerCount=2',
+    '-XX:+HeapDumpOnOutOfMemoryError',
+    '-XX:-OmitStackTraceInFastThrow',
+    '-ea',
+    '-Dsun.io.useCanonCaches=false',
+    '-Djdk.http.auth.tunneling.disabledSchemes=""',
+    '-Djdk.attach.allowAttachSelf=true',
+    '-Djdk.module.illegalAccess.silent=true',
+    '-Dkotlinx.coroutines.debug=off')
 
-  static List<String> computeVmOptions(JvmArchitecture arch, boolean isEAP, ProductProperties productProperties) {
-    List<String> commonVmOptions
+  static final Map<String, String> MEMORY_OPTIONS = Map.of(
+    '-Xms', '128m',
+    '-Xmx', '750m',
+    '-XX:ReservedCodeCacheSize=', '512m')
+
+  static List<String> computeVmOptions(boolean isEAP, ProductProperties productProperties) {
+    List<String> result = new ArrayList<>()
+
+    Map<String, String> memory =  new LinkedHashMap<>()
+    memory.putAll(MEMORY_OPTIONS)
+    memory.putAll(productProperties.customJvmMemoryOptions)
+    memory.each {k,v -> result.add(k + v) }
+
     if (isEAP) {
-      //must be consistent with com.intellij.openapi.application.ConfigImportHelper.updateVMOptions
-      commonVmOptions = COMMON_VM_OPTIONS + ["-XX:MaxJavaStackTraceDepth=10000"]
+      // must be consistent with `com.intellij.openapi.application.ConfigImportHelper#updateVMOptions`
+      result.add('-XX:MaxJavaStackTraceDepth=10000')
     }
-    else {
-      commonVmOptions = COMMON_VM_OPTIONS
-    }
-    return vmMemoryOptions(arch, productProperties) + commonVmOptions
-  }
 
-  private static List<String> vmMemoryOptions(JvmArchitecture arch, ProductProperties productProperties) {
-    switch (arch) {
-      // NOTE: when changing, please review usages of ProductProperties.getCustomJvmMemoryOptionsX64 and synchronize if necessary  
-      case JvmArchitecture.x32: return ['-server', '-Xms128m', '-Xmx512m', '-XX:ReservedCodeCacheSize=240m']
-      case JvmArchitecture.x64: return productProperties.customJvmMemoryOptionsX64?.split(' ')?.toList() ?: ['-Xms128m', '-Xmx750m', '-XX:ReservedCodeCacheSize=240m']
+    result.addAll(COMMON_VM_OPTIONS)
+
+    if (productProperties.useSplash) {
+      //noinspection SpellCheckingInspection
+      result.add('-Dsplash=true')
     }
-    throw new AssertionError(arch)
+
+    return result
   }
 }
-

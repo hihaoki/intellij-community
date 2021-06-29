@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom.converters;
 
 import com.intellij.codeInsight.intention.IntentionAction;
@@ -31,7 +17,7 @@ import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.GenericDomValue;
 import com.intellij.util.xml.ResolvingConverter;
 import com.intellij.util.xml.impl.GenericDomValueReference;
-import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,6 +38,7 @@ import org.jetbrains.idea.reposearch.DependencySearchService;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 
@@ -61,16 +48,17 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     if (s == null) return null;
 
     MavenId id = MavenArtifactCoordinatesHelper.getId(context);
-    MavenProjectIndicesManager manager = MavenProjectIndicesManager.getInstance(context.getProject());
+    Project contextProject = context.getProject();
+    MavenProjectIndicesManager manager = MavenProjectIndicesManager.getInstance(contextProject);
 
     ConverterStrategy strategy = selectStrategy(context);
     boolean isValid = strategy.isValid(id, manager, context);
     if (!isValid) {
-      File localRepository = MavenProjectsManager.getInstance(context.getProject()).getLocalRepository();
-      VirtualFile file = MavenUtil.getRepositoryFile(context.getProject(), id, "pom", null);
+      File localRepository = MavenProjectsManager.getInstance(contextProject).getLocalRepository();
+      VirtualFile file = MavenUtil.getRepositoryFile(contextProject, id, "pom", null);
       if (file != null) {
         File artifactFile = new File(file.getPath());
-        MavenIndicesManager.getInstance().fixArtifactIndex(artifactFile, localRepository);
+        MavenIndicesManager.getInstance(contextProject).fixArtifactIndex(artifactFile, localRepository);
         return s;
       }
       return null;
@@ -108,7 +96,7 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
 
   @Override
   public String getErrorMessage(@Nullable String s, ConvertContext context) {
-    return selectStrategy(context).getContextName() + " '" + MavenArtifactCoordinatesHelper.getId(context) + "' not found";
+    return selectStrategy(context).getErrorMessage(s, context);
   }
 
   @Override
@@ -205,8 +193,9 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
   }
 
   private class ConverterStrategy {
-    public String getContextName() {
-      return "Artifact";
+    @Nls
+    public String getErrorMessage(@Nullable String s, ConvertContext context) {
+      return MavenDomBundle.message("artifact.0.not.found", MavenArtifactCoordinatesHelper.getId(context));
     }
 
     public boolean isValid(MavenId id, MavenProjectIndicesManager manager, ConvertContext context) {
@@ -241,7 +230,7 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     }
 
     private MavenProject resolveMavenProject(MavenId id, MavenProjectsManager projectsManager) {
-      if (MavenArtifactCoordinatesVersionConverter.isComsumerPomResolutionApplicable(projectsManager.getProject())) {
+      if (MavenConsumerPomUtil.isConsumerPomResolutionApplicable(projectsManager.getProject())) {
         return projectsManager.findSingleProjectInReactor(id);
       }  else {
         return projectsManager.findProject(id);
@@ -276,8 +265,8 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     }
 
     @Override
-    public String getContextName() {
-      return "Project";
+    public String getErrorMessage(@Nullable String s, ConvertContext context) {
+      return MavenDomBundle.message("project.0.not.found", MavenArtifactCoordinatesHelper.getId(context));
     }
 
     @Override
@@ -294,8 +283,8 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     }
 
     @Override
-    public String getContextName() {
-      return "Dependency";
+    public String getErrorMessage(@Nullable String s, ConvertContext context) {
+      return MavenDomBundle.message("dependency.0.not.found", MavenArtifactCoordinatesHelper.getId(context));
     }
 
     @Override
@@ -357,8 +346,9 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     }
 
     @Override
-    public String getContextName() {
-      return myPlugin ? "Plugin" : "Build Extension";
+    public String getErrorMessage(@Nullable String s, ConvertContext context) {
+      return myPlugin ? MavenDomBundle.message("plugin.0.not.found", MavenArtifactCoordinatesHelper.getId(context))
+                      : MavenDomBundle.message("build.extension.0.not.found", MavenArtifactCoordinatesHelper.getId(context));
     }
 
     @Override
@@ -376,7 +366,7 @@ public abstract class MavenArtifactCoordinatesConverter extends ResolvingConvert
     @Override
     public Set<String> getVariants(MavenId id, DependencySearchService searchService, MavenDomShortArtifactCoordinates coordinates) {
       if (StringUtil.isEmpty(id.getGroupId())) {
-        Set<String> result = new THashSet<>();
+        Set<String> result = new HashSet<>();
 
         for (String each : MavenArtifactUtil.DEFAULT_GROUPS) {
           id = new MavenId(each, id.getArtifactId(), id.getVersion());

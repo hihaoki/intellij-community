@@ -9,11 +9,11 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.util.EventDispatcher
 import com.intellij.util.ThrowableConvertor
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.HttpSecurityUtil
 import com.intellij.util.io.RequestBuilder
 import org.jetbrains.annotations.CalledInAny
-import org.jetbrains.annotations.CalledInBackground
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.plugins.github.api.data.GithubErrorMessage
 import org.jetbrains.plugins.github.exceptions.*
@@ -24,7 +24,6 @@ import java.io.InputStreamReader
 import java.io.Reader
 import java.net.HttpURLConnection
 import java.util.*
-import java.util.function.Supplier
 import java.util.zip.GZIPInputStream
 
 /**
@@ -34,12 +33,12 @@ sealed class GithubApiRequestExecutor {
 
   protected val authDataChangedEventDispatcher = EventDispatcher.create(AuthDataChangeListener::class.java)
 
-  @CalledInBackground
+  @RequiresBackgroundThread
   @Throws(IOException::class, ProcessCanceledException::class)
   abstract fun <T> execute(indicator: ProgressIndicator, request: GithubApiRequest<T>): T
 
   @TestOnly
-  @CalledInBackground
+  @RequiresBackgroundThread
   @Throws(IOException::class, ProcessCanceledException::class)
   fun <T> execute(request: GithubApiRequest<T>): T = execute(EmptyProgressIndicator(), request)
 
@@ -75,37 +74,6 @@ sealed class GithubApiRequestExecutor {
         }
         .useProxy(useProxy)
         .execute(request, indicator)
-    }
-  }
-
-  class WithBasicAuth internal constructor(githubSettings: GithubSettings,
-                                           private val login: String,
-                                           private val password: CharArray,
-                                           private val twoFactorCodeSupplier: Supplier<String?>) : Base(githubSettings) {
-    private var twoFactorCode: String? = null
-
-    @Throws(IOException::class, ProcessCanceledException::class)
-    override fun <T> execute(indicator: ProgressIndicator, request: GithubApiRequest<T>): T {
-      indicator.checkCanceled()
-      val basicHeaderValue = HttpSecurityUtil.createBasicAuthHeaderValue(login, password)
-      return executeWithBasicHeader(indicator, request, basicHeaderValue)
-    }
-
-    private fun <T> executeWithBasicHeader(indicator: ProgressIndicator, request: GithubApiRequest<T>, header: String): T {
-      indicator.checkCanceled()
-      return try {
-        createRequestBuilder(request)
-          .tuner { connection ->
-            request.additionalHeaders.forEach(connection::addRequestProperty)
-            connection.addRequestProperty(HttpSecurityUtil.AUTHORIZATION_HEADER_NAME, "Basic $header")
-            twoFactorCode?.let { connection.addRequestProperty(OTP_HEADER_NAME, it) }
-          }
-          .execute(request, indicator)
-      }
-      catch (e: GithubTwoFactorAuthenticationException) {
-        twoFactorCode = twoFactorCodeSupplier.get() ?: throw e
-        executeWithBasicHeader(indicator, request, header)
-      }
     }
   }
 
@@ -189,11 +157,7 @@ sealed class GithubApiRequestExecutor {
         HttpURLConnection.HTTP_UNAUTHORIZED,
         HttpURLConnection.HTTP_PAYMENT_REQUIRED,
         HttpURLConnection.HTTP_FORBIDDEN -> {
-          val otpHeader = connection.getHeaderField(OTP_HEADER_NAME)
-          if (otpHeader != null && otpHeader.contains("required", true)) {
-            GithubTwoFactorAuthenticationException(jsonError?.presentableError ?: errorText)
-          }
-          else if (jsonError?.containsReasonMessage("API rate limit exceeded") == true) {
+          if (jsonError?.containsReasonMessage("API rate limit exceeded") == true) {
             GithubRateLimitExceededException(jsonError.presentableError)
           }
           else GithubAuthenticationException("Request response: " + (jsonError?.presentableError ?: errorText ?: statusLine))
@@ -252,11 +216,6 @@ sealed class GithubApiRequestExecutor {
     }
 
     @CalledInAny
-    internal fun create(login: String, password: CharArray, twoFactorCodeSupplier: Supplier<String?>): WithBasicAuth {
-      return WithBasicAuth(GithubSettings.getInstance(), login, password, twoFactorCodeSupplier)
-    }
-
-    @CalledInAny
     fun create() = NoAuth(GithubSettings.getInstance())
 
     companion object {
@@ -267,8 +226,6 @@ sealed class GithubApiRequestExecutor {
 
   companion object {
     private val LOG = logger<GithubApiRequestExecutor>()
-
-    private const val OTP_HEADER_NAME = "X-GitHub-OTP"
   }
 
   interface AuthDataChangeListener : EventListener {

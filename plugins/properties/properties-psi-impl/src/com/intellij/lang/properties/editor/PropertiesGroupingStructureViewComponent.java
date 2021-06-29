@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.editor;
 
 import com.intellij.ide.structureView.newStructureView.StructureViewComponent;
@@ -11,6 +11,7 @@ import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
@@ -46,7 +47,7 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
     private final Set<String> myPredefinedSeparators = new LinkedHashSet<>();
 
     ChangeGroupSeparatorAction() {
-      super("Group by: ", true);
+      super(PropertiesBundle.message("group.by.title"), true);
       myPredefinedSeparators.add(".");
       myPredefinedSeparators.add("_");
       myPredefinedSeparators.add("/");
@@ -58,17 +59,17 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
     public final void update(@NotNull AnActionEvent e) {
       String separator = getCurrentSeparator();
       Presentation presentation = e.getPresentation();
-      presentation.setText("Group by: " + separator, false);
+      presentation.setText(PropertiesBundle.message("group.by.0", separator), false);
       presentation.setIcon(EmptyIcon.ICON_16);
     }
 
-    private String getCurrentSeparator() {
+    private @NlsSafe String getCurrentSeparator() {
       return ((PropertiesGroupingStructureViewModel)getTreeModel()).getSeparator();
     }
 
     private void refillActionGroup() {
       removeAll();
-      for (final String separator : myPredefinedSeparators) {
+      for (final @NlsSafe String separator : myPredefinedSeparators) {
         if (separator.equals(getCurrentSeparator())) continue;
         AnAction action = new AnAction() {
           @Override
@@ -92,7 +93,7 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
       }
 
       @Override
-      public final void actionPerformed(@NotNull AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         String[] strings = ArrayUtilRt.toStringArray(myPredefinedSeparators);
         String current = getCurrentSeparator();
         String separator = Messages.showEditableChooseDialog(PropertiesBundle.message("select.property.separator.dialog.text"),

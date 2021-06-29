@@ -23,18 +23,7 @@ class BaseLayoutSpec {
   }
 
   /**
-   * @deprecated use explicit resource name instead of boolean or null. To be removed in IDEA 2018.3.
-   */
-  void withModule(String moduleName, String relativeJarPath = "${moduleName}.jar", boolean localizableResourcesInCommonJar) {
-    if (localizableResourcesInCommonJar) {
-      withModule(moduleName, relativeJarPath)
-    } else {
-      withModule(moduleName, relativeJarPath, null)
-    }
-  }
-
-  /**
-   * Register an additional module to be included into the plugin distribution into a separate JAR file. Module-level libraries from
+   * Register an additional module to be included into the plugin distribution. Module-level libraries from
    * {@code moduleName} with scopes 'Compile' and 'Runtime' will be also copied to the 'lib' directory of the plugin.
    */
   void withModule(String moduleName) {
@@ -48,15 +37,18 @@ class BaseLayoutSpec {
    *
    * @param relativeJarPath target JAR path relative to 'lib' directory of the plugin; different modules may be packed into the same JAR,
    * but <strong>don't use this for new plugins</strong>; this parameter is temporary added to keep layout of old plugins.
-   * @param localizableResourcesJar specifies relative path to the JAR where translatable resources from the module (messages, inspection descriptions, etc) will be
-   * placed. If {@code null}, the resources will be placed into the JAR specified by {@code relativeJarPath}. <strong>Do not use this for new plugins, this parameter is temporary added to keep layout of old plugins</strong>.
    */
-  void withModule(String moduleName, String relativeJarPath, String localizableResourcesJar = "resources_en.jar") {
-    if (localizableResourcesJar != null) {
-      layout.localizableResourcesJars.put(moduleName, localizableResourcesJar)
-    }
+  void withModule(String moduleName, String relativeJarPath) {
     layout.moduleJars.putValue(relativeJarPath, moduleName)
     layout.explicitlySetJarPaths.add(relativeJarPath)
+  }
+
+  /**
+   * @deprecated localizable resources are now put to the module JAR, so {@code localizableResourcesJars} parameter is ignored now
+   */
+  @Deprecated
+  void withModule(String moduleName, String relativeJarPath, String localizableResourcesJar) {
+    withModule(moduleName, relativeJarPath)
   }
 
   /**
@@ -64,7 +56,7 @@ class BaseLayoutSpec {
    * @relativeOutputPath path relative to 'lib' plugin directory
    */
   void withProjectLibrary(String libraryName, String relativeOutputPath = "") {
-    layout.includedProjectLibraries << new ProjectLibraryData(libraryName, relativeOutputPath)
+    layout.includedProjectLibraries.add(new ProjectLibraryData(libraryName, relativeOutputPath))
   }
 
   /**
@@ -74,8 +66,8 @@ class BaseLayoutSpec {
    * @param relativeOutputPath target path relative to 'lib' directory
    */
   void withModuleLibrary(String libraryName, String moduleName, String relativeOutputPath) {
-    layout.includedModuleLibraries << new ModuleLibraryData(moduleName: moduleName, libraryName: libraryName,
-                                                            relativeOutputPath: relativeOutputPath)
+    layout.includedModuleLibraries.add(new ModuleLibraryData(moduleName: moduleName, libraryName: libraryName,
+                                                            relativeOutputPath: relativeOutputPath))
   }
 
   /**
@@ -98,7 +90,7 @@ class BaseLayoutSpec {
 
   /**
    * Include an artifact output to the plugin distribution.
-   * @param artifactName name of the project configuration  
+   * @param artifactName name of the project configuration
    * @param relativeOutputPath target path relative to 'lib' directory
    */
   void withArtifact(String artifactName, String relativeOutputPath) {

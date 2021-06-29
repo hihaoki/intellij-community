@@ -2,6 +2,7 @@
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.util.SmartList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.org.objectweb.asm.ClassReader;
 
 import java.io.File;
@@ -21,8 +22,13 @@ public final class Callbacks {
   }
 
   public interface Backend {
-    void associate(String classFileName, String sourceFileName, ClassReader cr);
-    void associate(String classFileName, Collection<String> sources, ClassReader cr);
+    default void associate(String classFileName, String sourceFileName, ClassReader cr) {
+      associate(classFileName, Collections.singleton(sourceFileName), cr);
+    }
+    default void associate(String classFileName, Collection<String> sources, ClassReader cr) {
+      associate(classFileName, sources, cr, false);
+    }
+    void associate(String classFileName, Collection<String> sources, ClassReader cr, boolean isGenerated);
     void registerImports(String className, Collection<String> classImports, Collection<String> staticImports);
     void registerConstantReferences(String className, Collection<ConstantRef> cRefs);
   }
@@ -94,6 +100,7 @@ public final class Callbacks {
    * To be removed in later releases
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public interface ConstantAffectionResolver {
     Future<ConstantAffection> request(
       final String ownerClassName, final String fieldName, int accessFlags, boolean fieldRemoved, boolean accessChanged

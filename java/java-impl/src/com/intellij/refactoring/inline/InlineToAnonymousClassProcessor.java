@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.inline;
 
 import com.intellij.java.refactoring.JavaRefactoringBundle;
@@ -20,14 +20,15 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.MultiMap;
+import com.siyeh.ig.psiutils.SealedUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+import static com.intellij.util.ObjectUtils.tryCast;
+
+
 public class InlineToAnonymousClassProcessor extends BaseRefactoringProcessor {
   private static final Logger LOG = Logger.getInstance(InlineToAnonymousClassProcessor.class);
 
@@ -170,7 +171,7 @@ public class InlineToAnonymousClassProcessor extends BaseRefactoringProcessor {
                     continue;
                   }
                 }
-                result.putValue(refElement, "Class cannot be inlined because a call to its member inside body");
+                result.putValue(refElement, JavaRefactoringBundle.message("inline.to.anonymous.no.method.calls"));
               }
             }
           }
@@ -181,7 +182,7 @@ public class InlineToAnonymousClassProcessor extends BaseRefactoringProcessor {
       public void visitNewExpression(PsiNewExpression expression) {
         super.visitNewExpression(expression);
         if (!myClass.isEquivalentTo(PsiUtil.resolveClassInType(expression.getType()))) return;
-        result.putValue(expression, "Class cannot be inlined because a call to its constructor inside body");
+        result.putValue(expression, JavaRefactoringBundle.message("inline.to.anonymous.no.ctor.calls"));
       }
 
       @Override
@@ -194,7 +195,7 @@ public class InlineToAnonymousClassProcessor extends BaseRefactoringProcessor {
         if (resolved instanceof PsiMethod) {
           final PsiMethod method = (PsiMethod)resolved;
           if ("getClass".equals(method.getName()) && method.getParameterList().isEmpty()) {
-            result.putValue(methodExpression, "Result of getClass() invocation would be changed");
+            result.putValue(methodExpression, JavaRefactoringBundle.message("inline.to.anonymous.no.get.class.calls"));
           }
         }
       }
@@ -215,6 +216,13 @@ public class InlineToAnonymousClassProcessor extends BaseRefactoringProcessor {
       }
       else if (element != null && element.getParent() instanceof PsiNewExpression) {
         newExpressions.add((PsiNewExpression) element.getParent());
+      }
+      else if (element instanceof PsiJavaCodeReferenceElement && element.getParent() instanceof PsiReferenceList) {
+        PsiReferenceList refList = (PsiReferenceList) element.getParent();
+        PsiClass parentClass = tryCast(refList.getParent(), PsiClass.class);
+        if (parentClass != null && refList == parentClass.getPermitsList()) {
+          SealedUtils.removeFromPermitsList(parentClass, myClass);
+        }
       }
       else {
         PsiImportStatement statement = PsiTreeUtil.getParentOfType(element, PsiImportStatement.class);

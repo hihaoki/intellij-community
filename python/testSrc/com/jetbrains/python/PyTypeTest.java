@@ -1,7 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.google.common.collect.ImmutableList;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
@@ -15,10 +16,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class PyTypeTest extends PyTestCase {
+
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
+  }
+
   /**
    * Call of union returns union of all callable types in this union
    */
@@ -2345,7 +2350,7 @@ public class PyTypeTest extends PyTestCase {
   public void testNotMatchedOverloadsAndImplementationInImportedModule() {
     runWithLanguageLevel(
       LanguageLevel.PYTHON35,
-      () -> doMultiFileTest("Union[int, str]",
+      () -> doMultiFileTest("Union[str, int]",
                             "from b import foo\n" +
                             "expr = foo(object())")
     );
@@ -2353,7 +2358,7 @@ public class PyTypeTest extends PyTestCase {
 
   // PY-24383
   public void testSubscriptionOnWeakType() {
-    doTest("Union[int, Any]",
+    doTest("int",
            "foo = bar() if 42 != 42 else [1, 2, 3, 4]\n" +
            "expr = foo[0]");
   }
@@ -2480,7 +2485,7 @@ public class PyTypeTest extends PyTestCase {
 
   // PY-21175
   public void testLazyAttributeInitialization() {
-    doTest("int",
+    doTest("Union[int, Any]",
            "class C:\n" +
            "    def __init__(self):\n" +
            "        self.attr = None\n" +
@@ -3788,7 +3793,7 @@ public class PyTypeTest extends PyTestCase {
     runWithLanguageLevel(
       LanguageLevel.getLatest(),
       () -> {
-        doTest("Optional[int]",
+        doTest("int | None",
                "from typing import TypedDict\n" +
                "class A(TypedDict, total=False):\n" +
                "    x: int\n" +
@@ -3818,7 +3823,7 @@ public class PyTypeTest extends PyTestCase {
     runWithLanguageLevel(
       LanguageLevel.getLatest(),
       () -> {
-        doTest("Union[int, str]",
+        doTest("int | str",
                "from typing import TypedDict\n" +
                "class A(TypedDict, total=False):\n" +
                "    x: int\n" +
@@ -3902,6 +3907,76 @@ public class PyTypeTest extends PyTestCase {
            "class Base(object):\n" +
            "    pass\n" +
            "expr = Base.__subclasses__()");
+  }
+
+  // PY-37876
+  public void testCallableParameterTypeVarMatching() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTest("int",
+                   "from typing import Callable, TypeVar, Any\n" +
+                   "\n" +
+                   "T = TypeVar('T')\n" +
+                   "def func(x: Callable[[T], Any]) -> T:\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "def callback(x: int) -> Any:\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "\n" +
+                   "expr = func(callback)")
+    );
+  }
+
+  // PY-37876
+  public void testCallableParameterGenericTypeParameterMatching() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTest("int",
+                   "from typing import Callable, TypeVar, Any, List\n" +
+                   "\n" +
+                   "T = TypeVar('T')\n" +
+                   "\n" +
+                   "\n" +
+                   "def func(f: Callable[[List[T]], Any]) -> T:\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "\n" +
+                   "def accepts_list_of_int(x: List[int]) -> Any:\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "\n" +
+                   "expr = func(accepts_list_of_int)\n")
+    );
+  }
+
+  // PY-44470
+  public void testInferringAndMatchingCls() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTest("Subclass",
+                   "class Subclass(dict):\n" +
+                   "    def __new__(cls, *args, **kwargs):\n" +
+                   "        expr = super().__new__(cls, *args, **kwargs)\n" +
+                   "        return expr")
+    );
+  }
+
+  public void testFunctionReturnGeneric() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTest("(Any, str, T3) -> T3",
+                   "from typing import Callable, TypeVar\n" +
+                   "\n" +
+                   "T1 = TypeVar('T1')\n" +
+                   "T2 = TypeVar('T2')\n" +
+                   "T3 = TypeVar('T3')\n" +
+                   "\n" +
+                   "def bar(p1: T1, p2: T2) -> Callable[[T1, T2, T3], T3]:\n" +
+                   "  pass\n" +
+                   "\n" +
+                   "expr = bar(dunno, 'sd')")
+    );
   }
 
   private static List<TypeEvalContext> getTypeEvalContexts(@NotNull PyExpression element) {

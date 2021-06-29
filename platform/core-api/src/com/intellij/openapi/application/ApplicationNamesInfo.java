@@ -1,15 +1,20 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
-import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.PlatformUtils;
-import org.jdom.Element;
+import com.intellij.util.XmlDomReader;
+import com.intellij.util.XmlElement;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Locale;
 
 public final class ApplicationNamesInfo {
   private final String myProductName;
@@ -21,16 +26,53 @@ public final class ApplicationNamesInfo {
 
   private static volatile ApplicationNamesInfo instance;
 
-  private static @NotNull Element loadData() {
+  private static @NotNull XmlElement loadData() {
     String prefix = System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY, "");
-    String resource = "/idea/" + prefix + "ApplicationInfo.xml";
-    InputStream stream = ApplicationNamesInfo.class.getResourceAsStream(resource);
+
+    String filePath;
+    if (Boolean.getBoolean("idea.use.dev.build.server")) {
+      String module = null;
+      if (prefix.isEmpty() || prefix.equals(PlatformUtils.IDEA_PREFIX)) {
+        module = "intellij.idea.ultimate.resources";
+      }
+      else if (prefix.equals(PlatformUtils.WEB_PREFIX)) {
+        module = "intellij.webstorm";
+      }
+
+      if (module == null) {
+        filePath = null;
+      }
+      else {
+        filePath = PathManager.getHomePath() + "/out/classes/production/" + module + "/idea/" +
+                   (prefix.equals("idea") ? "" : prefix) + "ApplicationInfo.xml";
+      }
+    }
+    else {
+      filePath = PathManager.getBinPath() + "/appInfo.xml";
+    }
+
+    // production
+    if (filePath != null) {
+      Path file = Paths.get(filePath);
+      try {
+        return XmlDomReader.readXmlAsModel(Files.newInputStream(file));
+      }
+      catch (NoSuchFileException ignore) {
+      }
+      catch (Exception e) {
+        throw new RuntimeException("Cannot load " + file, e);
+      }
+    }
+
+    // from sources
+    String resource = "idea/" + (prefix.equals("idea") ? "" : prefix) + "ApplicationInfo.xml";
+    InputStream stream = ApplicationNamesInfo.class.getClassLoader().getResourceAsStream(resource);
     if (stream == null) {
       throw new RuntimeException("Resource not found: " + resource);
     }
 
     try {
-      return JDOMUtil.load(stream);
+      return XmlDomReader.readXmlAsModel(stream);
     }
     catch (Exception e) {
       throw new RuntimeException("Cannot load resource: " + resource, e);
@@ -38,10 +80,10 @@ public final class ApplicationNamesInfo {
   }
 
   @ApiStatus.Internal
-  public static @NotNull Element initAndGetRawData() {
+  public static @NotNull XmlElement initAndGetRawData() {
     //noinspection SynchronizeOnThis
     synchronized (ApplicationNamesInfo.class) {
-      Element data = loadData();
+      XmlElement data = loadData();
       if (instance == null) {
         instance = new ApplicationNamesInfo(data);
       }
@@ -49,8 +91,7 @@ public final class ApplicationNamesInfo {
     }
   }
 
-  @NotNull
-  public static ApplicationNamesInfo getInstance() {
+  public static @NotNull ApplicationNamesInfo getInstance() {
     ApplicationNamesInfo result = instance;
     if (result == null) {
       //noinspection SynchronizeOnThis
@@ -65,8 +106,9 @@ public final class ApplicationNamesInfo {
     return result;
   }
 
-  private ApplicationNamesInfo(@NotNull Element rootElement) {
-    Element names = rootElement.getChild("names", rootElement.getNamespace());
+  private ApplicationNamesInfo(@NotNull XmlElement rootElement) {
+    XmlElement names = rootElement.getChild("names");
+    assert names != null;
     myProductName = names.getAttributeValue("product");
     myFullProductName = names.getAttributeValue("fullname", myProductName);
     myEditionName = names.getAttributeValue("edition");
@@ -80,7 +122,7 @@ public final class ApplicationNamesInfo {
    * otherwise returns the same value as {@link #getFullProductName()}.
    * <strong>Consider using {@link #getFullProductName()} instead.</strong>
    */
-  public String getProductName() {
+  public @NlsSafe String getProductName() {
     return myProductName;
   }
 
@@ -88,7 +130,7 @@ public final class ApplicationNamesInfo {
    * Returns full product name ({@code "IntelliJ IDEA"} for IntelliJ IDEA, {@code "WebStorm"} for WebStorm, etc).
    * Vendor prefix and edition are not included.
    */
-  public String getFullProductName() {
+  public @NlsSafe String getFullProductName() {
     return myFullProductName;
   }
 
@@ -104,15 +146,15 @@ public final class ApplicationNamesInfo {
    * @see #getFullProductName()
    * @see #getEditionName()
    */
-  public String getFullProductNameWithEdition() {
-    return myEditionName != null ? myFullProductName + ' ' + myEditionName : myFullProductName;
+  public @NlsSafe String getFullProductNameWithEdition() {
+    return myEditionName == null ? myFullProductName : myFullProductName + ' ' + myEditionName;
   }
 
   /**
    * Returns edition name of the product, if applicable
    * (e.g. {@code "Ultimate Edition"} or {@code "Community Edition"} for IntelliJ IDEA, {@code null} for WebStorm).
    */
-  public @Nullable String getEditionName() {
+  public @NlsSafe @Nullable String getEditionName() {
     return myEditionName;
   }
 
@@ -121,7 +163,8 @@ public final class ApplicationNamesInfo {
    * <strong>Kept for compatibility; use {@link #getFullProductName()} instead.</strong>
    */
   public String getLowercaseProductName() {
-    return StringUtil.capitalize(StringUtil.toLowerCase(myProductName));
+    String s = myProductName.toLowerCase(Locale.ENGLISH);
+    return Character.isUpperCase(s.charAt(0)) ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
   }
 
   /**

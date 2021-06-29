@@ -18,6 +18,8 @@ package com.intellij.refactoring.makeStatic;
 
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
+import com.intellij.model.PsiElementUsageInfo;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -40,6 +42,7 @@ import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -90,6 +93,12 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
   @Override
   protected final boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
+    if (ApplicationManager.getApplication().isUnitTestMode() && !BaseRefactoringProcessor.ConflictsInTestsException.isTestIgnore()) {
+      MultiMap<PsiElement, @Nls String> conflictDescriptions = getConflictDescriptions(usagesIn);
+      if (!conflictDescriptions.isEmpty()) {
+        throw new ConflictsInTestsException(conflictDescriptions.values());
+      }
+    }
     if (myPrepareSuccessfulSwingThreadCallback != null) {
       MultiMap<PsiElement, String> conflicts = getConflictDescriptions(usagesIn);
       if (conflicts.size() > 0) {
@@ -134,7 +143,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
     return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
-  protected MultiMap<PsiElement,String> getConflictDescriptions(UsageInfo[] usages) {
+  protected MultiMap<PsiElement, @Nls String> getConflictDescriptions(UsageInfo[] usages) {
     MultiMap<PsiElement, String> conflicts = new MultiMap<>();
     HashSet<PsiElement> processed = new HashSet<>();
     String typeString = StringUtil.capitalize(UsageViewUtil.getType(myMember));
@@ -196,21 +205,10 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
 
   private static void createInaccessibleFieldsConflictDescription(ArrayList<PsiField> inaccessible, PsiElement container,
                                                                                      MultiMap<PsiElement, String> conflicts) {
-    if (inaccessible.size() == 1) {
-      final PsiField field = inaccessible.get(0);
-      conflicts.putValue(field, JavaRefactoringBundle.message("field.0.is.not.accessible",
-                                       CommonRefactoringUtil.htmlEmphasize(field.getName()),
-                                       RefactoringUIUtil.getDescription(container, true)));
-    } else {
-
-      for (int j = 0; j < inaccessible.size(); j++) {
-        PsiField field = inaccessible.get(j);
-        conflicts.putValue(field, JavaRefactoringBundle.message("field.0.is.not.accessible",
-                                       CommonRefactoringUtil.htmlEmphasize(field.getName()),
-                                       RefactoringUIUtil.getDescription(container, true)));
-
-
-      }
+    for (PsiField field : inaccessible) {
+      conflicts.putValue(field, JavaRefactoringBundle.message(
+        "field.0.is.not.accessible", CommonRefactoringUtil.htmlEmphasize(field.getName()), 
+        RefactoringUIUtil.getDescription(container, true)));
     }
   }
 
@@ -248,7 +246,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
         if (qualifier instanceof PsiThisExpression) qualifier = null;
       }
       if (!PsiTreeUtil.isAncestor(myMember, element, true) || qualifier != null) {
-        result.add(new UsageInfo(element));
+        result.add(new PsiElementUsageInfo(element));
       }
 
       processExternalReference(element, method, result);

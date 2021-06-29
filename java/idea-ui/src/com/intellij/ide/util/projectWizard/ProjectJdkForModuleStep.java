@@ -17,7 +17,6 @@ import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.MultiLineLabelUI;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StartupUiUtil;
@@ -138,14 +137,6 @@ public class ProjectJdkForModuleStep extends ModuleWizardStep {
   @Nullable
   public Sdk getJdk() {
     return myJdkChooser.getSelectedJdk();
-  }
-
-  /**
-   * @deprecated this method does return an empty array
-   */
-  @Deprecated
-  public Object @NotNull [] getAllJdks() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Nullable

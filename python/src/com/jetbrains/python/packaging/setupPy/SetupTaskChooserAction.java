@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging.setupPy;
 
 import com.intellij.execution.ExecutionException;
@@ -14,6 +14,7 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.python.PyBundle;
@@ -26,9 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class SetupTaskChooserAction extends AnAction {
   public SetupTaskChooserAction() {
     super(PyBundle.messagePointer("python.packaging.run.setup.py.task"));
@@ -39,8 +38,9 @@ public class SetupTaskChooserAction extends AnAction {
     final Module module = e.getData(LangDataKeys.MODULE);
     if (module == null) return;
     final Project project = module.getProject();
-    final ListChooseByNameModel<SetupTask> model = new ListChooseByNameModel<>(project, "Enter setup.py task name",
-                                                                               "No tasks found",
+    final ListChooseByNameModel<SetupTask> model = new ListChooseByNameModel<>(project,
+                                                                               PyBundle.message("python.packaging.enter.setup.py.task"),
+                                                                               PyBundle.message("python.packaging.no.tasks.found"),
                                                                                SetupTaskIntrospector.getTaskList(module));
     final ChooseByNamePopup popup = ChooseByNamePopup.createPopup(project, model, GotoActionBase.getPsiContext(e));
     popup.setShowListForEmptyPattern(true);
@@ -67,7 +67,7 @@ public class SetupTaskChooserAction extends AnAction {
     e.getPresentation().setEnabled(module != null && PyPackageUtil.hasSetupPy(module) && PythonSdkUtil.findPythonSdk(module) != null);
   }
 
-  public static void runSetupTask(String taskName, Module module) {
+  public static void runSetupTask(@NlsSafe String taskName, Module module) {
     final List<SetupTask.Option> options = SetupTaskIntrospector.getSetupTaskOptions(module, taskName);
     List<String> parameters = new ArrayList<>();
     parameters.add(taskName);
@@ -81,7 +81,7 @@ public class SetupTaskChooserAction extends AnAction {
     runSetupTask(taskName, module, parameters);
   }
 
-  public static void runSetupTask(String taskName, Module module, List<String> parameters) {
+  public static void runSetupTask(@NlsSafe String taskName, Module module, List<String> parameters) {
     try {
       final PyFile setupPy = PyPackageUtil.findSetupPy(module);
       if (setupPy == null) return;

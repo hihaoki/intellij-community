@@ -6,7 +6,9 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,56 +28,63 @@ public final class GitRepositoryFiles {
 
   public static final String GITIGNORE = ".gitignore";
 
-  private static final String CHERRY_PICK_HEAD = "CHERRY_PICK_HEAD";
-  public static final String COMMIT_EDITMSG = "COMMIT_EDITMSG";
-  private static final String CONFIG = "config";
-  private static final String HEAD = "HEAD";
-  private static final String INDEX = "index";
-  private static final String INFO = "info";
-  private static final String INFO_EXCLUDE = INFO + "/exclude";
-  private static final String MERGE_HEAD = "MERGE_HEAD";
-  private static final String MERGE_MSG = "MERGE_MSG";
-  private static final String ORIG_HEAD = "ORIG_HEAD";
-  private static final String REBASE_APPLY = "rebase-apply";
-  private static final String REBASE_MERGE = "rebase-merge";
-  private static final String PACKED_REFS = "packed-refs";
-  private static final String REFS = "refs";
-  private static final String REVERT_HEAD = "REVERT_HEAD";
-  private static final String HEADS = "heads";
-  private static final String TAGS = "tags";
-  private static final String REMOTES = "remotes";
-  private static final String SQUASH_MSG = "SQUASH_MSG";
-  private static final String HOOKS = "hooks";
-  private static final String PRE_COMMIT_HOOK = "pre-commit";
-  private static final String PRE_PUSH_HOOK = "pre-push";
-  private static final String COMMIT_MSG_HOOK = "commit-msg";
-  private static final String SHALLOW = "shallow";
+  private static final @NonNls String CHERRY_PICK_HEAD = "CHERRY_PICK_HEAD";
+  public static final @NonNls String COMMIT_EDITMSG = "COMMIT_EDITMSG";
+  private static final @NonNls String CONFIG = "config";
+  private static final @NonNls String HEAD = "HEAD";
+  private static final @NonNls String INDEX = "index";
+  private static final @NonNls String INFO = "info";
+  private static final @NonNls String INFO_EXCLUDE = INFO + "/exclude";
+  private static final @NonNls String MERGE_HEAD = "MERGE_HEAD";
+  private static final @NonNls String MERGE_MSG = "MERGE_MSG";
+  private static final @NonNls String ORIG_HEAD = "ORIG_HEAD";
+  private static final @NonNls String REBASE_APPLY = "rebase-apply";
+  private static final @NonNls String REBASE_MERGE = "rebase-merge";
+  private static final @NonNls String PACKED_REFS = "packed-refs";
+  private static final @NonNls String REFS = "refs";
+  private static final @NonNls String REVERT_HEAD = "REVERT_HEAD";
+  private static final @NonNls String HEADS = "heads";
+  private static final @NonNls String TAGS = "tags";
+  private static final @NonNls String REMOTES = "remotes";
+  private static final @NonNls String SQUASH_MSG = "SQUASH_MSG";
+  private static final @NonNls String HOOKS = "hooks";
+  private static final @NonNls String PRE_COMMIT_HOOK = "pre-commit";
+  private static final @NonNls String PRE_PUSH_HOOK = "pre-push";
+  private static final @NonNls String COMMIT_MSG_HOOK = "commit-msg";
+  private static final @NonNls String SHALLOW = "shallow";
+  private static final @NonNls String LOGS = "logs";
+  private static final @NonNls String STASH = "stash";
 
+  private final VirtualFile myRootDir;
   private final VirtualFile myMainDir;
   private final VirtualFile myWorktreeDir;
 
-  private final String myConfigFilePath;
-  private final String myHeadFilePath;
-  private final String myIndexFilePath;
-  private final String myMergeHeadPath;
-  private final String myCherryPickHeadPath;
-  private final String myRevertHeadPath;
-  private final String myOrigHeadPath;
-  private final String myRebaseApplyPath;
-  private final String myRebaseMergePath;
-  private final String myPackedRefsPath;
-  private final String myRefsHeadsDirPath;
-  private final String myRefsRemotesDirPath;
-  private final String myRefsTagsPath;
-  private final String myCommitMessagePath;
-  private final String myMergeMessagePath;
-  private final String myMergeSquashPath;
-  private final String myInfoDirPath;
-  private final String myExcludePath;
-  private final String myHooksDirPath;
-  private final String myShallow;
+  private final @NonNls String myConfigFilePath;
+  private final @NonNls String myHeadFilePath;
+  private final @NonNls String myIndexFilePath;
+  private final @NonNls String myMergeHeadPath;
+  private final @NonNls String myCherryPickHeadPath;
+  private final @NonNls String myRevertHeadPath;
+  private final @NonNls String myOrigHeadPath;
+  private final @NonNls String myRebaseApplyPath;
+  private final @NonNls String myRebaseMergePath;
+  private final @NonNls String myPackedRefsPath;
+  private final @NonNls String myRefsHeadsDirPath;
+  private final @NonNls String myRefsRemotesDirPath;
+  private final @NonNls String myRefsTagsPath;
+  private final @NonNls String myCommitMessagePath;
+  private final @NonNls String myMergeMessagePath;
+  private final @NonNls String myMergeSquashPath;
+  private final @NonNls String myInfoDirPath;
+  private final @NonNls String myExcludePath;
+  private final @NonNls String myHooksDirPath;
+  private final @NonNls String myShallow;
+  private final @NonNls String myStashReflogPath;
 
-  private GitRepositoryFiles(@NotNull VirtualFile mainDir, @NotNull VirtualFile worktreeDir) {
+  private @Nullable @NonNls String myCustomHooksDirPath;
+
+  private GitRepositoryFiles(@NotNull VirtualFile rootDir, @NotNull VirtualFile mainDir, @NotNull VirtualFile worktreeDir) {
+    myRootDir = rootDir;
     myMainDir = mainDir;
     myWorktreeDir = worktreeDir;
 
@@ -90,6 +99,7 @@ public final class GitRepositoryFiles {
     myExcludePath = mainPath + slash(INFO_EXCLUDE);
     myHooksDirPath = mainPath + slash(HOOKS);
     myShallow = mainPath + slash(SHALLOW);
+    myStashReflogPath = mainPath + slash(LOGS) + slash(REFS) + slash(STASH);
 
     String worktreePath = myWorktreeDir.getPath();
     myHeadFilePath = worktreePath + slash(HEAD);
@@ -106,10 +116,11 @@ public final class GitRepositoryFiles {
   }
 
   @NotNull
-  public static GitRepositoryFiles getInstance(@NotNull VirtualFile gitDir) {
+  public static GitRepositoryFiles getInstance(@NotNull VirtualFile rootDir,
+                                               @NotNull VirtualFile gitDir) {
     VirtualFile gitDirForWorktree = getMainGitDirForWorktree(gitDir);
     VirtualFile mainDir = gitDirForWorktree == null ? gitDir : gitDirForWorktree;
-    return new GitRepositoryFiles(mainDir, gitDir);
+    return new GitRepositoryFiles(rootDir, mainDir, gitDir);
   }
 
   /**
@@ -144,11 +155,11 @@ public final class GitRepositoryFiles {
   }
 
   /**
-   * Returns subdirectories of .git which we are interested in - they should be watched by VFS.
+   * Returns subdirectories and paths of .git which we are interested in - they should be watched by VFS.
    */
   @NotNull
-  Collection<String> getDirsToWatch() {
-    return Arrays.asList(myRefsHeadsDirPath, myRefsRemotesDirPath, myRefsTagsPath, myInfoDirPath, myHooksDirPath);
+  Collection<String> getPathsToWatch() {
+    return Arrays.asList(myRefsHeadsDirPath, myRefsRemotesDirPath, myRefsTagsPath, myInfoDirPath, myHooksDirPath, myStashReflogPath);
   }
 
   @NotNull
@@ -177,7 +188,7 @@ public final class GitRepositoryFiles {
   }
 
   @NotNull
-  File getConfigFile() {
+  public File getConfigFile() {
     return file(myConfigFilePath);
   }
 
@@ -216,19 +227,29 @@ public final class GitRepositoryFiles {
     return file(myMergeSquashPath);
   }
 
+  public void updateCustomPaths(@NotNull GitConfig.Core core) {
+    String hooksPath = core.getHooksPath();
+    if (hooksPath != null) {
+      myCustomHooksDirPath = myRootDir.toNioPath().resolve(hooksPath).toString();
+    }
+    else {
+      myCustomHooksDirPath = null;
+    }
+  }
+
   @NotNull
   public File getPreCommitHookFile() {
-    return file(myHooksDirPath + slash(PRE_COMMIT_HOOK));
+    return hook(PRE_COMMIT_HOOK);
   }
 
   @NotNull
   public File getPrePushHookFile() {
-    return file(myHooksDirPath + slash(PRE_PUSH_HOOK));
+    return hook(PRE_PUSH_HOOK);
   }
 
   @NotNull
   public File getCommitMsgHookFile() {
-    return file(myHooksDirPath + slash(COMMIT_MSG_HOOK));
+    return hook(COMMIT_MSG_HOOK);
   }
 
   @NotNull
@@ -239,6 +260,16 @@ public final class GitRepositoryFiles {
   @NotNull
   public File getExcludeFile() {
     return file(myExcludePath);
+  }
+
+  @NotNull
+  public File getStashReflogFile() {
+    return file(myStashReflogPath);
+  }
+
+  @NotNull
+  private File hook(@NotNull String filePath) {
+    return file(ObjectUtils.chooseNotNull(myCustomHooksDirPath, myHooksDirPath) + slash(filePath));
   }
 
   @NotNull
@@ -336,6 +367,13 @@ public final class GitRepositoryFiles {
    */
   public boolean isExclude(@NotNull String path) {
     return path.equals(myExcludePath);
+  }
+
+  /**
+   * .git/logs/refs/stash
+   */
+  public boolean isStashReflogFile(@NotNull String path) {
+    return path.equals(myStashReflogPath);
   }
 
   /**

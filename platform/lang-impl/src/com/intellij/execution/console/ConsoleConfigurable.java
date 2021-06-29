@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
 import com.intellij.execution.ExecutionBundle;
@@ -15,21 +15,23 @@ import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.ui.InputValidatorEx;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingManagerImpl;
 import com.intellij.openapi.vfs.encoding.EncodingReference;
-import com.intellij.ui.*;
+import com.intellij.ui.AddEditDeleteListPanel;
+import com.intellij.ui.DocumentAdapter;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.ListSpeedSearch;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.GridBag;
-import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
 import java.util.ArrayList;
@@ -264,27 +266,20 @@ public class ConsoleConfigurable implements SearchableConfigurable, Configurable
   }
 
   private static class MyAddDeleteListPanel extends AddEditDeleteListPanel<String> {
-    private final String myQuery;
+    private final @NlsContexts.DialogMessage String myQuery;
 
-    MyAddDeleteListPanel(String title, String query) {
+    MyAddDeleteListPanel(@NlsContexts.Label String title, @NlsContexts.DialogMessage String query) {
       super(title, new ArrayList<>());
       myQuery = query;
       new ListSpeedSearch(myList);
     }
 
     @Override
-    protected Border createTitledBorder(String title) {
-      return IdeBorderFactory.createTitledBorder(title, false, JBUI.insetsTop(8)).setShowLine(false);
-    }
-
-    @Override
-    @Nullable
-    protected String findItemToAdd() {
+    protected @Nullable String findItemToAdd() {
       return showEditDialog("");
     }
 
-    @Nullable
-    private String showEditDialog(final String initialValue) {
+    private @Nullable String showEditDialog(final String initialValue) {
       return Messages.showInputDialog(this, myQuery, ExecutionBundle.message("dialog.title.folding.pattern"), Messages.getQuestionIcon(), initialValue, new InputValidatorEx() {
         @Override
         public boolean checkInput(String inputString) {
@@ -296,11 +291,10 @@ public class ConsoleConfigurable implements SearchableConfigurable, Configurable
           return !StringUtil.isEmpty(inputString);
         }
 
-        @Nullable
         @Override
-        public String getErrorText(String inputString) {
+        public @NlsContexts.DetailedDescription @Nullable String getErrorText(String inputString) {
           if (!checkInput(inputString)) {
-            return "Console folding rule string cannot be empty";
+            return ExecutionBundle.message("message.console.folding.rule.string.cannot.be.empty");
           }
           return null;
         }

@@ -1,9 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.console
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.UpdateInBackground
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -15,7 +16,11 @@ import org.jetbrains.plugins.groovy.util.createSelectModulePopup
 class GrSelectModuleAction(
   private val project: Project,
   private val file: VirtualFile
-) : AnAction(message("select.module.title"), message("select.module.description"), AllIcons.Nodes.Module) {
+) : AnAction(
+  message("select.module.action.text"),
+  message("select.module.action.description"),
+  AllIcons.Nodes.Module
+), UpdateInBackground {
 
   private val consoleService by lazy {
     GroovyConsoleStateService.getInstance(project)

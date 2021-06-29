@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.naming;
 
 import com.intellij.codeInspection.LocalInspectionEP;
@@ -6,6 +6,7 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.util.InspectionMessage;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -81,7 +82,13 @@ public abstract class AbstractNamingConventionInspection<T extends PsiNameIdenti
   }
 
   protected void registerConventionsListener(@NotNull ExtensionPointName<NamingConvention<T>> epName) {
-    epName.addExtensionPointListener(new ExtensionPointListener<NamingConvention<T>>() {
+    Disposable disposable = ExtensionPointUtil.createExtensionDisposable(
+      this,
+      LocalInspectionEP.LOCAL_INSPECTION.getPoint(),
+      inspectionEP -> this.getClass().getName().equals(inspectionEP.implementationClass)
+    );
+
+    epName.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionAdded(@NotNull NamingConvention<T> extension, @NotNull PluginDescriptor pluginDescriptor) {
         registerConvention(extension);
@@ -91,7 +98,7 @@ public abstract class AbstractNamingConventionInspection<T extends PsiNameIdenti
       public void extensionRemoved(@NotNull NamingConvention<T> extension, @NotNull PluginDescriptor pluginDescriptor) {
         unregisterConvention(extension);
       }
-    }, ExtensionPointUtil.createExtensionDisposable(this, (ExtensionPointName) LocalInspectionEP.LOCAL_INSPECTION));
+    }, disposable);
   }
 
   @Nullable
@@ -171,7 +178,7 @@ public abstract class AbstractNamingConventionInspection<T extends PsiNameIdenti
       XmlSerializer.serializeInto(conventionBean, element);
     }
     else {
-      if (disabled) return null;
+      if (disabled != convention.isEnabledByDefault()) return null;
     }
     return element;
   }
@@ -232,7 +239,7 @@ public abstract class AbstractNamingConventionInspection<T extends PsiNameIdenti
     JPanel panel = new JPanel(new BorderLayout(JBUIScale.scale(2), JBUIScale.scale(2)));
     CardLayout layout = new CardLayout();
     JPanel descriptionPanel = new JPanel(layout);
-    descriptionPanel.setBorder(JBUI.Borders.empty(2));
+    descriptionPanel.setBorder(JBUI.Borders.emptyLeft(12));
     panel.add(descriptionPanel, BorderLayout.CENTER);
     CheckBoxList<NamingConvention<T>> list = new CheckBoxList<>();
     list.setBorder(JBUI.Borders.empty(2));

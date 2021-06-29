@@ -1,9 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.script;
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.ide.plugins.cl.PluginClassLoader;
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader;
 import com.intellij.internal.statistic.eventLog.FeatureUsageData;
 import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.internal.statistic.utils.PluginInfo;
@@ -12,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.util.ClassLoaderUtil;
 import com.intellij.openapi.util.text.StringHash;
+import com.intellij.util.ExceptionUtilRt;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
@@ -94,14 +95,23 @@ final class IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
   }
 
   private static @NotNull Map<EngineInfo, ScriptEngineFactory> calcFactories() {
-    return JBIterable.<ScriptEngineFactory>empty()
-      .append(new ScriptEngineManager().getEngineFactories()) // bundled factories from java modules (Nashorn)
-      .append(new ScriptEngineManager(AllPluginsLoader.INSTANCE).getEngineFactories()) // from plugins (Kotlin)
+    // bundled factories from java modules (Groovy) and from plugins
+    return JBIterable.of(PluginManagerCore.getPlugins())
+      .flatten(o1 -> {
+        try {
+          return new ScriptEngineManager(o1.getPluginClassLoader()).getEngineFactories();
+        }
+        catch (Exception e) {
+          LOG.warn(e);
+          return null;
+        }
+      })
       .unique(o -> o.getClass().getName())
       .toMap(factory -> {
         Class<? extends ScriptEngineFactory> aClass = factory.getClass();
         ClassLoader classLoader = aClass.getClassLoader();
-        PluginDescriptor plugin = classLoader instanceof PluginClassLoader ? ((PluginClassLoader)classLoader).getPluginDescriptor() : null;
+        PluginDescriptor plugin = classLoader instanceof PluginAwareClassLoader
+                                  ? ((PluginAwareClassLoader)classLoader).getPluginDescriptor() : null;
         return new EngineInfo(factory.getEngineName(),
                               factory.getEngineVersion(),
                               factory.getLanguageName(),
@@ -224,9 +234,7 @@ final class IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
           return myEngine.eval(script);
         }
         catch (Throwable ex) {
-          //noinspection InstanceofCatchParameter
-          while (ex instanceof ScriptException && ex.getCause() != null) ex = ex.getCause();
-          throw new IdeScriptException(ex);
+          throw new IdeScriptException(ExceptionUtilRt.unwrapException(ex, ScriptException.class));
         }
       });
     }
@@ -254,7 +262,7 @@ final class IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
       long hash = StringHash.calc(base);
 
       Class<?> c = null;
-      ClassLoader guess1 = myLuckyGuess.get(hash);   // cached loader
+      ClassLoader guess1 = myLuckyGuess.get(hash);   // cached loader or "this" if not found
       ClassLoader guess2 = myLuckyGuess.get(0L);     // last recently used
       for (ClassLoader loader : JBIterable.of(guess1, guess2)) {
         if (loader == this) throw new ClassNotFoundException(name);
@@ -269,7 +277,7 @@ final class IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
       if (c == null) {
         for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
           ClassLoader l = descriptor.getPluginClassLoader();
-          if (l == null || l == guess1 || l == guess2) continue;
+          if (l == null || !hasBase && (l == guess1 || l == guess2)) continue;
           try {
             if (hasBase) {
               l.loadClass(base);

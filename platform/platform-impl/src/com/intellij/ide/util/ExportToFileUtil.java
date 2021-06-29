@@ -22,10 +22,12 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.PathUtil;
-import com.intellij.util.SystemProperties;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -37,16 +39,28 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.TooManyListenersException;
 
 public final class ExportToFileUtil {
   private static final Logger LOG = Logger.getInstance(ExportToFileUtil.class);
 
-  public static void exportTextToFile(Project project, String fileName, String textToExport) {
-    String prepend = "";
+  @RequiresEdt
+  public static void chooseFileAndExport(@NotNull Project project, @NotNull ExporterToTextFile exporter) {
+    final ExportDialogBase dlg = new ExportDialogBase(project, exporter);
+
+    if (!dlg.showAndGet()) {
+      return;
+    }
+
+    exportTextToFile(project, dlg.getFileName(), dlg.getText());
+    exporter.exportedTo(dlg.getFileName());
+  }
+
+  private static void exportTextToFile(Project project, String fileName, String textToExport) {
+    boolean append = false;
     File file = new File(fileName);
     if (file.exists()) {
       int result = Messages.showYesNoCancelDialog(
@@ -63,18 +77,12 @@ public final class ExportToFileUtil {
         return;
       }
       if (result == Messages.NO) {
-        char[] buf = new char[(int)file.length()];
-        try (FileReader reader = new FileReader(fileName)) {
-          reader.read(buf, 0, (int)file.length());
-          prepend = new String(buf) + SystemProperties.getLineSeparator();
-        }
-        catch (IOException ignored) {
-        }
+        append = true;
       }
     }
 
-    try (FileWriter writer = new FileWriter(fileName)) {
-      writer.write(prepend + textToExport);
+    try (FileWriter writer = new FileWriter(fileName, StandardCharsets.UTF_8, append)) {
+      writer.write(textToExport);
     }
     catch (IOException e) {
       Messages.showMessageDialog(
@@ -86,14 +94,14 @@ public final class ExportToFileUtil {
     }
   }
 
-  public static class ExportDialogBase extends DialogWrapper {
+  private static class ExportDialogBase extends DialogWrapper {
     private final Project myProject;
     private final ExporterToTextFile myExporter;
     protected Editor myTextArea;
     protected TextFieldWithBrowseButton myTfFile;
     private ChangeListener myListener;
 
-    public ExportDialogBase(Project project, ExporterToTextFile exporter) {
+    ExportDialogBase(Project project, ExporterToTextFile exporter) {
       super(project, true);
       myProject = project;
       myExporter = exporter;
@@ -189,12 +197,9 @@ public final class ExportToFileUtil {
 
       String defaultFilePath = myExporter.getDefaultFilePath();
       if (!new File(defaultFilePath).isAbsolute()) {
-        defaultFilePath = PathMacroManager.getInstance(myProject).collapsePath(defaultFilePath).replace('/', File.separatorChar);
+        defaultFilePath = PathMacroManager.getInstance(myProject).collapsePath(defaultFilePath);
       }
-      else {
-        defaultFilePath = defaultFilePath.replace('/', File.separatorChar);
-      }
-      myTfFile.setText(defaultFilePath);
+      myTfFile.setText(FileUtil.toSystemDependentName(defaultFilePath));
 
       panel.setBorder(JBUI.Borders.emptyBottom(5));
 
@@ -205,7 +210,7 @@ public final class ExportToFileUtil {
       return myTextArea.getDocument().getText();
     }
 
-    public void setFileName(String s) {
+    public void setFileName(@NlsSafe String s) {
       myTfFile.setText(s);
     }
 

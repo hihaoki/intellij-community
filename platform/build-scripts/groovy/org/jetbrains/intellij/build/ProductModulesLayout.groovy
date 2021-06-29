@@ -1,8 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
 import com.intellij.openapi.util.MultiValuesMap
 import groovy.transform.CompileStatic
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.intellij.build.impl.DistributionJARsBuilder
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
@@ -113,15 +114,6 @@ class ProductModulesLayout {
   List<String> compatiblePluginsToIgnore = []
 
   /**
-   * @deprecated we generate the order file automatically based on the application startup statistics
-   *
-   * Specifies path to a text file containing list of classes in order they are loaded by the product. Entries in the produces *.jar files
-   * will be reordered accordingly to reduct IDE startup time. If {@code null} no reordering will be performed.
-   */
-  @Deprecated
-  String classesLoadingOrderFilePath = null
-
-  /**
    * Module names which should be excluded from this product.
    * Allows to filter out default platform modules (both api and implementation) as well as product modules.
    * This API is experimental, use with care
@@ -131,10 +123,14 @@ class ProductModulesLayout {
   /**
    * @return list of all modules which output is included into the plugin's JARs
    */
-  List<String> getIncludedPluginModules(Set<String> enabledPluginModules) {
-    def modulesFromNonTrivialPlugins = allNonTrivialPlugins.findAll { enabledPluginModules.contains(it.mainModule) }.
-      collectMany { it.moduleJars.values() }
-    (enabledPluginModules + modulesFromNonTrivialPlugins) as List<String>
+  @NotNull
+  Collection<String> getIncludedPluginModules(Set<String> enabledPluginModules) {
+    Set<String> result = new LinkedHashSet<String>()
+    result.addAll(enabledPluginModules)
+    result.addAll(allNonTrivialPlugins
+                    .findAll { enabledPluginModules.contains(it.mainModule) }
+                    .collectMany { it.moduleJars.values() })
+    return result
   }
 
   /**

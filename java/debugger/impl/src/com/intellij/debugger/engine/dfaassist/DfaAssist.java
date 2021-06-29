@@ -4,7 +4,6 @@ package com.intellij.debugger.engine.dfaassist;
 import com.intellij.codeInsight.hints.presentation.MenuOnClickPresentation;
 import com.intellij.codeInsight.hints.presentation.PresentationFactory;
 import com.intellij.codeInsight.hints.presentation.PresentationRenderer;
-import com.intellij.codeInspection.dataFlow.RunnerResult;
 import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.DebugProcessImpl;
@@ -223,18 +222,22 @@ public final class DfaAssist implements DebuggerContextListener, Disposable {
   }
 
   private static @NotNull Map<PsiExpression, DfaHint> computeHints(@NotNull DebuggerDfaRunner runner) {
-    DebuggerInstructionVisitor visitor = new DebuggerInstructionVisitor();
-    RunnerResult result = runner.interpret(visitor);
-    if (result != RunnerResult.OK) return Collections.emptyMap();
-    visitor.cleanup();
-    return visitor.getHints();
+    DebuggerDfaListener interceptor = runner.interpret();
+    if (interceptor == null) return Collections.emptyMap();
+    interceptor.cleanup();
+    return interceptor.getHints();
   }
 
   static @Nullable DebuggerDfaRunner createDfaRunner(@NotNull StackFrameProxyEx proxy, @Nullable PsiElement element)
     throws EvaluateException {
     if (element == null || !element.isValid() || DumbService.isDumb(element.getProject())) return null;
 
-    if (!locationMatches(element, proxy.location())) return null;
+    try {
+      if (!locationMatches(element, proxy.location())) return null;
+    }
+    catch (IllegalArgumentException iea) {
+      throw new EvaluateException(iea.getMessage(), iea);
+    }
     PsiElement anchor = getAnchor(element);
     if (anchor == null) return null;
     PsiElement body = getCodeBlock(anchor);

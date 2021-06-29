@@ -7,7 +7,7 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.*
 import com.intellij.ide.impl.ContentManagerWatcher
 import com.intellij.idea.ActionsBundle
-import com.intellij.internal.statistic.eventLog.EventPair
+import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.notification.EventLog
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -19,6 +19,8 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.BusyObject
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.registry.ExperimentalUI
 import com.intellij.openapi.wm.*
 import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi
@@ -31,10 +33,14 @@ import com.intellij.ui.content.impl.ContentImpl
 import com.intellij.ui.content.impl.ContentManagerImpl
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.SingleAlarm
+import com.intellij.util.ui.ComponentWithEmptyText
 import com.intellij.util.ui.EDT
+import com.intellij.util.ui.StatusText
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.update.Activatable
 import com.intellij.util.ui.update.UiNotifyConnector
+import org.jetbrains.annotations.ApiStatus
+import java.awt.Color
 import java.awt.Component
 import java.awt.Rectangle
 import java.awt.event.ComponentAdapter
@@ -47,8 +53,6 @@ import javax.swing.JLabel
 import javax.swing.LayoutFocusTraversalPolicy
 import kotlin.math.abs
 
-private val LOG = logger<ToolWindowImpl>()
-
 internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
                               private val id: String,
                               private val canCloseContent: Boolean,
@@ -58,7 +62,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
                               windowInfo: WindowInfo,
                               private var contentFactory: ToolWindowFactory?,
                               private var isAvailable: Boolean = true,
-                              private var stripeTitle: String) : ToolWindowEx {
+                              @NlsContexts.TabTitle private var stripeTitle: String) : ToolWindowEx {
   var windowInfoDuringInit: WindowInfoImpl? = null
 
   private val focusTask by lazy { FocusTask(this) }
@@ -68,12 +72,16 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
 
   override fun getProject() = toolWindowManager.project
 
+  override fun getDecoration(): ToolWindowEx.ToolWindowDecoration {
+    return ToolWindowEx.ToolWindowDecoration(icon, additionalGearActions)
+  }
+
   var windowInfo: WindowInfo = windowInfo
     private set
 
   private var contentUi: ToolWindowContentUi? = null
 
-  private var decorator: InternalDecorator? = null
+  private var decorator: InternalDecoratorImpl? = null
 
   private var hideOnEmptyContent = false
   var isPlaceholderMode = false
@@ -123,7 +131,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     addContentNotInHierarchyComponents(contentUi!!)
 
     val contentComponent = contentManager.component
-    InternalDecorator.installFocusTraversalPolicy(contentComponent, LayoutFocusTraversalPolicy())
+    InternalDecoratorImpl.installFocusTraversalPolicy(contentComponent, LayoutFocusTraversalPolicy())
     Disposer.register(parentDisposable, UiNotifyConnector(contentComponent, object : Activatable {
       override fun showNotify() {
         showing.onReady()
@@ -135,13 +143,14 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
       decoratorChild = DumbService.getInstance(toolWindowManager.project).wrapGently(decoratorChild, parentDisposable)
     }
 
-    val decorator = InternalDecorator(this, contentUi!!, decoratorChild)
+    val decorator = InternalDecoratorImpl(this, contentUi!!, decoratorChild)
     this.decorator = decorator
 
     decorator.applyWindowInfo(windowInfo)
     decorator.addComponentListener(object : ComponentAdapter() {
       private val alarm = SingleAlarm(Runnable {
         toolWindowManager.resized(decorator)
+        windowInfo = toolWindowManager.layout.getInfo(getId()) as WindowInfo
       }, 100, disposable)
 
       override fun componentResized(e: ComponentEvent) {
@@ -163,13 +172,9 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
   }
 
   internal fun applyWindowInfo(info: WindowInfo) {
-    if (windowInfo == info) {
-      return
-    }
-
     windowInfo = info
-    val decorator = decorator
     contentUi?.setType(info.contentUiType)
+    val decorator = decorator
     if (decorator != null) {
       decorator.applyWindowInfo(info)
       decorator.validate()
@@ -186,9 +191,6 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
   fun setFocusedComponent(component: Component) {
     toolWindowFocusWatcher?.setFocusedComponentImpl(component)
   }
-
-  @Deprecated(message = "Do not use.", level = DeprecationLevel.ERROR)
-  fun getContentUI() = contentUi
 
   override fun getDisposable() = parentDisposable
 
@@ -244,6 +246,24 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
 
   override fun getAnchor() = windowInfo.anchor
 
+  override fun getLargeStripeAnchor() = windowInfo.largeStripeAnchor
+
+  override fun setLargeStripeAnchor(anchor: ToolWindowAnchor) {
+    toolWindowManager.setLargeStripeAnchor(id, anchor)
+  }
+
+  override fun isVisibleOnLargeStripe() = windowInfo.isVisibleOnLargeStripe
+
+  override fun setVisibleOnLargeStripe(visible: Boolean) {
+    toolWindowManager.setVisibleOnLargeStripe(id, visible)
+  }
+
+  override fun getOrderOnLargeStripe() = windowInfo.orderOnLargeStripe
+
+  override fun setOrderOnLargeStripe(order: Int) {
+    toolWindowManager.setOrderOnLargeStripe(id, order)
+  }
+
   override fun setAnchor(anchor: ToolWindowAnchor, runnable: Runnable?) {
     EDT.assertIsEdt()
     toolWindowManager.setToolWindowAnchor(id, anchor)
@@ -294,7 +314,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     toolWindowManager.stretchHeight(this, value)
   }
 
-  override fun getDecorator() = decorator!!
+  override fun getDecorator(): InternalDecoratorImpl = decorator!!
 
   override fun setAdditionalGearActions(value: ActionGroup?) {
     additionalGearActions = value
@@ -381,17 +401,14 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
   fun canCloseContents() = canCloseContent
 
   override fun getIcon(): Icon? {
-    EDT.assertIsEdt()
     return icon
   }
 
   override fun getTitle(): String? {
-    EDT.assertIsEdt()
     return contentManager.value.selectedContent?.displayName
   }
 
   override fun getStripeTitle(): String {
-    EDT.assertIsEdt()
     return stripeTitle
   }
 
@@ -401,6 +418,9 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     toolWindowManager.toolWindowPropertyChanged(this, ToolWindowProperty.ICON)
   }
 
+  companion object {
+    private val LOG = logger<ToolWindowImpl>()
+  }
   internal fun doSetIcon(newIcon: Icon) {
     val oldIcon = icon
     if (EventLog.LOG_TOOL_WINDOW_ID != id) {
@@ -431,15 +451,19 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
   }
 
   fun fireActivated() {
-    toolWindowManager.activated(this)
+    fireActivated(null)
   }
 
-  fun fireHidden() {
-    toolWindowManager.hideToolWindow(id, false)
+  fun fireActivated(source: ToolWindowEventSource?) {
+    toolWindowManager.activated(this, source)
   }
 
-  fun fireHiddenSide() {
-    toolWindowManager.hideToolWindow(id, true)
+  fun fireHidden(source: ToolWindowEventSource?) {
+    toolWindowManager.hideToolWindow(id, false, true, source)
+  }
+
+  fun fireHiddenSide(source: ToolWindowEventSource?) {
+    toolWindowManager.hideToolWindow(id, true, true, source)
   }
 
   val popupGroup: ActionGroup?
@@ -482,6 +506,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
 
   @Suppress("DeprecatedCallableAddReplaceWith")
   @Deprecated("Do not use. Tool window content will be initialized automatically.", level = DeprecationLevel.ERROR)
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   fun ensureContentInitialized() {
     createContentIfNeeded()
   }
@@ -512,7 +537,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
 
   @JvmOverloads
   fun createPopupGroup(skipHideAction: Boolean = false): ActionGroup {
-    val group = GearActionGroup()
+    val group = GearActionGroup(this)
     if (!skipHideAction) {
       group.addSeparator()
       group.add(HideAction())
@@ -546,7 +571,16 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     return group
   }
 
-  private inner class GearActionGroup : DefaultActionGroup(), DumbAware {
+  override fun getEmptyText(): StatusText? {
+    val component = contentManager.value.component
+    return (component as? ComponentWithEmptyText)?.emptyText
+  }
+
+  fun setEmptyStateBackground(color: Color) {
+    decorator?.background = color
+  }
+
+  private inner class GearActionGroup(toolWindow: ToolWindow) : DefaultActionGroup(), DumbAware {
     init {
       templatePresentation.icon = AllIcons.General.GearPlain
       templatePresentation.text = IdeBundle.message("show.options.menu")
@@ -568,8 +602,12 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
 
       addAction(toggleToolbarGroup).setAsSecondary(true)
       addSeparator()
-      add(ToolWindowViewModeAction.Group())
-      add(ToolWindowMoveAction.Group())
+      add(ActionManager.getInstance().getAction("TW.ViewModeGroup"))
+      if (ExperimentalUI.isNewToolWindowsStripes()) {
+        add(SquareStripeButton.createMoveGroup(project, null, toolWindow))
+      } else {
+        add(ToolWindowMoveAction.Group())
+      }
       add(ResizeActionGroup())
       addSeparator()
       add(RemoveStripeButtonAction())
@@ -587,7 +625,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     }
 
     init {
-      ActionUtil.copyFrom(this, InternalDecorator.HIDE_ACTIVE_WINDOW_ACTION_ID)
+      ActionUtil.copyFrom(this, InternalDecoratorImpl.HIDE_ACTIVE_WINDOW_ACTION_ID)
       templatePresentation.text = UIBundle.message("tool.window.hide.action.name")
     }
   }
@@ -619,7 +657,7 @@ internal class ToolWindowImpl(val toolWindowManager: ToolWindowManagerImpl,
     }
 
     override fun actionPerformed(e: AnActionEvent) {
-      toolWindowManager.removeFromSideBar(id)
+      toolWindowManager.removeFromSideBar(id, ToolWindowEventSource.RemoveStripeButtonAction)
     }
 
     override fun getAdditionalUsageData(event: AnActionEvent): List<EventPair<*>> {

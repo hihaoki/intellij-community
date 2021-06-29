@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.util.NotNullFactory;
@@ -18,13 +18,10 @@ import java.util.function.Predicate;
 /**
  * @author peter
  */
-public final class ObjectUtils {
-  private ObjectUtils() {
-  }
+public final class ObjectUtils extends ObjectUtilsRt {
+  private ObjectUtils() { }
 
-  /**
-   * @see NotNullizer
-   */
+  /** @see NotNullizer */
   public static final Object NULL = sentinel("ObjectUtils.NULL");
 
   /**
@@ -39,12 +36,6 @@ public final class ObjectUtils {
   public static @NotNull Object sentinel(@NotNull @NonNls String name) {
     return new Sentinel(name);
   }
-
-  /**
-   * They promise in http://mail.openjdk.java.net/pipermail/core-libs-dev/2018-February/051312.html that
-   * the object reference won't be removed by JIT and GC-ed until this call.
-  */
-  public static void reachabilityFence(@SuppressWarnings("unused") Object o) {}
 
   private static final class Sentinel {
     private final String myName;
@@ -65,7 +56,7 @@ public final class ObjectUtils {
    * {@code ofInterface} must represent an interface class.
    * Useful for stubs in generic code, e.g. for storing in {@code List<T>} to represent empty special value.
    */
-  public static @NotNull <T> T sentinel(final @NotNull String name, @NotNull Class<T> ofInterface) {
+  public static @NotNull <T> T sentinel(@NotNull String name, @NotNull Class<T> ofInterface) {
     if (!ofInterface.isInterface()) {
       throw new IllegalArgumentException("Expected interface but got: " + ofInterface);
     }
@@ -112,8 +103,7 @@ public final class ObjectUtils {
     return t1 != null ? t1 : t2 != null ? t2 : t3;
   }
 
-  public static @Nullable <T> T coalesce(@Nullable Iterable<? extends T> o) {
-    if (o == null) return null;
+  public static @Nullable <T> T coalesce(@NotNull Iterable<? extends T> o) {
     for (T t : o) {
       if (t != null) return t;
     }
@@ -139,18 +129,14 @@ public final class ObjectUtils {
 
   @Contract(value = "null, _ -> null", pure = true)
   public static @Nullable <T> T tryCast(@Nullable Object obj, @NotNull Class<T> clazz) {
-    if (clazz.isInstance(obj)) {
-      return clazz.cast(obj);
-    }
-    return null;
+    return clazz.isInstance(obj) ? clazz.cast(obj) : null;
   }
 
-  public static @Nullable <T, S> S doIfCast(@Nullable Object obj, @NotNull Class<T> clazz, final Convertor<? super T, ? extends S> convertor) {
-    if (clazz.isInstance(obj)) {
-      //noinspection unchecked
-      return convertor.convert((T)obj);
-    }
-    return null;
+  public static @Nullable <T, S> S doIfCast(@Nullable Object obj,
+                                            @NotNull Class<T> clazz,
+                                            @NotNull Convertor<? super T, ? extends S> convertor) {
+    //noinspection unchecked
+    return clazz.isInstance(obj) ? convertor.convert((T)obj) : null;
   }
 
   @Contract("null, _ -> null")
@@ -164,38 +150,33 @@ public final class ObjectUtils {
     }
   }
 
-  public static <T> void consumeIfCast(@Nullable Object obj, @NotNull Class<T> clazz, final Consumer<? super T> consumer) {
+  public static <T> void consumeIfCast(@Nullable Object obj, @NotNull Class<T> clazz, @NotNull Consumer<? super T> consumer) {
     if (clazz.isInstance(obj)) {
       //noinspection unchecked
-      consumer.consume((T)obj);
+      T t = (T)obj;
+      consumer.consume(t);
     }
   }
 
   @Contract("null, _ -> null")
-  public static @Nullable <T> T nullizeByCondition(final @Nullable T obj, final @NotNull Predicate<? super T> condition) {
-    if (condition.test(obj)) {
-      return null;
-    }
-    return obj;
+  public static @Nullable <T> T nullizeByCondition(@Nullable T obj, @NotNull Predicate<? super T> condition) {
+    return condition.test(obj) ? null : obj;
   }
 
   @Contract("null, _ -> null")
   public static @Nullable <T> T nullizeIfDefaultValue(@Nullable T obj, @NotNull T defaultValue) {
-    if (obj == defaultValue) {
-      return null;
-    }
-    return obj;
+    return obj == defaultValue ? null : obj;
   }
 
   /**
    * Performs binary search on the range [fromIndex, toIndex)
-   * @param indexComparator a comparator which receives a middle index and returns the result of comparision of the value at this index and the goal value
+   * @param indexComparator a comparator which receives a middle index and returns the result of comparison of the value at this index and the goal value
    *                        (e.g 0 if found, -1 if the value[middleIndex] < goal, or 1 if value[middleIndex] > goal)
    * @return index for which {@code indexComparator} returned 0 or {@code -insertionIndex-1} if wasn't found
    * @see java.util.Arrays#binarySearch(Object[], Object, Comparator)
    * @see java.util.Collections#binarySearch(List, Object, Comparator)
    */
-  public static int binarySearch(int fromIndex, int toIndex, IntUnaryOperator indexComparator) {
+  public static int binarySearch(int fromIndex, int toIndex, @NotNull IntUnaryOperator indexComparator) {
     int low = fromIndex;
     int high = toIndex - 1;
     while (low <= high) {
@@ -206,5 +187,9 @@ public final class ObjectUtils {
       else return mid;
     }
     return -(low + 1);
+  }
+
+  public static @NotNull String objectInfo(@Nullable Object o) {
+    return o != null ? o + " (" + o.getClass().getName() + ")" : "null";
   }
 }

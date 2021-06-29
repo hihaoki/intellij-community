@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.plugin.ui.filters;
 
 import com.intellij.ide.DataManager;
@@ -40,7 +40,7 @@ import java.util.List;
 /**
  * @author Bas Leijdekkers
  */
-public class FilterPanel implements FilterTable {
+public class FilterPanel implements FilterTable, ShortFilterTextProvider {
 
   private final JPanel myFilterPanel;
   final JBListTable myFilterTable;
@@ -49,11 +49,10 @@ public class FilterPanel implements FilterTable {
   @NotNull final Project myProject;
   private CompiledPattern myCompiledPattern;
   NamedScriptableDefinition myConstraint;
-  boolean myShown = false;
   LanguageFileType myFileType;
 
   final Header myHeader = new Header();
-  private final ScriptFilter myScriptFilter = new ScriptFilter();
+  private final ScriptFilter myScriptFilter;
   private final List<FilterAction> myFilters;
   private Runnable myConstraintChangedCallback;
 
@@ -61,10 +60,13 @@ public class FilterPanel implements FilterTable {
     myProject = project;
     myFileType = fileType;
     myFilters = new SmartList<>();
-    for (FilterAction filterAction : FilterAction.EP_NAME.getExtensionList()) {
-      myFilters.add(filterAction);
-      filterAction.setTable(this);
+    for (FilterProvider provider : FilterProvider.EP_NAME.getExtensionList()) {
+      for (FilterAction filter : provider.getFilters()) {
+        myFilters.add(filter);
+        filter.setTable(this);
+      }
     }
+    myScriptFilter = new ScriptFilter(); // initialize last
     myFilters.add(myScriptFilter);
     myScriptFilter.setTable(this);
 
@@ -145,15 +147,16 @@ public class FilterPanel implements FilterTable {
 
   final void initFilter(FilterAction filter, List<? extends PsiElement> nodes, boolean completePattern, boolean target) {
     if (filter.checkApplicable(nodes, completePattern, target)) {
-      if (filter.hasFilter() && !myTableModel.getItems().contains(filter)) {
+      if (filter.isActive() && !myTableModel.getItems().contains(filter)) {
         if (myTableModel.getRowCount() == 0) {
           myTableModel.addRow(myHeader);
         }
         myTableModel.addRow(filter);
       }
     }
-    else {
+    else if (filter.hasFilter()) {
       filter.clearFilter();
+      myConstraintChangedCallback.run();
     }
   }
 
@@ -173,11 +176,22 @@ public class FilterPanel implements FilterTable {
   }
 
   @Override
-  @NotNull
+  public String getShortFilterText(NamedScriptableDefinition variable) {
+    final StringBuilder builder = new StringBuilder();
+    for (FilterAction filter : myFilters) {
+      final String text = filter.getShortText(variable);
+      if (text.length() > 0) {
+        if (builder.length() > 0) builder.append(", ");
+        builder.append(text);
+      }
+    }
+    return builder.toString();
+  }
+
+  @Override
+  @Nullable
   public StructuralSearchProfile getProfile() {
-    final StructuralSearchProfile fileType = StructuralSearchUtil.getProfileByFileType(myFileType);
-    assert fileType != null;
-    return fileType;
+    return StructuralSearchUtil.getProfileByFileType(myFileType);
   }
 
   @Override
@@ -192,8 +206,8 @@ public class FilterPanel implements FilterTable {
       final DefaultActionGroup group = new DefaultActionGroup(myFilters);
       final DataContext context = DataManager.getInstance().getDataContext(component);
       final ListPopup popup = JBPopupFactory.getInstance().createActionGroupPopup(SSRBundle.message("add.filter.title"), group, context,
-                                                                                  JBPopupFactory.ActionSelectionAid.ALPHA_NUMBERING, true,
-                                                                                  null);
+                                                                                  JBPopupFactory.ActionSelectionAid.ALPHA_NUMBERING, false,
+                                                                                  ActionPlaces.getPopupPlace("StructuralSearchFilterPanel"));
       popup.show(point);
     }
     else {
@@ -206,15 +220,12 @@ public class FilterPanel implements FilterTable {
     return myFilterPanel;
   }
 
-  public void setFileType(@NotNull LanguageFileType fileType) {
+  public void setFileType(@Nullable LanguageFileType fileType) {
     myFileType = fileType;
   }
 
   public void setCompiledPattern(@Nullable CompiledPattern compiledPattern) {
     myCompiledPattern = compiledPattern;
-    if (myCompiledPattern == null) {
-      myShown = false;
-    }
     showFilters();
   }
 
@@ -227,7 +238,7 @@ public class FilterPanel implements FilterTable {
       return;
     }
     myConstraint = constraint;
-    myShown = false;
+    resetFilters();
     showFilters();
   }
 
@@ -235,8 +246,14 @@ public class FilterPanel implements FilterTable {
     return myTableModel.getRowCount() > 0;
   }
 
+  private void resetFilters() {
+    for (FilterAction filter : myFilters) {
+      filter.reset();
+    }
+  }
+
   private void showFilters() {
-    if (myConstraint == null || myShown) {
+    if (myConstraint == null) {
       return;
     }
     if (!isValid()) {
@@ -271,12 +288,9 @@ public class FilterPanel implements FilterTable {
                                      ? SSRBundle.message("add.filter.label")
                                      : SSRBundle.message("add.script.label"),
                                      SimpleTextAttributes.LINK_ATTRIBUTES,
-                                     e -> {
-                                       final JBTable table = myFilterTable.getTable();
-                                       showAddFilterPopup(table, new RelativePoint(table, table.getMousePosition()));
-                                     });
+                                     e -> showAddFilterPopup(myFilterTable.getTable(),
+                                                             new RelativePoint(MouseInfo.getPointerInfo().getLocation())));
     }
-    myShown = true;
   }
 
   public void setConstraintChangedCallback(Runnable callback) {

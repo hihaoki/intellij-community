@@ -1,9 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.target
 
 import com.intellij.execution.target.LanguageRuntimeType.Companion.EXTENSION_NAME
 import com.intellij.execution.target.TargetEnvironmentType.Companion.EXTENSION_NAME
 import com.intellij.ide.wizard.AbstractWizardStepEx
+import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
@@ -17,6 +18,12 @@ import javax.swing.JComponent
  */
 //todo[remoteServers]: suggest "predefined" configurations (e.g one per every configured SFTP connection)
 abstract class TargetEnvironmentType<C : TargetEnvironmentConfiguration>(id: String) : ContributedTypeBase<C>(id) {
+
+  /**
+   * Returns true if configurations of given type can be run on this OS.
+   */
+  open fun isSystemCompatible(): Boolean = true
+
   /**
    * Returns true if the new configuration of given type may be set up by the user iteratively with the help of [createStepsForNewWizard]
    */
@@ -31,9 +38,12 @@ abstract class TargetEnvironmentType<C : TargetEnvironmentConfiguration>(id: Str
   /**
    * Instantiates a new environment factory for given prepared [configuration][config].
    */
-  abstract fun createEnvironmentFactory(project: Project, config: C): TargetEnvironmentFactory
+  abstract fun createEnvironmentRequest(project: Project, config: C): TargetEnvironmentRequest
 
-  abstract fun createConfigurable(project: Project, config: C): Configurable
+  abstract fun createConfigurable(project: Project,
+                                  config: C,
+                                  defaultLanguage: LanguageRuntimeType<*>?,
+                                  parentConfigurable: Configurable?): Configurable
 
   /**
    * The optional target-specific contribution to all the volumes configurables defined by the respected
@@ -43,6 +53,19 @@ abstract class TargetEnvironmentType<C : TargetEnvironmentConfiguration>(id: Str
   companion object {
     @JvmField
     val EXTENSION_NAME = ExtensionPointName.create<TargetEnvironmentType<*>>("com.intellij.executionTargetType")
+
+    @JvmStatic
+    fun <Type, Config, State> duplicateTargetConfiguration(type: Type, template: Config): Config
+      where Config : PersistentStateComponent<State>,
+            Config : TargetEnvironmentConfiguration,
+            Type : TargetEnvironmentType<Config> {
+
+      return duplicatePersistentComponent(type, template).also { copy ->
+        template.runtimes.resolvedConfigs().map { next ->
+          copy.runtimes.addConfig(next.getRuntimeType().duplicateConfig(next))
+        }
+      }
+    }
   }
 
   /**

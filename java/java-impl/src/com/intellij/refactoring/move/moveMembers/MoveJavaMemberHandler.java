@@ -1,10 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveMembers;
 
 import com.intellij.codeInsight.ChangeContextUtil;
 import com.intellij.codeInsight.ExpectedTypeInfo;
 import com.intellij.codeInsight.ExpectedTypesProvider;
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -35,9 +37,9 @@ public class MoveJavaMemberHandler implements MoveMemberHandler {
                                                             @NotNull Set<PsiMember> membersToMove,
                                                             @NotNull PsiClass targetClass) {
     PsiElement ref = psiReference.getElement();
-    if (ref instanceof PsiReferenceExpression) {
-      PsiReferenceExpression refExpr = (PsiReferenceExpression)ref;
-      PsiExpression qualifier = refExpr.getQualifierExpression();
+    if (ref instanceof PsiJavaCodeReferenceElement) {
+      PsiJavaCodeReferenceElement refExpr = (PsiJavaCodeReferenceElement)ref;
+      @Nullable PsiElement qualifier = refExpr.getQualifier();
       if (RefactoringHierarchyUtil.willBeInTargetClass(refExpr, membersToMove, targetClass, true)) {
         // both member and the reference to it will be in target class
         if (!RefactoringUtil.isInMovedElement(refExpr, membersToMove)) {
@@ -99,7 +101,8 @@ public class MoveJavaMemberHandler implements MoveMemberHandler {
       if (accessDetector != null) {
         ReadWriteAccessDetector.Access access = accessDetector.getExpressionAccess(element);
         if (access != ReadWriteAccessDetector.Access.Read) {
-          String message = RefactoringUIUtil.getDescription(member, true) + " has write access but is moved to an interface";
+          String message =
+            JavaRefactoringBundle.message("move.member.write.access.in.interface.conflict", RefactoringUIUtil.getDescription(member, true));
           conflicts.putValue(element, StringUtil.capitalize(message));
         }
       }
@@ -108,11 +111,11 @@ public class MoveJavaMemberHandler implements MoveMemberHandler {
                member.hasModifierProperty(PsiModifier.FINAL) &&
                PsiUtil.isAccessedForWriting((PsiExpression)usageInfo.reference) &&
                !RefactoringHierarchyUtil.willBeInTargetClass(usageInfo.reference, membersToMove, targetClass, true)) {
-      conflicts.putValue(usageInfo.member, "final variable initializer won't be available after move.");
+      conflicts.putValue(usageInfo.member, JavaBundle.message("move.member.final.initializer.conflict"));
     }
 
     if (toBeConvertedToEnum(moveMembersOptions, member, targetClass) && !isEnumAcceptable(element, targetClass)) {
-      conflicts.putValue(element, "Enum type won't be applicable in the current context");
+      conflicts.putValue(element, JavaBundle.message("move.member.enum.conflict"));
     }
 
     final PsiReference reference = usageInfo.getReference();
@@ -231,8 +234,14 @@ public class MoveJavaMemberHandler implements MoveMemberHandler {
         // might need to make modifiers explicit, see IDEADEV-11416
         final PsiModifierList list = memberCopy.getModifierList();
         assert list != null;
-        list.setModifierProperty(PsiModifier.STATIC, member.hasModifierProperty(PsiModifier.STATIC));
-        list.setModifierProperty(PsiModifier.FINAL, member.hasModifierProperty(PsiModifier.FINAL));
+
+        if (!(member instanceof PsiClass && (((PsiClass)member).isEnum() || ((PsiClass)member).isInterface()))) {
+          list.setModifierProperty(PsiModifier.STATIC, member.hasModifierProperty(PsiModifier.STATIC));
+        }
+        if (!(member instanceof PsiClass && ((PsiClass)member).isEnum())) { 
+          list.setModifierProperty(PsiModifier.FINAL, member.hasModifierProperty(PsiModifier.FINAL));
+        }
+
         VisibilityUtil.setVisibility(list, VisibilityUtil.getVisibilityModifier(member.getModifierList()));
       }
     }

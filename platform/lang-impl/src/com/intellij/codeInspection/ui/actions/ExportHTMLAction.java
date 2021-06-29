@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ui.actions;
 
 import com.intellij.codeEditor.printing.ExportToHTMLSettings;
@@ -31,6 +31,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 
+import javax.xml.stream.XMLStreamException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -55,7 +56,7 @@ public final class ExportHTMLAction extends AnAction implements DumbAware {
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     ListPopup popup = JBPopupFactory.getInstance()
-      .createListPopup(new BaseListPopupStep<String>(InspectionsBundle.message("inspection.action.export.popup.title"), HTML, XML) {
+      .createListPopup(new BaseListPopupStep<>(InspectionsBundle.message("inspection.action.export.popup.title"), HTML, XML) {
         @Override
         public PopupStep<?> onChosen(String selectedValue, boolean finalChoice) {
           return doFinalStep(() -> exportHTML(Comparing.strEqual(selectedValue, HTML)));
@@ -119,14 +120,6 @@ public final class ExportHTMLAction extends AnAction implements DumbAware {
     }, myView.getProject().getDisposed());
   }
 
-  /**
-   * @deprecated Use {@link #dumpToXml}
-   */
-  @Deprecated
-  public static void dump2xml(@NotNull Path outputDirectory, @NotNull InspectionResultsView view) throws IOException {
-    dumpToXml(outputDirectory, view);
-  }
-
   public static void dumpToXml(@NotNull Path outputDirectory, @NotNull InspectionResultsView view) throws IOException {
     InspectionProfileImpl profile = view.getCurrentProfile();
     String singleTool = profile.getSingleTool();
@@ -150,9 +143,14 @@ public final class ExportHTMLAction extends AnAction implements DumbAware {
       InspectionsResultUtil.writeInspectionResult(view.getProject(), shortName, wrappers, outputDirectory, (wrapper -> view.getGlobalInspectionContext().getPresentation(wrapper)));
     }
 
-    InspectionsResultUtil.writeProfileName(outputDirectory, profile.getName());
+    Path descriptionsFile = outputDirectory.resolve(InspectionsResultUtil.DESCRIPTIONS + InspectionsResultUtil.XML_EXTENSION);
+    try {
+      InspectionsResultUtil.describeInspections(descriptionsFile, profile.getName(), profile);
+    }
+    catch (XMLStreamException e) {
+      throw new IOException(e);
+    }
   }
-
 
   @NotNull
   private static Collection<InspectionToolWrapper<?, ?>> getWrappersForAllScopes(@NotNull String shortName,

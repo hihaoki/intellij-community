@@ -21,14 +21,6 @@ public final class GlobalInspectionContextUtil {
     return refElement;
   }
 
-  /**
-   * @deprecated use {@link #canRunInspections(Project, boolean, Runnable)}
-   */
-  @Deprecated
-  public static boolean canRunInspections(@NotNull Project project, final boolean online) {
-    return canRunInspections(project, online, () -> { });
-  }
-
   public static boolean canRunInspections(@NotNull Project project,
                                           final boolean online,
                                           @NotNull Runnable rerunAction) {

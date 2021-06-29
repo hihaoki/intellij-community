@@ -84,12 +84,6 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
     }
 
     updateStat(service.getSchemaProvider(rootSchema), service.resolveSchemaFile(rootSchema));
-    doCompletion(parameters, result, rootSchema);
-  }
-
-  public static void doCompletion(@NotNull final CompletionParameters parameters,
-                                  @NotNull final CompletionResultSet result,
-                                  @NotNull final JsonSchemaObject rootSchema) {
     doCompletion(parameters, result, rootSchema, true);
   }
 
@@ -99,8 +93,10 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
                                   boolean stop) {
     final PsiElement completionPosition = parameters.getOriginalPosition() != null ? parameters.getOriginalPosition() :
                                           parameters.getPosition();
-    new Worker(rootSchema, parameters.getPosition(), completionPosition, result).work();
-    if (stop) {
+    Worker worker = new Worker(rootSchema, parameters.getPosition(), completionPosition, result);
+    worker.work();
+    // stop further completion only if current contributor has at least one new completion variant
+    if (stop && !worker.myVariants.isEmpty()) {
       result.stopHere();
     }
   }
@@ -453,8 +449,7 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
       final String typeText = JsonSchemaDocumentationProvider.getBestDocumentation(true, jsonSchemaObject);
       if (!StringUtil.isEmptyOrSpaces(typeText)) {
         final String text = StringUtil.removeHtmlTags(typeText);
-        final int firstSentenceMark = text.indexOf(". ");
-        builder = builder.withTypeText(firstSentenceMark == -1 ? text : text.substring(0, firstSentenceMark + 1), true);
+        builder = builder.withTypeText(findFirstSentence(text), true);
       }
       else {
         String type = jsonSchemaObject.getTypeDescription(true);
@@ -493,6 +488,18 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
       myVariants.add(builder);
     }
 
+    private static @NotNull String findFirstSentence(@NotNull String sentence) {
+      int i = sentence.indexOf(". ");
+      while (i >= 0) {
+        String egText = ", e.g.";
+        if (!sentence.regionMatches(i - egText.length() + 1, egText, 0, egText.length())) {
+          return sentence.substring(0, i + 1);
+        }
+        i = sentence.indexOf(". ", i + 1);
+      }
+      return sentence;
+    }
+
     @NotNull
     private static Icon getIcon(@Nullable JsonSchemaType type) {
       if (type == null) return AllIcons.Nodes.Property;
@@ -511,7 +518,7 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
     }
 
     private static InsertHandler<LookupElement> createArrayOrObjectLiteralInsertHandler(boolean newline, int insertedTextSize) {
-      return new InsertHandler<LookupElement>() {
+      return new InsertHandler<>() {
         @Override
         public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
           Editor editor = context.getEditor();
@@ -594,7 +601,7 @@ public class JsonSchemaCompletionContributor extends CompletionContributor {
                                           (defaultValue instanceof String ? "\"" + defaultValue + "\"" :
                                            String.valueOf(defaultValue));
       JsonSchemaType finalType = type;
-      return new InsertHandler<LookupElement>() {
+      return new InsertHandler<>() {
         @Override
         public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
           ApplicationManager.getApplication().assertWriteAccessAllowed();

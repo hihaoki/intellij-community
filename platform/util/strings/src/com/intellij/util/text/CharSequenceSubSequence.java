@@ -47,7 +47,7 @@ public class CharSequenceSubSequence implements CharSequence, CharArrayExternali
   @NotNull
   public String toString() {
     if (myChars instanceof String) return ((String)myChars).substring(myStart, myEnd);
-    return StringFactory.createShared(CharArrayUtil.fromSequence(myChars, myStart, myEnd));
+    return new String(CharArrayUtil.fromSequence(myChars, myStart, myEnd));
   }
 
   @NotNull
@@ -66,7 +66,7 @@ public class CharSequenceSubSequence implements CharSequence, CharArrayExternali
   public int hashCode() {
     int h = hash;
     if (h == 0) {
-      hash = h = Strings.stringHashCode(this, 0, length());
+      hash = h = Strings.stringHashCode(myChars, myStart, myEnd);
     }
     return h;
   }

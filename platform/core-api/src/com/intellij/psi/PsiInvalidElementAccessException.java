@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.lang.ASTNode;
@@ -21,19 +21,19 @@ import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.SoftReference;
 
-public class PsiInvalidElementAccessException extends RuntimeException implements ExceptionWithAttachments {
+public final class PsiInvalidElementAccessException extends RuntimeException implements ExceptionWithAttachments {
   private static final Key<Object> INVALIDATION_TRACE = Key.create("INVALIDATION_TRACE");
   private static final Key<Boolean> REPORTING_EXCEPTION = Key.create("REPORTING_EXCEPTION");
 
   private final SoftReference<PsiElement> myElementReference;  // to prevent leaks, since exceptions are stored in IdeaLogger
   private final Attachment[] myDiagnostic;
-  private final String myMessage;
+  private final @NonNls String myMessage;
 
   public PsiInvalidElementAccessException(@Nullable PsiElement element) {
     this(element, null, null);
   }
 
-  public PsiInvalidElementAccessException(@Nullable PsiElement element, @Nullable String message) {
+  public PsiInvalidElementAccessException(@Nullable PsiElement element, @Nullable @NonNls String message) {
     this(element, message, null);
   }
 
@@ -41,7 +41,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
     this(element, null, cause);
   }
 
-  public PsiInvalidElementAccessException(@Nullable PsiElement element, @Nullable String message, @Nullable Throwable cause) {
+  public PsiInvalidElementAccessException(@Nullable PsiElement element, @Nullable @NonNls String message, @Nullable Throwable cause) {
     super(null, cause);
     myElementReference = new SoftReference<>(element);
 
@@ -68,7 +68,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
     }
   }
 
-  private PsiInvalidElementAccessException(@NotNull ASTNode node, @Nullable String message) {
+  private PsiInvalidElementAccessException(@NotNull ASTNode node, @Nullable @NonNls String message) {
     myElementReference = new SoftReference<>(null);
     final IElementType elementType = node.getElementType();
     myMessage = "Element " + node.getClass() + " of type " + elementType + " (" + elementType.getClass() + ")" +
@@ -76,7 +76,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
     myDiagnostic = createAttachments(findInvalidationTrace(node));
   }
 
-  public static PsiInvalidElementAccessException createByNode(@NotNull ASTNode node, @Nullable String message) {
+  public static PsiInvalidElementAccessException createByNode(@NotNull ASTNode node, @Nullable @NonNls String message) {
     return new PsiInvalidElementAccessException(node, message);
   }
 
@@ -102,7 +102,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
                                              @Nullable String message,
                                              boolean recursiveInvocation,
                                              @Nullable Object trace) {
-    String reason = "Element: " + element.getClass();
+    @NonNls String reason = "Element: " + element.getClass();
     if (!recursiveInvocation) {
       try {
         reason += " #" + getLanguage(element).getID() + " ";
@@ -165,7 +165,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
     PsiElement lastParent = root;
     PsiElement element = root instanceof PsiFile ? root : root.getParent();
     if (element == null) {
-      String m = "parent is null";
+      @NonNls String m = "parent is null";
       if (root instanceof StubBasedPsiElement) {
         StubElement<?> stub = ((StubBasedPsiElement<?>)root).getStub();
         while (stub != null) {
@@ -246,7 +246,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
   }
 
   public static boolean isTrackingInvalidation() {
-    return Registry.is("psi.track.invalidation");
+    return Registry.is("psi.track.invalidation", true);
   }
 
   @Nullable

@@ -1,6 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.util;
 
+import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.execution.CantRunException;
 import com.intellij.execution.CommonJavaRunConfigurationParameters;
 import com.intellij.execution.ExecutionBundle;
@@ -18,12 +19,16 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.ex.PathUtilEx;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiJavaModule;
+import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.PathUtil;
+import com.intellij.util.PathsList;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,10 +36,10 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Predicate;
 
-/**
- * @author lex
- */
 public final class JavaParametersUtil {
   private JavaParametersUtil() { }
 
@@ -136,14 +141,14 @@ public final class JavaParametersUtil {
   }
 
   public static Sdk createModuleJdk(final Module module, boolean productionOnly, @Nullable String jreHome) throws CantRunException {
-    return jreHome == null ? JavaParameters.getValidJdkToRunModule(module, productionOnly) : createAlternativeJdk(jreHome);
+    return jreHome == null ? JavaParameters.getValidJdkToRunModule(module, productionOnly) : createAlternativeJdk(module.getProject(), jreHome);
   }
 
-  public static Sdk createProjectJdk(final Project project, @Nullable String jreHome) throws CantRunException {
-    return jreHome == null ? createProjectJdk(project) : createAlternativeJdk(jreHome);
+  public static Sdk createProjectJdk(@NotNull final Project project, @Nullable String jreHome) throws CantRunException {
+    return jreHome == null ? createProjectJdk(project) : createAlternativeJdk(project, jreHome);
   }
 
-  private static Sdk createProjectJdk(final Project project) throws CantRunException {
+  private static Sdk createProjectJdk(@NotNull final Project project) throws CantRunException {
     final Sdk jdk = PathUtilEx.getAnyJdk(project);
     if (jdk == null) {
       throw CantRunException.noJdkConfigured();
@@ -151,18 +156,21 @@ public final class JavaParametersUtil {
     return jdk;
   }
 
-  private static Sdk createAlternativeJdk(@NotNull String jreHome) throws CantRunException {
+  private static Sdk createAlternativeJdk(@NotNull Project project, @NotNull String jreHome) throws CantRunException {
     final Sdk configuredJdk = ProjectJdkTable.getInstance().findJdk(jreHome);
     if (configuredJdk != null) {
       return configuredJdk;
     }
 
-    if (!JdkUtil.checkForJre(jreHome)) {
-      throw new CantRunException(ExecutionBundle.message("jre.path.is.not.valid.jre.home.error.message", jreHome));
+    if (JdkUtil.checkForJre(jreHome)) {
+      final JavaSdk javaSdk = JavaSdk.getInstance();
+      return javaSdk.createJdk(ObjectUtils.notNull(javaSdk.getVersionString(jreHome), ""), jreHome);
     }
 
-    final JavaSdk javaSdk = JavaSdk.getInstance();
-    return javaSdk.createJdk(ObjectUtils.notNull(javaSdk.getVersionString(jreHome), ""), jreHome);
+    Sdk resolved = UnknownAlternativeSdkResolver.getInstance(project).tryResolveJre(jreHome);
+    if (resolved != null) return resolved;
+
+    throw new CantRunException(ExecutionBundle.message("jre.path.is.not.valid.jre.home.error.message", jreHome));
   }
 
   public static void checkAlternativeJRE(@NotNull CommonJavaRunConfigurationParameters configuration) throws RuntimeConfigurationWarning {
@@ -178,19 +186,65 @@ public final class JavaParametersUtil {
     }
   }
 
-  @SuppressWarnings("deprecation")
   @NotNull
-  public static DefaultJDOMExternalizer.JDOMFilter getFilter(@NotNull CommonJavaRunConfigurationParameters parameters) {
-    return new DefaultJDOMExternalizer.JDOMFilter() {
-      @Override
-      public boolean isAccept(@NotNull Field field) {
-        String name = field.getName();
-        if ((name.equals("ALTERNATIVE_JRE_PATH_ENABLED") && !parameters.isAlternativeJrePathEnabled()) ||
-            (name.equals("ALTERNATIVE_JRE_PATH") && StringUtil.isEmpty(parameters.getAlternativeJrePath()))) {
-          return false;
-        }
-        return true;
+  public static Predicate<Field> getFilter(@NotNull CommonJavaRunConfigurationParameters parameters) {
+    return field -> {
+      String name = field.getName();
+      if ((name.equals("ALTERNATIVE_JRE_PATH_ENABLED") && !parameters.isAlternativeJrePathEnabled()) ||
+          (name.equals("ALTERNATIVE_JRE_PATH") && StringUtil.isEmpty(parameters.getAlternativeJrePath()))) {
+        return false;
       }
+      return true;
     };
+  }
+
+  public static void putDependenciesOnModulePath(PathsList modulePath,
+                                                 PathsList classPath,
+                                                 PsiJavaModule prodModule) {
+    Set<PsiJavaModule> allRequires = JavaModuleGraphUtil.getAllDependencies(prodModule);
+    allRequires.add(prodModule);    //put production output on the module path as well
+    JarFileSystem jarFS = JarFileSystem.getInstance();
+    ProjectFileIndex fileIndex = ProjectFileIndex.getInstance(prodModule.getProject());
+
+    boolean inTestSourceContent = fileIndex.isInTestSourceContent(PsiImplUtil.getModuleVirtualFile(prodModule));
+    allRequires.stream()
+      .filter(javaModule -> !PsiJavaModule.JAVA_BASE.equals(javaModule.getName()))
+      .map(javaModule -> getClasspathEntry(javaModule, fileIndex, jarFS, inTestSourceContent))
+      .filter(Objects::nonNull)
+      .forEach(file -> putOnModulePath(modulePath, classPath, file));
+    
+    if (inTestSourceContent) {
+      VirtualFile productionOutput = getClasspathEntry(prodModule, fileIndex, jarFS, false);
+      if (productionOutput != null) {
+        putOnModulePath(modulePath, classPath, productionOutput);
+      }
+    }
+  }
+
+  private static void putOnModulePath(PathsList modulePath, PathsList classPath, VirtualFile virtualFile) {
+    String path = PathUtil.getLocalPath(virtualFile.getPath());
+    if (classPath.getPathList().contains(path)) {
+      classPath.remove(path);
+      modulePath.add(path);
+    }
+  }
+
+  private static VirtualFile getClasspathEntry(PsiJavaModule javaModule,
+                                               ProjectFileIndex fileIndex,
+                                               JarFileSystem jarFileSystem, 
+                                               boolean testSourceContent) {
+    VirtualFile moduleFile = PsiImplUtil.getModuleVirtualFile(javaModule);
+
+    Module moduleDependency = fileIndex.getModuleForFile(moduleFile);
+    if (moduleDependency == null) {
+      return jarFileSystem.getLocalVirtualFileFor(moduleFile);
+    }
+
+    CompilerModuleExtension moduleExtension = CompilerModuleExtension.getInstance(moduleDependency);
+    if (moduleExtension != null) {
+      return testSourceContent ? moduleExtension.getCompilerOutputPathForTests()
+                               : moduleExtension.getCompilerOutputPath();
+    }
+    return null;
   }
 }

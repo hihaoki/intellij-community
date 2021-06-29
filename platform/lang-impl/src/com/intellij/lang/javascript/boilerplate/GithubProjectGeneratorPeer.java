@@ -7,6 +7,7 @@ import com.intellij.ide.IdeBundle;
 import com.intellij.ide.util.projectWizard.SettingsStep;
 import com.intellij.lang.LangBundle;
 import com.intellij.openapi.ui.ValidationInfo;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.WebProjectGenerator;
 import com.intellij.platform.templates.github.GithubTagInfo;
@@ -20,9 +21,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.*;
 
-/**
- * @author Sergey Simonchik
- */
 public class GithubProjectGeneratorPeer implements WebProjectGenerator.GeneratorPeer<GithubTagInfo> {
 
   public static String getGithubZipballUrl(String ghUserName,String ghRepoName, String branch) {
@@ -30,7 +28,7 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
   }
 
   private void createUIComponents() {
-    myReloadableComboBoxPanel = new ReloadableComboBoxPanel<GithubTagInfo>() {
+    myReloadableComboBoxPanel = new ReloadableComboBoxPanel<>() {
 
       @Override
       protected void doUpdateValues(@NotNull Set<GithubTagInfo> tags) {
@@ -44,7 +42,9 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
           selectedItem = sortedTags.get(0);
         }
         myComboBox.removeAllItems();
-        myComboBox.addItem(myMasterTag);
+        if (myDefaultBranchTag != null) {
+          myComboBox.addItem(myDefaultBranchTag);
+        }
         for (GithubTagInfo tag : sortedTags) {
           myComboBox.addItem(tag);
         }
@@ -67,7 +67,7 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
           return true;
         }
         int count = myComboBox.getItemCount();
-        Set<GithubTagInfo> oldTags = new HashSet<GithubTagInfo>();
+        Set<GithubTagInfo> oldTags = new HashSet<>();
         for (int i = 1; i < count; i++) {
           GithubTagInfo item = ObjectUtils.tryCast(myComboBox.getItemAt(i), GithubTagInfo.class);
           if (item != null) {
@@ -100,7 +100,7 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
   }
 
   private final List<WebProjectGenerator.SettingsStateListener> myListeners = new ArrayList<>();
-  private final GithubTagInfo myMasterTag;
+  private final GithubTagInfo myDefaultBranchTag;
   private final GithubTagListProvider myTagListProvider;
   private JComponent myComponent;
   private JPanel myVersionPanel;
@@ -109,14 +109,15 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
   public GithubProjectGeneratorPeer(@NotNull AbstractGithubTagDownloadedProjectGenerator generator) {
     String ghUserName = generator.getGithubUserName();
     String ghRepoName = generator.getGithubRepositoryName();
-    myMasterTag = new GithubTagInfo(
-      "master",
-      getGithubZipballUrl(ghUserName, ghRepoName, "master")
-    );
+    String defaultBranchName = generator.getDefaultBranchName();
+    myDefaultBranchTag = defaultBranchName != null ? new GithubTagInfo(
+      defaultBranchName,
+      getGithubZipballUrl(ghUserName, ghRepoName, defaultBranchName)
+    ) : null;
 
     myTagListProvider = new GithubTagListProvider(ghUserName, ghRepoName);
 
-    myReloadableComboBoxPanel.setDataProvider(new ReloadableComboBoxPanel.DataProvider<GithubTagInfo>() {
+    myReloadableComboBoxPanel.setDataProvider(new ReloadableComboBoxPanel.DataProvider<>() {
       @Override
       public Set<GithubTagInfo> getCachedValues() {
         return myTagListProvider.getCachedTags();
@@ -135,7 +136,7 @@ public class GithubProjectGeneratorPeer implements WebProjectGenerator.Generator
     myReloadableComboBoxPanel.onUpdateValues(tags);
   }
 
-  void onTagsUpdateError(@NotNull final String errorMessage) {
+  void onTagsUpdateError(@NotNull final @NlsContexts.DialogMessage String errorMessage) {
     myReloadableComboBoxPanel.onValuesUpdateError(errorMessage);
   }
 

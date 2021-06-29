@@ -17,7 +17,7 @@ package com.siyeh.ig.junit;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.TestFrameworks;
-import com.intellij.codeInspection.AnnotateMethodFix;
+import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.psi.*;
 import com.intellij.testIntegration.TestFramework;
 import com.siyeh.InspectionGadgetsBundle;
@@ -44,7 +44,7 @@ public class JUnit3StyleTestMethodInJUnit4ClassInspection extends BaseInspection
   @Nullable
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
-    return new DelegatingFix(new AnnotateMethodFix("org.junit.Test"));
+    return new DelegatingFix(new AddAnnotationPsiFix("org.junit.Test", (PsiMethod)infos[0]));
   }
 
   @Override
@@ -65,7 +65,7 @@ public class JUnit3StyleTestMethodInJUnit4ClassInspection extends BaseInspection
       final TestFramework testFramework = TestFrameworks.detectFramework(containingClass);
       if (testFramework != null) {
         if (testFramework.isTestMethod(method, false)) {
-          final String testFrameworkName = testFramework.getName();
+          @NonNls final String testFrameworkName = testFramework.getName();
           if (testFrameworkName.equals("JUnit4") || testFrameworkName.equals("JUnit5")) return;
         }
         if (AnnotationUtil.isAnnotated(method, "org.junit.Ignore", 0) ||
@@ -76,7 +76,7 @@ public class JUnit3StyleTestMethodInJUnit4ClassInspection extends BaseInspection
       }
       if (TestUtils.isJUnitTestClass(containingClass)) return;
       if (!containsJUnit4Annotation(containingClass)) return;
-      registerMethodError(method);
+      registerMethodError(method, method);
     }
   }
 

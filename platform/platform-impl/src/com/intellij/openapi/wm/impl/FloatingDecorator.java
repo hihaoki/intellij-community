@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.ide.ui.UISettings;
@@ -19,6 +19,7 @@ import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.util.Alarm;
 import com.intellij.util.MathUtil;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -56,8 +57,8 @@ public final class FloatingDecorator extends JDialog {
   private float myStartRatio;
   private float myEndRatio; // start and end alpha ratio for transparency animation
 
-  FloatingDecorator(@NotNull JFrame owner, @NotNull InternalDecorator decorator) {
-    super(owner, decorator.getToolWindow().getId());
+  FloatingDecorator(@NotNull JFrame owner, @NotNull InternalDecoratorImpl decorator) {
+    super(owner, decorator.getToolWindow().getStripeTitle());
 
     MnemonicHelper.init(getContentPane());
 
@@ -109,7 +110,9 @@ public final class FloatingDecorator extends JDialog {
   }
 
   @Override
-  public final void show(){
+  public void show(){
+    UIUtil.decorateWindowHeader(rootPane);
+    UIUtil.setCustomTitleBar(this, rootPane, runnable -> Disposer.register(myDisposable, () -> runnable.run()));
     boolean isActive = myInfo.isActiveOnStart();
     setFocusableWindowState(isActive);
 
@@ -136,7 +139,7 @@ public final class FloatingDecorator extends JDialog {
   }
 
   @Override
-  public final void dispose(){
+  public void dispose(){
     if (ScreenUtil.isStandardAddRemoveNotify(getParent())) {
       Disposer.dispose(myDelayAlarm);
       Disposer.dispose(myDisposable);
@@ -205,7 +208,7 @@ public final class FloatingDecorator extends JDialog {
     }
 
     @Override
-    protected final void processMouseMotionEvent(final MouseEvent e){
+    protected void processMouseMotionEvent(final MouseEvent e){
       super.processMouseMotionEvent(e);
       if(MouseEvent.MOUSE_DRAGGED==e.getID() && myLastPoint != null){
         final Point newPoint=e.getPoint();
@@ -268,7 +271,7 @@ public final class FloatingDecorator extends JDialog {
     }
 
     @Override
-    protected final void processMouseEvent(final MouseEvent e){
+    protected void processMouseEvent(final MouseEvent e){
       super.processMouseEvent(e);
       switch(e.getID()){
         case MouseEvent.MOUSE_PRESSED:{
@@ -326,7 +329,7 @@ public final class FloatingDecorator extends JDialog {
     }
 
     @Override
-    public final Dimension getPreferredSize() {
+    public Dimension getPreferredSize() {
       final Dimension d = super.getPreferredSize();
       if (ANCHOR_TOP == myAnchor || ANCHOR_BOTTOM == myAnchor) {
         d.height = DIVIDER_WIDTH;
@@ -338,7 +341,7 @@ public final class FloatingDecorator extends JDialog {
     }
 
     @Override
-    public final void paint(final Graphics g) {
+    public void paint(final Graphics g) {
       super.paint(g);
       final JBColor lightGray = new JBColor(Color.lightGray, Gray._95);
       final JBColor gray = new JBColor(Color.gray, Gray._95);
@@ -370,7 +373,7 @@ public final class FloatingDecorator extends JDialog {
 
   private final class MyAnimator implements Runnable {
     @Override
-    public final void run() {
+    public void run() {
       if (isDisplayable() && isShowing()) {
         WindowManager.getInstance().setAlphaModeRatio(FloatingDecorator.this, getCurrentAlphaRatio());
       }

@@ -1,10 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.tree.java;
 
+import com.intellij.openapi.diagnostic.Attachment;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.source.Constants;
 import com.intellij.psi.impl.source.tree.CompositePsiElement;
+import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.impl.source.tree.JavaSharedImplUtil;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
@@ -30,7 +33,12 @@ public class PsiPatternVariableImpl extends CompositePsiElement implements PsiPa
   @Override
   @NotNull
   public PsiIdentifier getNameIdentifier() {
-    return Objects.requireNonNull(PsiTreeUtil.getChildOfType(this, PsiIdentifier.class));
+    PsiIdentifier identifier = PsiTreeUtil.getChildOfType(this, PsiIdentifier.class);
+    if (identifier == null) {
+      PsiFile file = getContainingFile();
+      Logger.getInstance(PsiPatternVariableImpl.class).error("Pattern without identifier", new Attachment("File content", file.getText()));
+    }
+    return Objects.requireNonNull(identifier);
   }
 
   @Override
@@ -47,11 +55,6 @@ public class PsiPatternVariableImpl extends CompositePsiElement implements PsiPa
   @Override
   public PsiPattern getPattern() {
     return (PsiPattern)getParent();
-  }
-
-  @Override
-  public void setInitializer(@Nullable PsiExpression initializer) throws IncorrectOperationException {
-    throw new IncorrectOperationException();
   }
 
   @Override
@@ -143,12 +146,13 @@ public class PsiPatternVariableImpl extends CompositePsiElement implements PsiPa
   @Nullable
   @Override
   public PsiModifierList getModifierList() {
-    return null;
+    return (PsiModifierList)findPsiChildByType(JavaElementType.MODIFIER_LIST);
   }
 
   @Override
   public boolean hasModifierProperty(@NotNull String name) {
-    return false;
+    final PsiModifierList modifierList = getModifierList();
+    return modifierList != null && modifierList.hasModifierProperty(name);
   }
 
   @NotNull
@@ -161,8 +165,10 @@ public class PsiPatternVariableImpl extends CompositePsiElement implements PsiPa
   public void delete() throws IncorrectOperationException {
     PsiPattern pattern = getPattern();
     if (pattern instanceof PsiTypeTestPattern) {
-      replace(getTypeElement());
-      return;
+      if (pattern.getParent() instanceof PsiInstanceOfExpression) {
+        pattern.replace(getTypeElement());
+        return;
+      }
     }
     super.delete();
   }

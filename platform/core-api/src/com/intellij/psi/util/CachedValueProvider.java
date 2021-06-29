@@ -10,7 +10,7 @@ import java.util.Collection;
 
 /**
  * A computation (typically a lambda) used by {@link CachedValue} to calculate a result and cache it.
- * The provider should not have side effects and shouldn't depend on variables that change during CachedValue lifetime. See
+ * The provider should not have side effects and shouldn't depend on variables that change during the CachedValue lifetime. See
  * {@link CachedValue} documentation for examples.<p></p>
  * @param <T> the type of the cached value
  */
@@ -50,9 +50,7 @@ public interface CachedValueProvider<T> {
         }
       }
 
-      if (CachedValueProfiler.canProfile()) {
-        CachedValueProfiler.getInstance().createInfo(this);
-      }
+      CachedValueProfiler.onResultCreated(this, null);
     }
 
     public T getValue() {

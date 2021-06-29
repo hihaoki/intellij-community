@@ -1,6 +1,5 @@
 package org.jetbrains.plugins.textmate.bundles;
 
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -75,12 +74,12 @@ public class Bundle {
 
     Bundle bundle = (Bundle)o;
 
-    return FileUtil.filesEqual(bundleFile, bundle.bundleFile);
+    return FileUtilRt.filesEqual(bundleFile, bundle.bundleFile);
   }
 
   @Override
   public int hashCode() {
-    return FileUtil.fileHashCode(bundleFile);
+    return FileUtilRt.pathHashCode(bundleFile.getPath());
   }
 
   @Override

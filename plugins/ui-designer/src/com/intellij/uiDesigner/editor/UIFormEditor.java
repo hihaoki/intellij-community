@@ -87,6 +87,12 @@ public final class UIFormEditor extends UserDataHolderBase implements FileEditor
     return myEditor;
   }
 
+  @NotNull
+  @Override
+  public VirtualFile getFile() {
+    return myFile;
+  }
+
   @Override
   public boolean isModified(){
     return false;
@@ -98,14 +104,6 @@ public final class UIFormEditor extends UserDataHolderBase implements FileEditor
     return
       FileDocumentManager.getInstance().getDocument(myFile) != null &&
       FileTypeRegistry.getInstance().isFileOfType(myFile, GuiFormFileType.INSTANCE);
-  }
-
-  @Override
-  public void selectNotify(){
-  }
-
-  @Override
-  public void deselectNotify(){
   }
 
   @Override

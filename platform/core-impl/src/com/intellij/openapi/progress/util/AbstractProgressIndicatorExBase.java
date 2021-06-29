@@ -20,6 +20,8 @@ import com.intellij.openapi.progress.TaskInfo;
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.WeakList;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -202,6 +204,7 @@ public class AbstractProgressIndicatorExBase extends AbstractProgressIndicatorBa
    * @deprecated do not use. Instead, create new indicator and call {@link #addStateDelegate(ProgressIndicatorEx)} with it.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected void delegateRunningChange(@NotNull IndicatorAction action) {
   }
 
@@ -236,5 +239,11 @@ public class AbstractProgressIndicatorExBase extends AbstractProgressIndicatorBa
   @FunctionalInterface
   protected interface IndicatorAction {
     void execute(@NotNull ProgressIndicatorEx each);
+  }
+
+  @NonNls
+  @Override
+  public String toString() {
+    return "ProgressIndicatorEx " + System.identityHashCode(this) + ": running="+isRunning()+"; canceled="+isCanceled() + (isReuseable() ? "; reusable=true" : "");
   }
 }

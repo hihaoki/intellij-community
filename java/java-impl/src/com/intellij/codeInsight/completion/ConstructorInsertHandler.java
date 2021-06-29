@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
@@ -18,7 +18,7 @@ import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateState;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.java.JavaBundle;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -38,6 +38,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Contract;
@@ -77,12 +78,11 @@ public final class ConstructorInsertHandler implements InsertHandler<LookupEleme
 
     OffsetKey insideRef = context.trackOffset(context.getTailOffset(), false);
 
-    final PsiElement position = SmartCompletionDecorator.getPosition(context, delegate);
+    PsiElement position = context.getFile().findElementAt(context.getStartOffset());
     if (position == null) return;
 
-    final PsiExpression enclosing = PsiTreeUtil.getContextOfType(position, PsiExpression.class, true);
-    final PsiAnonymousClass anonymousClass = PsiTreeUtil.getParentOfType(position, PsiAnonymousClass.class);
-    final boolean inAnonymous = anonymousClass != null && anonymousClass.getParent() == enclosing;
+    PsiAnonymousClass anonymousClass = PsiTreeUtil.getParentOfType(position, PsiAnonymousClass.class);
+    boolean inAnonymous = anonymousClass != null && PsiTreeUtil.isAncestor(anonymousClass.getBaseClassReference(), position, false);
     if (delegate instanceof PsiTypeLookupItem) {
       if (context.getDocument().getTextLength() > context.getTailOffset() &&
           context.getDocument().getCharsSequence().charAt(context.getTailOffset()) == '<') {
@@ -187,7 +187,7 @@ public final class ConstructorInsertHandler implements InsertHandler<LookupEleme
       return false;
     }
 
-    PsiElement position = SmartCompletionDecorator.getPosition(context, delegate);
+    PsiElement position = context.getFile().findElementAt(context.getStartOffset());
     return position != null &&
            ((PsiTypeLookupItem)delegate).calcGenerics(position, context).isEmpty() &&
            context.getCompletionChar() != '(';
@@ -317,7 +317,7 @@ public final class ConstructorInsertHandler implements InsertHandler<LookupEleme
       final PsiAnonymousClass
         aClass = PsiTreeUtil.findElementOfClassAtOffset(file, editor.getCaretModel().getOffset(), PsiAnonymousClass.class, false);
       if (aClass == null) return;
-      CommandProcessor.getInstance().executeCommand(project, () -> {
+      CommandProcessor.getInstance().executeCommand(project, () -> SlowOperations.allowSlowOperations(() -> {
         final Collection<CandidateInfo> candidatesToImplement = OverrideImplementExploreUtil.getMethodsToOverrideImplement(aClass, true);
         for (Iterator<CandidateInfo> iterator = candidatesToImplement.iterator(); iterator.hasNext(); ) {
           final CandidateInfo candidate = iterator.next();
@@ -331,20 +331,21 @@ public final class ConstructorInsertHandler implements InsertHandler<LookupEleme
           OverrideImplementUtil.chooseAndOverrideOrImplementMethods(project, editor, aClass, false);
         }
         else {
-          ApplicationManager.getApplication().runWriteAction(() -> {
-            try {
-              List<PsiMethod> methods = OverrideImplementUtil.overrideOrImplementMethodCandidates(aClass, candidatesToImplement, false);
-              List<PsiGenerationInfo<PsiMethod>> prototypes = OverrideImplementUtil.convert2GenerationInfos(methods);
-              List<PsiGenerationInfo<PsiMethod>> resultMembers =
-                GenerateMembersUtil.insertMembersBeforeAnchor(aClass, null, prototypes);
-              resultMembers.get(0).positionCaret(editor, true);
-            }
-            catch (IncorrectOperationException ioe) {
-              LOG.error(ioe);
-            }
-          });
+          ApplicationManagerEx.getApplicationEx()
+            .runWriteActionWithCancellableProgressInDispatchThread(getCommandName(), project, editor.getComponent(), indicator -> {
+              try {
+                List<PsiMethod> methods = OverrideImplementUtil.overrideOrImplementMethodCandidates(aClass, candidatesToImplement, false);
+                List<PsiGenerationInfo<PsiMethod>> prototypes = OverrideImplementUtil.convert2GenerationInfos(methods);
+                List<PsiGenerationInfo<PsiMethod>> resultMembers =
+                  GenerateMembersUtil.insertMembersBeforeAnchor(aClass, null, prototypes);
+                resultMembers.get(0).positionCaret(editor, true);
+              }
+              catch (IncorrectOperationException ioe) {
+                LOG.error(ioe);
+              }
+            });
         }
-      }, getCommandName(), getCommandName(), UndoConfirmationPolicy.DEFAULT, editor.getDocument());
+      }), getCommandName(), getCommandName(), UndoConfirmationPolicy.DEFAULT, editor.getDocument());
     };
   }
 

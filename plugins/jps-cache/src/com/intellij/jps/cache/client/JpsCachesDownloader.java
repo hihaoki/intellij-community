@@ -16,9 +16,9 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URLConnection;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
@@ -41,8 +41,8 @@ class JpsCachesDownloader {
 
   @NotNull
   List<Pair<File, DownloadableFileDescription>> download(@NotNull File targetDir, @NotNull Map<String, String> requestHeaders) throws IOException {
-    List<Pair<File, DownloadableFileDescription>> downloadedFiles = Collections.synchronizedList(new ArrayList<>());
-    List<Pair<File, DownloadableFileDescription>> existingFiles = Collections.synchronizedList(new ArrayList<>());
+    List<Pair<File, DownloadableFileDescription>> downloadedFiles = new CopyOnWriteArrayList<>();
+    List<Pair<File, DownloadableFileDescription>> existingFiles = new CopyOnWriteArrayList<>();
 
     try {
       myProgressIndicatorManager.setText(this, IdeBundle.message("progress.downloading.0.files.text", myFilesDescriptions.size()));
@@ -133,21 +133,21 @@ class JpsCachesDownloader {
 
     return HttpRequests.request(description.getDownloadUrl())
       .tuner(tuner -> headers.forEach((k, v) -> tuner.addRequestProperty(k, v)))
-      .connect(new HttpRequests.RequestProcessor<File>() {
-      @Override
-      public File process(@NotNull HttpRequests.Request request) throws IOException {
-        URLConnection connection = request.getConnection();
-        int size = connection.getContentLength();
-        if (existingFile.exists() && size == existingFile.length()) {
-          return existingFile;
-        }
+      .connect(new HttpRequests.RequestProcessor<>() {
+        @Override
+        public File process(@NotNull HttpRequests.Request request) throws IOException {
+          URLConnection connection = request.getConnection();
+          int size = connection.getContentLength();
+          if (existingFile.exists() && size == existingFile.length()) {
+            return existingFile;
+          }
 
-        String header = connection.getHeaderField(CDN_CACHE_HEADER);
-        if (header != null && header.startsWith("Hit")) hitsCount++;
-        indicator.setText2(IdeBundle.message("progress.download.file.text", description.getPresentableFileName(), presentableUrl));
-        return request.saveToFile(FileUtil.createTempFile("download.", ".tmp"), indicator);
-      }
-    });
+          String header = connection.getHeaderField(CDN_CACHE_HEADER);
+          if (header != null && header.startsWith("Hit")) hitsCount++;
+          indicator.setText2(IdeBundle.message("progress.download.file.text", description.getPresentableFileName(), presentableUrl));
+          return request.saveToFile(FileUtil.createTempFile("download.", ".tmp"), indicator);
+        }
+      });
   }
 
   private static List<Pair<File, DownloadableFileDescription>> moveToDir(List<Pair<File, DownloadableFileDescription>> downloadedFiles,

@@ -1,10 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.configuration;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.SdkModificator;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.DocumentAdapter;
@@ -23,9 +24,7 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.event.MouseEvent;
 
-/**
- * @author yole
- */
+
 public class EditSdkDialog extends DialogWrapper {
   private JPanel myMainPanel;
   private JTextField myNameTextField;
@@ -35,14 +34,14 @@ public class EditSdkDialog extends DialogWrapper {
   private final boolean myWasAssociated;
   private boolean myAssociationRemoved = false;
 
-  protected EditSdkDialog(Project project, SdkModificator sdk, final NullableFunction<String, String> nameValidator) {
+  protected EditSdkDialog(Project project, SdkModificator sdk, final NullableFunction<? super String, String> nameValidator) {
     super(project, true);
     setTitle(PyBundle.message("sdk.edit.dialog.title"));
     myNameTextField.setText(sdk.getName());
     myNameTextField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
       protected void textChanged(@NotNull DocumentEvent e) {
-        String nameError = nameValidator.fun(getName());
+        @NlsSafe String nameError = nameValidator.fun(getName());
         setErrorText(nameError, myNameTextField);
         setOKActionEnabled(nameError == null);
       }
@@ -97,6 +96,7 @@ public class EditSdkDialog extends DialogWrapper {
     return myNameTextField;
   }
 
+  @NlsSafe
   public String getName() {
     return myNameTextField.getText();
   }

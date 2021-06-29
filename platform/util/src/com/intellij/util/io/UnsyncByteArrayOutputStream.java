@@ -2,6 +2,7 @@
 package com.intellij.util.io;
 
 import com.intellij.openapi.util.io.ByteArraySequence;
+import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -20,9 +21,9 @@ public class UnsyncByteArrayOutputStream extends OutputStream {
   }
 
   public UnsyncByteArrayOutputStream(int size) {
-    this(new byte[size]);
+    this(ArrayUtil.newByteArray(size));
   }
-  public UnsyncByteArrayOutputStream(byte[] buffer) {
+  public UnsyncByteArrayOutputStream(byte @NotNull [] buffer) {
     myBuffer = buffer;
   }
 
@@ -86,7 +87,7 @@ public class UnsyncByteArrayOutputStream extends OutputStream {
 
   @NotNull
   public ByteArraySequence toByteArraySequence() {
-    return new ByteArraySequence(myBuffer, 0, myCount);
+    return myCount == 0 ? ByteArraySequence.EMPTY : new ByteArraySequence(myBuffer, 0, myCount);
   }
 
   @NotNull

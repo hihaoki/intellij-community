@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.util.Key;
@@ -10,12 +10,15 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Predicate;
 
 public final class ComponentUtil {
   public static <T> T getClientProperty(@NotNull JComponent component, @NotNull Key<T> key) {
+    Object value = component.getClientProperty(key);
     //noinspection unchecked
-    return (T)component.getClientProperty(key);
+    return value != null ? (T)value : null;
   }
 
   public static <T> void putClientProperty(@NotNull JComponent component, @NotNull Key<T> key, T value) {
@@ -99,5 +102,65 @@ public final class ComponentUtil {
       component = component.getParent();
     }
     return null;
+  }
+
+  /**
+   * @param component a view component of the requested scroll pane
+   * @return a scroll pane for the given component or {@code null} if none
+   */
+  public static @Nullable JScrollPane getScrollPane(@Nullable Component component) {
+    return component instanceof JScrollBar
+           ? getScrollPane((JScrollBar)component)
+           : getScrollPane(component instanceof JViewport
+                           ? (JViewport)component
+                           : getViewport(component));
+  }
+
+  /**
+   * @param bar a scroll bar of the requested scroll pane
+   * @return a scroll pane for the given scroll bar or {@code null} if none
+   */
+  public static @Nullable JScrollPane getScrollPane(@Nullable JScrollBar bar) {
+    Container parent = bar == null ? null : bar.getParent();
+    return parent instanceof JScrollPane ? (JScrollPane)parent : null;
+  }
+
+  /**
+   * @param viewport a viewport of the requested scroll pane
+   * @return a scroll pane for the given viewport or {@code null} if none
+   */
+  public static @Nullable JScrollPane getScrollPane(@Nullable JViewport viewport) {
+    Container parent = viewport == null ? null : viewport.getParent();
+    return parent instanceof JScrollPane ? (JScrollPane)parent : null;
+  }
+
+  /**
+   * @param component a view component of the requested viewport
+   * @return a viewport for the given component or {@code null} if none
+   */
+  public static @Nullable JViewport getViewport(@Nullable Component component) {
+    Container parent = component == null ? null : SwingUtilities.getUnwrappedParent(component);
+    return parent instanceof JViewport ? (JViewport)parent : null;
+  }
+
+  public static @NotNull <T extends JComponent> java.util.List<T> findComponentsOfType(JComponent parent, @NotNull Class<? extends T> cls) {
+    java.util.List<T> result = new ArrayList<>();
+    findComponentsOfType(parent, cls, result);
+    return result;
+  }
+
+  private static <T extends JComponent> void findComponentsOfType(JComponent parent,
+                                                                  @NotNull Class<T> cls,
+                                                                  @NotNull List<? super T> result) {
+    if (parent == null) return;
+    if (cls.isAssignableFrom(parent.getClass())) {
+      @SuppressWarnings("unchecked") final T t = (T)parent;
+      result.add(t);
+    }
+    for (Component c : parent.getComponents()) {
+      if (c instanceof JComponent) {
+        findComponentsOfType((JComponent)c, cls, result);
+      }
+    }
   }
 }

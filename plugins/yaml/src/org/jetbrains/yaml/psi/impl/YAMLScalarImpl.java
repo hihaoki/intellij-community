@@ -6,7 +6,6 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.yaml.YAMLElementTypes;
@@ -27,39 +26,27 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
   @NotNull
   public abstract List<TextRange> getContentRanges();
-
-  @NotNull
-  protected abstract String getRangesJoiner(@NotNull CharSequence text, @NotNull List<TextRange> contentRanges, int indexBefore);
+  
+  public abstract @NotNull YamlScalarTextEvaluator getTextEvaluator();
 
   protected List<Pair<TextRange, String>> getDecodeReplacements(@NotNull CharSequence input) {
     return Collections.emptyList();
   }
 
   protected List<Pair<TextRange, String>> getEncodeReplacements(@NotNull CharSequence input) throws IllegalArgumentException {
-    throw new IllegalArgumentException("Not implemented");
+    return Collections.emptyList();
   }
 
   @NotNull
   @Override
-  public String getTextValue() {
-    final String text = getText();
-    final List<TextRange> contentRanges = getContentRanges();
-
-    final StringBuilder builder = new StringBuilder();
-
-    for (int i = 0; i < contentRanges.size(); i++) {
-      final TextRange range = contentRanges.get(i);
-
-      final CharSequence curString = range.subSequence(text);
-      builder.append(curString);
-
-      if (i + 1 != contentRanges.size()) {
-        builder.append(getRangesJoiner(text, contentRanges, i));
-      }
-    }
-    return processReplacements(builder, getDecodeReplacements(builder));
+  public final String getTextValue() {
+    return getTextEvaluator().getTextValue(null);
   }
 
+  @NotNull
+  public final String getTextValue(@Nullable TextRange rangeInHost) {
+    return getTextEvaluator().getTextValue(rangeInHost);
+  }
 
   @Override
   public PsiReference getReference() {
@@ -124,7 +111,14 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
     @Override
     public boolean decode(@NotNull TextRange rangeInsideHost, @NotNull StringBuilder outChars) {
-      outChars.append(myHost.getTextValue());
+      String text = myHost.getText();
+      List<TextRange> ranges = myHost.getContentRanges();
+      for (TextRange range : ranges) {
+        TextRange intersection = range.intersection(rangeInsideHost);
+        if (intersection == null) continue;
+        String substring = intersection.substring(text);
+        outChars.append(processReplacements(substring, myHost.getDecodeReplacements(substring)));
+      }
       return true;
     }
 
@@ -135,15 +129,13 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
       int currentOffsetInDecoded = 0;
 
+      TextRange last = null;
       for (int i = 0; i < contentRanges.size(); i++) {
-        final TextRange range = contentRanges.get(i);
+        final TextRange range = rangeInsideHost.intersection(contentRanges.get(i));
+        if (range == null) continue;
+        last = range;
 
         String curString = range.subSequence(text).toString();
-
-        if (i + 1 != contentRanges.size()) {
-          final String joiner = myHost.getRangesJoiner(text, contentRanges, i);
-          curString += joiner;
-        }
 
         final List<Pair<TextRange, String>> replacementsForThisLine = myHost.getDecodeReplacements(curString);
         int encodedOffsetInCurrentLine = 0;
@@ -163,8 +155,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
         currentOffsetInDecoded += deltaLength;
       }
 
-      //noinspection ConstantConditions
-      return ContainerUtil.getLastItem(contentRanges, rangeInsideHost).getEndOffset();
+      return last != null ? last.getEndOffset() : -1;
     }
 
     @Override

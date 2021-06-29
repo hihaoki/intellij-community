@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.io.FileUtil
@@ -33,7 +33,7 @@ import org.jetbrains.jps.model.module.JpsModuleDependency
 class MavenArtifactsBuilder {
   /** second component of module names which describes a common group rather than a specific framework and therefore should be excluded from artifactId */
   private static final Set<String> COMMON_GROUP_NAMES = ["platform", "vcs", "tools", "clouds"] as Set<String>
-  private final BuildContext buildContext
+  protected final BuildContext buildContext
 
   MavenArtifactsBuilder(BuildContext buildContext) {
     this.buildContext = buildContext
@@ -157,7 +157,7 @@ class MavenArtifactsBuilder {
 
   private Map<JpsModule, MavenArtifactData> generateMavenArtifactData(List<String> moduleNames) {
     buildContext.messages.debug("Collecting platform modules which can be published as Maven artifacts")
-    def allPlatformModules = moduleNames.collect {
+    List<JpsModule> allPlatformModules = moduleNames.collect {
       buildContext.findRequiredModule(it)
     }
 
@@ -203,7 +203,7 @@ class MavenArtifactsBuilder {
                                                       Set<JpsModule> computationInProgress) {
     if (results.containsKey(module)) return results[module]
     if (nonMavenizableModules.contains(module)) return null
-    if (!module.name.startsWith("intellij.")) {
+    if (shouldSkipModule(module.name, false)) {
       buildContext.messages.warning("  module '$module.name' doesn't belong to IntelliJ project so it cannot be published")
       return null
     }
@@ -219,6 +219,7 @@ class MavenArtifactsBuilder {
     scopedDependencies(module).each { dependency, scope ->
       if (dependency instanceof JpsModuleDependency) {
         def depModule = (dependency as JpsModuleDependency).module
+        if (shouldSkipModule(depModule.name, true)) return
         if (computationInProgress.contains(depModule)) {
           /*
            It's forbidden to have compile-time circular dependencies in IntelliJ project, but there are some cycles with runtime scope
@@ -229,7 +230,7 @@ class MavenArtifactsBuilder {
           buildContext.messages.warning(" module '$module.name': skip recursive dependency on '$depModule.name'")
         }
         else {
-          def depArtifact = generateMavenArtifactData(depModule, results, nonMavenizableModules, computationInProgress)
+          MavenArtifactData depArtifact = generateMavenArtifactData(depModule, results, nonMavenizableModules, computationInProgress)
           if (depArtifact == null) {
             buildContext.messages.warning(" module '$module.name' depends on non-mavenizable module '$depModule.name' so it cannot be published")
             mavenizable = false
@@ -255,9 +256,18 @@ class MavenArtifactsBuilder {
       nonMavenizableModules << module
       return null
     }
-    def artifactData = new MavenArtifactData(generateMavenCoordinates(module.name, buildContext.messages, buildContext.buildNumber), dependencies)
+    MavenArtifactData artifactData = new MavenArtifactData(generateMavenCoordinatesForModule(module), dependencies)
     results[module] = artifactData
     return artifactData
+  }
+
+  protected boolean shouldSkipModule(String moduleName, boolean moduleIsDependency) {
+    if (moduleIsDependency) return false
+    return !moduleName.startsWith("intellij.")
+  }
+
+  protected MavenCoordinates generateMavenCoordinatesForModule(JpsModule module) {
+    return generateMavenCoordinates(module.name, buildContext.messages, buildContext.buildNumber)
   }
 
   static boolean isOptionalDependency(JpsLibrary library) {

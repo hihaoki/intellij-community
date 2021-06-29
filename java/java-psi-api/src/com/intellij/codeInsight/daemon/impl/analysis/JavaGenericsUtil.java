@@ -46,7 +46,6 @@ public final class JavaGenericsUtil {
         return true;
       }
 
-      assert parameters.length == 0;
       final PsiClassType.ClassResolveResult resolved = classType.resolveGenerics();
       final PsiClass aClass = resolved.getElement();
       if (aClass instanceof PsiTypeParameter) {
@@ -256,6 +255,11 @@ public final class JavaGenericsUtil {
     return false;
   }
 
+  /**
+   * @param expression expression used as for-each loop {@linkplain PsiForeachStatement#getIteratedValue() iterated value}.
+   * @return type of elements; the for-each loop {@linkplain PsiForeachStatement#getIterationParameter() iteration parameter} 
+   * must be assignable from this type. Returns null if the supplied expression type cannot be used as for-each loop iterated value.  
+   */
   @Nullable
   public static PsiType getCollectionItemType(@NotNull PsiExpression expression) {
     return getCollectionItemType(expression.getType(), expression.getResolveScope());

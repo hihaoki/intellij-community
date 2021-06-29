@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.status;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -10,12 +10,13 @@ import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.PowerSaveMode;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
@@ -38,7 +39,7 @@ public final class TogglePopupHintsPanel extends EditorBasedWidget implements St
   public static final String ID = "InspectionProfile";
 
   private Icon myCurrentIcon;
-  private String myToolTipText;
+  private @NlsContexts.Tooltip String myToolTipText;
 
   public TogglePopupHintsPanel(@NotNull Project project) {
     super(project);
@@ -77,7 +78,7 @@ public final class TogglePopupHintsPanel extends EditorBasedWidget implements St
       final PsiFile file = getCurrentFile();
       if (file != null) {
         if (!DaemonCodeAnalyzer.getInstance(file.getProject()).isHighlightingAvailable(file)) return;
-        final HectorComponent component = ServiceManager.getService(myProject, HectorComponentFactory.class).create(file);
+        final HectorComponent component = myProject.getService(HectorComponentFactory.class).create(file);
         component.showComponent(e.getComponent(), d -> new Point(-d.width, -d.height));
       }
     };
@@ -100,7 +101,7 @@ public final class TogglePopupHintsPanel extends EditorBasedWidget implements St
       }
 
       @Override
-      public void profileChanged(InspectionProfile profile) {
+      public void profileChanged(@NotNull InspectionProfile profile) {
         updateStatus();
       }
     });
@@ -135,21 +136,22 @@ public final class TogglePopupHintsPanel extends EditorBasedWidget implements St
     if (isStateChangeable(file)) {
       if (PowerSaveMode.isEnabled()) {
         myCurrentIcon = IconLoader.getDisabledIcon(AllIcons.Ide.HectorOff);
-        myToolTipText = "Code analysis is disabled in power save mode.\n";
+        myToolTipText = LangBundle.message("tooltip.code.analysis.disabled.in.power.save.mode") + "\n";
       }
       else if (HighlightingLevelManager.getInstance(getProject()).shouldInspect(file)) {
         myCurrentIcon = AllIcons.Ide.HectorOn;
         InspectionProfileImpl profile = InspectionProjectProfileManager.getInstance(file.getProject()).getCurrentProfile();
-        if (profile.wasInitialized())
-          myToolTipText = "Current inspection profile: " +profile .getName() + ".\n";
+        if (profile.wasInitialized()) {
+          myToolTipText = LangBundle.message("tooltip.current.inspection.profile", profile.getName()) + "\n";
+        }
       }
       else if (HighlightingLevelManager.getInstance(getProject()).shouldHighlight(file)) {
         myCurrentIcon = AllIcons.Ide.HectorSyntax;
-        myToolTipText = "Highlighting level is: Syntax.\n";
+        myToolTipText = LangBundle.message("tooltip.highlighting.level.syntax") + "\n";
       }
       else {
         myCurrentIcon = AllIcons.Ide.HectorOff;
-        myToolTipText = "Inspections are off.\n";
+        myToolTipText = LangBundle.message("tooltip.inspections.are.off") + "\n";
       }
       myToolTipText += UIBundle.message("popup.hints.panel.click.to.configure.highlighting.tooltip.text");
     }

@@ -1,8 +1,8 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project;
 
-import com.intellij.internal.statistic.IdeActivity;
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.ide.IdeBundle;
+import com.intellij.internal.statistic.StructuredIdeActivity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -31,7 +31,7 @@ final class DumbServiceGuiTaskQueue {
     myTaskQueue = queue;
   }
 
-  void processTasksWithProgress(@NotNull IdeActivity activity,
+  void processTasksWithProgress(@NotNull StructuredIdeActivity activity,
                                 @NotNull Consumer<? super ProgressIndicatorEx> bindProgress,
                                 @NotNull Consumer<? super ProgressIndicatorEx> unbindProgress) {
     while (true) {
@@ -44,8 +44,9 @@ final class DumbServiceGuiTaskQueue {
         bindProgress.accept(pair.getIndicator());
         pair.registerStageStarted(activity);
 
-        try (AccessToken ignored = HeavyProcessLatch.INSTANCE.processStarted("Performing indexing tasks", HeavyProcessLatch.Type.Indexing)) {
-          runSingleTask(pair);
+        try {
+          HeavyProcessLatch.INSTANCE
+            .performOperation(HeavyProcessLatch.Type.Indexing, IdeBundle.message("progress.performing.indexing.tasks"), () -> runSingleTask(pair));
         }
         finally {
           unbindProgress.accept(pair.getIndicator());

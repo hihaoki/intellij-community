@@ -3,31 +3,12 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 repositories {
-  maven { url "https://cache-redirector.jetbrains.com/intellij-third-party-dependencies" }
-  maven { url "https://cache-redirector.jetbrains.com/jetbrains.bintray.com/test-discovery" }
   maven { url "https://cache-redirector.jetbrains.com/jcenter.bintray.com" }
   maven { url 'https://www.jetbrains.com/intellij-repository/releases' }
 }
 
 configurations {
-  buildScriptsDeps
   testDiscoveryDeps
-}
-
-dependencies {
-  def jpsLibraryCoordinates = loadProjectLibraryProperties("jps-build-script-dependencies-bootstrap").first
-  def jpsLibraryVersion = jpsLibraryCoordinates.substring(jpsLibraryCoordinates.lastIndexOf(':')+1)
-  buildScriptsDeps(jpsLibraryCoordinates)
-  buildScriptsDeps('commons-cli:commons-cli:1.2')
-  buildScriptsDeps('com.jetbrains.intellij.platform:test-framework-core:' + jpsLibraryVersion)
-}
-
-/**
- * Resolve libraries used from build scripts sources
- */
-task setupBuildScriptsDeps(dependsOn: configurations.buildScriptsDeps, type: Sync) {
-  from configurations.buildScriptsDeps.files
-  into "${project.buildDir}/build-scripts-deps"
 }
 
 task setupTestDiscoveryDeps {

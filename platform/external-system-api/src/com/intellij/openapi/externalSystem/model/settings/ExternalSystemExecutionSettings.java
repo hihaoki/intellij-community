@@ -5,7 +5,6 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.SystemProperties;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,16 +59,6 @@ public class ExternalSystemExecutionSettings implements Serializable, UserDataHo
     myVerboseProcessing = verboseProcessing;
   }
 
-  /**
-   * @deprecated use {@link #getJvmArguments()}
-   */
-  @Deprecated
-  @NotNull
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  public Set<String> getVmOptions() {
-    return new LinkedHashSet<>(myJvmArguments);
-  }
-
   @NotNull
   public List<String> getJvmArguments() {
     return Collections.unmodifiableList(myJvmArguments);
@@ -117,6 +106,10 @@ public class ExternalSystemExecutionSettings implements Serializable, UserDataHo
   public ExternalSystemExecutionSettings withArgument(String argument) {
     myArguments.add(argument);
     return this;
+  }
+
+  public void prependArguments(String... arguments) {
+    myArguments.addAll(0, Arrays.asList(arguments));
   }
 
   public ExternalSystemExecutionSettings withEnvironmentVariables(Map<String, String> envs) {

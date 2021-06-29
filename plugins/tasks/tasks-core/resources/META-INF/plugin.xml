@@ -1,7 +1,6 @@
 <!--
   ~ Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
   -->
-
 <idea-plugin>
   <id>com.intellij.tasks</id>
   <name>Task Management</name>
@@ -75,7 +74,7 @@
       <add-to-group group-id="ToolsMenu" anchor="first"/>
     </group>
 
-    <group id="tasks.toolbar.group">
+    <group id="tasks.toolbar">
       <separator/>
       <reference id="tasks.switch"/>
       <add-to-group group-id="MainToolBar" anchor="last"/>
@@ -107,7 +106,6 @@
     <projectService serviceInterface="com.intellij.tasks.TaskManager" serviceImplementation="com.intellij.tasks.impl.TaskManagerImpl"/>
     <postStartupActivity implementation="com.intellij.tasks.impl.TaskManagerImpl$Activity"/>
     <projectService serviceImplementation="com.intellij.tasks.impl.TaskProjectConfiguration"/>
-    <applicationService serviceImplementation="com.intellij.tasks.config.RecentTaskRepositories"/>
     <applicationService serviceImplementation="com.intellij.tasks.config.PasswordConversionEnforcer" preload="notHeadless"/>
     <applicationService serviceImplementation="com.intellij.tasks.config.TaskSettings"/>
     <search.optionContributor implementation="com.intellij.tasks.config.TaskSearchableOptionContributor"/>
@@ -147,7 +145,6 @@
     <tasks.commitPlaceholderProvider implementation="com.intellij.tasks.impl.DefaultCommitPlaceholderProvider"/>
 
     <vcs.changeListDecorator implementation="com.intellij.tasks.impl.TaskManagerDecorator"/>
-    <notificationAllowlist groupIds="Task Group;Tasks"/>
+    <notificationGroup id="Task Group" displayType="BALLOON"/>
   </extensions>
-
 </idea-plugin>

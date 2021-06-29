@@ -3,7 +3,9 @@ package com.intellij.internal.statistic.actions
 
 import com.intellij.icons.AllIcons
 import com.intellij.idea.ActionsBundle
-import com.intellij.internal.statistic.eventLog.whitelist.WhitelistTestGroupStorage
+import com.intellij.internal.statistic.eventLog.validator.storage.ValidationTestRulesPersistedStorage
+import com.intellij.internal.statistic.utils.StatisticsRecorderUtil.isAnyTestModeEnabled
+import com.intellij.internal.statistic.utils.StatisticsRecorderUtil.isTestModeEnabled
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -15,16 +17,20 @@ class CleanupEventsTestSchemeAction(private val recorderId: String? = null)
                     ActionsBundle.message("action.CleanupEventsTestSchemeAction.description"),
                     AllIcons.Actions.GC) {
 
+  override fun update(event: AnActionEvent) {
+    event.presentation.isEnabled = recorderId?.let { isTestModeEnabled(recorderId) } ?: isAnyTestModeEnabled()
+  }
+
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project ?: return
 
     ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Removing Test Scheme", false) {
       override fun run(indicator: ProgressIndicator) {
         if (recorderId == null) {
-          WhitelistTestGroupStorage.cleanupAll()
+          ValidationTestRulesPersistedStorage.cleanupAll()
         }
         else {
-          WhitelistTestGroupStorage.cleanupAll(listOf(recorderId))
+          ValidationTestRulesPersistedStorage.cleanupAll(listOf(recorderId))
         }
       }
     })

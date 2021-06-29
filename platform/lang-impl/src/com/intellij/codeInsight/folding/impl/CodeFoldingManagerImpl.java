@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.folding.impl;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -28,6 +28,7 @@ import com.intellij.psi.LanguageInjector;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.KeyedLazyInstance;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.WeakList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -48,13 +49,13 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
     myProject = project;
 
     LanguageFolding.EP_NAME.addExtensionPointListener(
-      new ExtensionPointListener<KeyedLazyInstance<FoldingBuilder>>() {
+      new ExtensionPointListener<>() {
         @Override
         public void extensionAdded(@NotNull KeyedLazyInstance<FoldingBuilder> extension, @NotNull PluginDescriptor pluginDescriptor) {
           // Asynchronously remove foldings when extension is added
           for (FileEditor fileEditor : FileEditorManager.getInstance(project).getAllEditors()) {
             if (fileEditor instanceof TextEditor) {
-              scheduleAsyncFoldingUpdate(((TextEditor) fileEditor).getEditor());
+              scheduleAsyncFoldingUpdate(((TextEditor)fileEditor).getEditor());
             }
           }
         }
@@ -154,6 +155,10 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
     return region.getUserData(UpdateFoldRegionsOperation.COLLAPSED_BY_DEFAULT);
   }
 
+  public void markForUpdate(FoldRegion region) {
+    UpdateFoldRegionsOperation.UPDATE_REGION.set(region, Boolean.TRUE);
+  }
+
   @Override
   public void scheduleAsyncFoldingUpdate(@NotNull Editor editor) {
     FoldingUpdate.clearFoldingCache(editor);
@@ -210,7 +215,7 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
         runnable.run();
       }
       if (firstTime && !isFoldingsInitializedInEditor(editor)) {
-        initFolding(editor);
+        SlowOperations.allowSlowOperations(() -> initFolding(editor));
       }
     };
   }

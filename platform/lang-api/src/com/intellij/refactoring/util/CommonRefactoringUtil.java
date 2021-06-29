@@ -3,9 +3,12 @@ package com.intellij.refactoring.util;
 
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -19,7 +22,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 
 import static com.intellij.openapi.util.NlsContexts.DialogMessage;
 import static com.intellij.openapi.util.NlsContexts.DialogTitle;
@@ -71,7 +75,7 @@ public final class CommonRefactoringUtil {
                                    @NotNull @DialogMessage String message,
                                    @NotNull @DialogTitle String title,
                                    @Nullable String helpId) {
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
       throw new RefactoringErrorHintException(message);
     }
 
@@ -85,7 +89,7 @@ public final class CommonRefactoringUtil {
     });
   }
 
-  public static String htmlEmphasize(@NotNull String text) {
+  public static @NlsSafe String htmlEmphasize(@NotNull @Nls String text) {
     return StringUtil.htmlEmphasize(text);
   }
 
@@ -130,17 +134,20 @@ public final class CommonRefactoringUtil {
                                              @NotNull Collection<? extends PsiElement> flat,
                                              @NotNull String messagePrefix,
                                              boolean notifyOnFail) {
-    Collection<VirtualFile> readonly = new THashSet<>();  // not writable, but could be checked out
-    Collection<VirtualFile> failed = new THashSet<>();  // those located in read-only filesystem
+    Collection<VirtualFile> readonly = new HashSet<>();  // not writable, but could be checked out
+    Collection<VirtualFile> failed = new HashSet<>();  // those located in read-only filesystem
 
     boolean seenNonWritablePsiFilesWithoutVirtualFile =
-      checkReadOnlyStatus(flat, false, readonly, failed) || checkReadOnlyStatus(recursive, true, readonly, failed);
+      ProgressManager.getInstance()
+        .runProcessWithProgressSynchronously(() -> ReadAction.compute(() -> checkReadOnlyStatus(flat, false, readonly, failed) || checkReadOnlyStatus(recursive, true, readonly, failed)),
+                                             RefactoringBundle.message("progress.title.collect.read.only.files"),
+                                             false, project);
 
     ReadonlyStatusHandler.OperationStatus status = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(readonly);
     ContainerUtil.addAll(failed, status.getReadonlyFiles());
 
     if (notifyOnFail && (!failed.isEmpty() || seenNonWritablePsiFilesWithoutVirtualFile && readonly.isEmpty())) {
-      StringBuilder message = new StringBuilder(messagePrefix).append('\n');
+      @NlsSafe StringBuilder message = new StringBuilder(messagePrefix).append('\n');
       int i = 0;
       for (VirtualFile virtualFile : failed) {
         String subj = RefactoringBundle.message(virtualFile.isDirectory() ? "directory.description" : "file.description", virtualFile.getPresentableUrl());

@@ -1,8 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.changeClassSignature;
 
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -68,7 +69,9 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
       final String newName = info.getName(parameters);
       TypeParameterInfo existing = infos.get(newName);
       if (existing != null) {
-        conflicts.putValue(myClass, RefactoringUIUtil.getDescription(myClass, false) + " already contains type parameter " + newName);
+        String classDescription = RefactoringUIUtil.getDescription(myClass, false);
+        String message = JavaRefactoringBundle.message("changeClassSignature.already.contains.type.parameter", classDescription, newName);
+        conflicts.putValue(myClass, message);
       }
       infos.put(newName, info);
     }
@@ -85,7 +88,7 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
       if (reference.getElement() instanceof PsiJavaCodeReferenceElement) {
         PsiJavaCodeReferenceElement referenceElement = (PsiJavaCodeReferenceElement)reference.getElement();
         PsiElement parent = referenceElement.getParent();
-        if (parent instanceof PsiTypeElement && (parent.getParent() instanceof PsiTypeTestPattern ||
+        if (parent instanceof PsiTypeElement && (parent.getParent() instanceof PsiInstanceOfExpression ||
                                                  parent.getParent() instanceof PsiClassObjectAccessExpression)) {
           continue;
         }

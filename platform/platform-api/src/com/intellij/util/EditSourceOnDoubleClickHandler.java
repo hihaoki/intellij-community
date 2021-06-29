@@ -8,11 +8,11 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.DoubleClickListener;
 import com.intellij.ui.treeStructure.treetable.TreeTable;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.tree.ExpandOnDoubleClick;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.util.ui.tree.WideSelectionTreeUI;
 import org.jetbrains.annotations.NotNull;
@@ -68,7 +68,11 @@ public final class EditSourceOnDoubleClickHandler {
     }.installOn(table);
   }
 
-  public static void install(final JList list, final Runnable whenPerformed) {
+  public static void install(@NotNull JList list) {
+    install(list, null);
+  }
+
+  public static void install(@NotNull JList list, @Nullable Runnable whenPerformed) {
     new DoubleClickListener() {
       @Override
       protected boolean onDoubleClick(@NotNull MouseEvent e) {
@@ -78,7 +82,9 @@ public final class EditSourceOnDoubleClickHandler {
         if (!list.getCellBounds(index, index).contains(point)) return false;
         DataContext dataContext = DataManager.getInstance().getDataContext(list);
         OpenSourceUtil.openSourcesFrom(dataContext, true);
-        whenPerformed.run();
+        if (whenPerformed != null) {
+          whenPerformed.run();
+        }
         return true;
       }
     }.installOn(list);
@@ -95,17 +101,21 @@ public final class EditSourceOnDoubleClickHandler {
    * @return {@code true} to expand/collapse the node, {@code false} to navigate to source if possible
    */
   public static boolean isExpandPreferable(@NotNull JTree tree, @Nullable TreePath path) {
-    if (path == null || Registry.is("ide.tree.expand.on.double.click.disabled", false)) return false;
+    if (path == null) return false; // path is not specified
+
+    ExpandOnDoubleClick behavior = ExpandOnDoubleClick.getBehavior(tree);
+    if (behavior == ExpandOnDoubleClick.NEVER) return false; // disable expand/collapse
 
     TreeModel model = tree.getModel();
     if (model == null || model.isLeaf(path.getLastPathComponent())) return false;
     if (!UIUtil.isClientPropertyTrue(tree, INSTALLED)) return true; // expand by default if handler is not installed
 
     // navigate to source is preferred if the tree provides a navigatable object for the given path
-    if (!Registry.is("ide.tree.expand.navigatable.on.double.click.disabled", false)) {
+    if (behavior == ExpandOnDoubleClick.NAVIGATABLE) {
       Navigatable navigatable = TreeUtil.getNavigatable(tree, path);
       if (navigatable != null && navigatable.canNavigateToSource()) return false;
     }
+    if (behavior == ExpandOnDoubleClick.ALWAYS) return true;
     // for backward compatibility
     NodeDescriptor<?> descriptor = TreeUtil.getLastUserObject(NodeDescriptor.class, path);
     return descriptor == null || descriptor.expandOnDoubleClick();

@@ -100,8 +100,13 @@ public class DelayedNotificator implements ChangeListListener {
 
 
   @Override
-  public void unchangedFileStatusChanged() {
-    myScheduler.submit(() -> getMulticaster().unchangedFileStatusChanged());
+  public void changedFileStatusChanged(boolean upToDate) {
+    myScheduler.submit(() -> getMulticaster().changedFileStatusChanged(upToDate));
+  }
+
+  @Override
+  public void unchangedFileStatusChanged(boolean upToDate) {
+    myScheduler.submit(() -> getMulticaster().unchangedFileStatusChanged(upToDate));
   }
 
   @Override
@@ -114,10 +119,17 @@ public class DelayedNotificator implements ChangeListListener {
     myScheduler.submit(() -> getMulticaster().allChangeListsMappingsChanged());
   }
 
+  @Override
+  public void changeListAvailabilityChanged() {
+    myScheduler.submit(() -> getMulticaster().changeListAvailabilityChanged());
+  }
+
   public void changeListsForFileChanged(@NotNull FilePath path,
                                         @NotNull Set<String> removedChangeListsIds,
                                         @NotNull Set<String> addedChangeListsIds) {
     myScheduler.submit(() -> {
+      if (!myManager.areChangeListsEnabled()) return;
+
       Change change = myManager.getChange(path);
       if (change == null) return;
       List<Change> changes = Collections.singletonList(change);

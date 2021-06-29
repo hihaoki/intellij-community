@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.frame.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -22,11 +22,11 @@ public class XCopyWatchAction extends XWatchesTreeActionBase {
   protected void perform(@NotNull AnActionEvent e, @NotNull XDebuggerTree tree, @NotNull XWatchesView watchesView) {
     XDebuggerTreeNode root = tree.getRoot();
     for (XValueNodeImpl node : getSelectedNodes(tree, XValueNodeImpl.class)) {
-      node.getValueContainer().calculateEvaluationExpression().onSuccess(expr -> {
+      int index = node instanceof WatchNode ? root.getIndex(node) + 1 : -1;
+      node.calculateEvaluationExpression().onSuccess(expr -> {
         XExpression watchExpression = expr != null ? expr : XExpressionImpl.fromText(node.getName());
         if (watchExpression != null) {
-          DebuggerUIUtil.invokeLater(
-            () -> watchesView.addWatchExpression(watchExpression, node instanceof WatchNode ? root.getIndex(node) + 1 : -1, true));
+          DebuggerUIUtil.invokeLater(() -> watchesView.addWatchExpression(watchExpression, index, true));
         }
       });
     }

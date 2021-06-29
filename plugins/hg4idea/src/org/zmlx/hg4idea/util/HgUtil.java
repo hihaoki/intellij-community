@@ -14,12 +14,12 @@ package org.zmlx.hg4idea.util;
 
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.NlsContexts.DialogTitle;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.ShutDownTracker;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -39,6 +39,7 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import one.util.streamex.StreamEx;
@@ -67,9 +68,9 @@ public abstract class HgUtil {
   public static final Pattern URL_WITH_PASSWORD = Pattern.compile("(?:.+)://(?:.+)(:.+)@(?:.+)");      //http(s)://username:password@url
   public static final int MANY_FILES = 100;
   private static final Logger LOG = Logger.getInstance(HgUtil.class);
-  public static final String DOT_HG = ".hg";
-  public static final String TIP_REFERENCE = "tip";
-  public static final String HEAD_REFERENCE = "HEAD";
+  public static final @NlsSafe String DOT_HG = ".hg";
+  public static final @NlsSafe String TIP_REFERENCE = "tip";
+  public static final @NlsSafe String HEAD_REFERENCE = "HEAD";
 
   public static File copyResourceToTempFile(String basename, String extension) throws IOException {
     final InputStream in = HgUtil.class.getClassLoader().getResourceAsStream("python/" + basename + extension);
@@ -135,7 +136,7 @@ public abstract class HgUtil {
    * to make sure it is completely removed at shutdown
    */
   @Nullable
-  public static File getTemporaryPythonFile(String base) {
+  public static File getTemporaryPythonFile(@NonNls String base) {
     try {
       final File file = copyResourceToTempFile(base, ".py");
       final String fileName = file.getName();
@@ -330,7 +331,7 @@ public abstract class HgUtil {
   }
 
   @NotNull
-  @CalledInBackground
+  @RequiresBackgroundThread
   public static Map<VirtualFile, Collection<FilePath>> groupFilePathsByHgRoots(@NotNull Project project,
                                                                                @NotNull Collection<? extends FilePath> files) {
     Map<VirtualFile, Collection<FilePath>> sorted = new HashMap<>();
@@ -443,6 +444,7 @@ public abstract class HgUtil {
     return result != null && result.getExitValue() == 0 ? result.getBytesOutput() : ArrayUtilRt.EMPTY_BYTE_ARRAY;
   }
 
+  @NlsSafe
   public static String removePasswordIfNeeded(@NotNull String path) {
     Matcher matcher = URL_WITH_PASSWORD.matcher(path);
     if (matcher.matches()) {
@@ -451,23 +453,33 @@ public abstract class HgUtil {
     return path;
   }
 
+  @Nls
   @NotNull
   public static String getDisplayableBranchOrBookmarkText(@NotNull HgRepository repository) {
     HgRepository.State state = repository.getState();
-    String branchText = "";
-    if (state != HgRepository.State.NORMAL) {
-      branchText += state.toString() + " ";
+
+    String branchName = StringUtil.notNullize(repository.getCurrentBranchName());
+
+    if (state == HgRepository.State.MERGING) {
+      return HgBundle.message("hg4idea.status.bar.widget.text.merge", branchName);
     }
-    return branchText + repository.getCurrentBranchName();
+    else if (state == HgRepository.State.REBASING) {
+      return HgBundle.message("hg4idea.status.bar.widget.text.rebase", branchName);
+    }
+    else if (state == HgRepository.State.GRAFTING) {
+      return HgBundle.message("hg4idea.status.bar.widget.text.graft", branchName);
+    }
+    else {
+      return branchName;
+    }
   }
 
   @NotNull
   public static HgRepositoryManager getRepositoryManager(@NotNull Project project) {
-    return ServiceManager.getService(project, HgRepositoryManager.class);
+    return project.getService(HgRepositoryManager.class);
   }
 
   @Nullable
-  @CalledInAwt
   public static HgRepository getCurrentRepository(@NotNull Project project) {
     if (project.isDisposed()) return null;
     return DvcsUtil.guessRepositoryForFile(project, getRepositoryManager(project),

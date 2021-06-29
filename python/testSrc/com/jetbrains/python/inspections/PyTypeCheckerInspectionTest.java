@@ -5,14 +5,22 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.source.PsiFileImpl;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author vlan
  */
 public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
+
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
+  }
+
   @NotNull
   @Override
   protected Class<? extends PyInspection> getInspectionClass() {
@@ -961,7 +969,7 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
                          "        pass\n" +
                          "\n" +
                          "def foo(cb: Callback[int]):\n" +
-                         "    cb(<weak_warning descr=\"Expected type 'int' (matched generic type '_T'), got 'str' instead\">\"42\"</weak_warning>)")
+                         "    cb(<warning descr=\"Expected type 'int' (matched generic type '_T'), got 'str' instead\">\"42\"</warning>)")
     );
   }
 
@@ -1090,8 +1098,8 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
                          "movie2 = Movie2()\n" +
                          "s: str = movie['address'][0]\n" +
                          "s: str = movie2['address'][0]\n" +
-                         "s: str = movie['address'][<warning descr=\"Unexpected type(s):(str)Possible types:(int)(slice)\">'i'</warning>]\n" +
-                         "s2: str = movie2['address'][<warning descr=\"Unexpected type(s):(str)Possible types:(int)(slice)\">'i'</warning>]\n"));
+                         "s: str = movie['address'][<warning descr=\"Unexpected type(s):(str)Possible type(s):(int)(slice)\">'i'</warning>]\n" +
+                         "s2: str = movie2['address'][<warning descr=\"Unexpected type(s):(str)Possible type(s):(int)(slice)\">'i'</warning>]\n"));
   }
 
   // PY-36008
@@ -1116,7 +1124,7 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
         "d: MyMapping[str, str] = undefined1\n" +
         "d.get(undefined2)\n" +
         "d.get(\"str\")\n" +
-        "d.get(<weak_warning descr=\"Expected type 'str' (matched generic type '_KT'), got 'int' instead\">1</weak_warning>)"
+        "d.get(<warning descr=\"Expected type 'str' (matched generic type '_KT'), got 'int' instead\">1</warning>)"
       )
     );
   }
@@ -1186,5 +1194,107 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
                          "        pass\n" +
                          "CallableTest()(\"bad 1\")")
     );
+  }
+
+  // PY-37876
+  public void testGenericCallablesInGenericClasses() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Iterable, TypeVar, Generic\n" +
+                         "T = TypeVar(\"T\")\n" +
+                         "class MyClass(Generic[T]):\n" +
+                         "    def __init__(self, data: Iterable[T]):\n" +
+                         "        sorted(data, key=self.my_func)\n" +
+                         "    def my_func(self, elem: T) -> int:\n" +
+                         "        pass")
+    );
+  }
+
+  // PY-37876
+  public void testBoundedGenericParameterOfExpectedCallableParameter1() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Callable, TypeVar\n" +
+                         "\n" +
+                         "T = TypeVar('T', bound=int)\n" +
+                         "\n" +
+                         "def func(c: Callable[[T], None]):\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "def accepts_anything(x: object) -> None:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "func(accepts_anything)\n")
+    );
+  }
+
+  // PY-37876
+  public void testBoundedGenericParameterOfExpectedCallableParameter2() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Callable, TypeVar\n" +
+                         "\n" +
+                         "T = TypeVar('T', bound=int)\n" +
+                         "\n" +
+                         "def func(c: Callable[[T], None]):\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "def accepts_anything(x: str) -> None:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "func(<warning descr=\"Expected type '(Any) -> None' (matched generic type '(T) -> None'), got '(x: str) -> None' instead\">accepts_anything</warning>)\n")
+    );
+  }
+
+  // PY-37876
+  public void testGenericParameterOfExpectedCallableMappedByOtherArgument() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Callable, TypeVar\n" +
+                         "\n" +
+                         "T = TypeVar('T')\n" +
+                         "\n" +
+                         "def func(x: T, c: Callable[[T], None]) -> None:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "def accepts_anything(x: str) -> None:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "func(42, <warning descr=\"Expected type '(int) -> None' (matched generic type '(T) -> None'), got '(x: str) -> None' instead\">accepts_anything</warning>)")
+    );
+  }
+
+  public void testCallByClass() {
+    doTest();
+  }
+
+  // PY-41806
+  public void testClassDefinitionAgainstProtocolDunderCall() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-41806
+  public void testClassInstanceAgainstProtocolDunderCall() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-36062
+  public void testModuleTypeParameter() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doMultiFileTest);
+  }
+
+  // PY-43841
+  public void testPyFunctionAgainstBuiltinFunction() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-39762
+  public void testOverloadsAndPureStubInSamePyiScope() {
+    doMultiFileTest();
+  }
+
+  // PY-45438
+  public void testFunctionAgainstCallbackProtocol() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
   }
 }

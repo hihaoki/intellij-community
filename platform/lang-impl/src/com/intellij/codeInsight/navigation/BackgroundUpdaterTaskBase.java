@@ -8,12 +8,15 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.GenericListComponentUpdater;
 import com.intellij.openapi.ui.popup.JBPopup;
+import com.intellij.openapi.util.NlsContexts.PopupTitle;
+import com.intellij.openapi.util.NlsContexts.ProgressTitle;
 import com.intellij.openapi.util.Ref;
 import com.intellij.usages.Usage;
 import com.intellij.usages.UsageView;
 import com.intellij.usages.impl.UsageViewImpl;
 import com.intellij.util.Alarm;
 import com.intellij.util.SmartList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -33,7 +36,7 @@ public abstract class BackgroundUpdaterTaskBase<T> extends Task.Backgroundable {
   private volatile boolean myFinished;
   private volatile ProgressIndicator myIndicator;
 
-  public BackgroundUpdaterTaskBase(@Nullable Project project, @NotNull String title, @Nullable Comparator<T> comparator) {
+  public BackgroundUpdaterTaskBase(@Nullable Project project, @ProgressTitle @NotNull String title, @Nullable Comparator<? super T> comparator) {
     super(project, title);
     myData = comparator == null ? new SmartList<>() : new TreeSet<>(comparator);
   }
@@ -49,7 +52,8 @@ public abstract class BackgroundUpdaterTaskBase<T> extends Task.Backgroundable {
     myUsageView = usageView;
   }
 
-  public abstract String getCaption(int size);
+  @Nullable
+  public abstract @PopupTitle String getCaption(int size);
 
   @Nullable
   protected abstract Usage createUsage(T element);
@@ -76,6 +80,7 @@ public abstract class BackgroundUpdaterTaskBase<T> extends Task.Backgroundable {
    * @deprecated Use {@link #BackgroundUpdaterTaskBase(Project, String, Comparator)} and {@link #updateComponent(T)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public boolean updateComponent(@NotNull T element, @Nullable Comparator comparator) {
     if (tryAppendUsage(element)) return true;
     if (myCanceled) return false;
@@ -136,7 +141,10 @@ public abstract class BackgroundUpdaterTaskBase<T> extends Task.Backgroundable {
       data = new ArrayList<>(myData);
     }
     replaceModel(data);
-    myPopup.setCaption(getCaption(getCurrentSize()));
+    String caption = getCaption(getCurrentSize());
+    if (caption != null) {
+      myPopup.setCaption(caption);
+    }
     myPopup.pack(true, true);
   }
 

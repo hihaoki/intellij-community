@@ -53,6 +53,12 @@ public class VcsLogCommitDetailsListPanel extends CommitDetailsListPanel<CommitP
 
     logData.getProject().getMessageBus().connect(this).subscribe(CommitMessageInspectionProfile.TOPIC, () -> update());
 
+    Runnable containingBranchesListener = this::branchesChanged;
+    myLogData.getContainingBranchesGetter().addTaskCompletedListener(containingBranchesListener);
+    Disposer.register(this, () -> {
+      myLogData.getContainingBranchesGetter().removeTaskCompletedListener(containingBranchesListener);
+    });
+
     setStatusText(VcsLogBundle.message("vcs.log.commit.details.status"));
     Disposer.register(parent, this);
   }
@@ -61,7 +67,7 @@ public class VcsLogCommitDetailsListPanel extends CommitDetailsListPanel<CommitP
     graphTable.getSelectionModel().addListSelectionListener(new CommitSelectionListenerForDetails(graphTable));
   }
 
-  public void branchesChanged() {
+  private void branchesChanged() {
     forEachPanelIndexed((i, panel) -> {
       panel.updateBranches();
       return Unit.INSTANCE;
@@ -90,13 +96,12 @@ public class VcsLogCommitDetailsListPanel extends CommitDetailsListPanel<CommitP
 
         if (!unResolvedHashes.isEmpty()) {
           myLogData.getStorage().iterateCommits(commitId -> {
-
             for (String hashString : unResolvedHashes) {
               if (StringUtil.startsWithIgnoreCase(commitId.getHash().asString(), hashString)) {
                 resolvedHashes.putValue(hashString, commitId);
               }
             }
-            return false;
+            return true;
           });
         }
 
@@ -177,7 +182,7 @@ public class VcsLogCommitDetailsListPanel extends CommitDetailsListPanel<CommitP
               return Unit.INSTANCE;
             });
           }
-        });
+        }, o -> Disposer.isDisposed(myGraphTable));
       });
     }
 

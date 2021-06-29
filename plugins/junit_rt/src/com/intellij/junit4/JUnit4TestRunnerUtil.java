@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.junit4;
 
 import com.intellij.junit3.TestRunnerUtil;
@@ -35,9 +21,9 @@ import java.lang.reflect.Method;
 import java.text.MessageFormat;
 import java.util.*;
 
-public class JUnit4TestRunnerUtil {
+public final class JUnit4TestRunnerUtil {
 
-  public static Request buildRequest(String[] suiteClassNames, final String name, boolean notForked) {
+  public static Request buildRequest(String[] suiteClassNames, final String programParameters, boolean notForked) {
     if (suiteClassNames.length == 0) {
       return null;
     }
@@ -102,15 +88,15 @@ public class JUnit4TestRunnerUtil {
                   if (methods.contains(methodName)) {
                     return true;
                   }
-                  if (name != null) {
-                    return methodName.endsWith(name) &&
-                           methods.contains(methodName.substring(0, methodName.length() - name.length()));
+                  if (programParameters != null) {
+                    return methodName.endsWith(programParameters) &&
+                           methods.contains(methodName.substring(0, methodName.length() - programParameters.length()));
                   }
 
                   final Class<?> testClass = description.getTestClass();
                   if (testClass != null) {
                     final RunWith classAnnotation = testClass.getAnnotation(RunWith.class);
-                    if (classAnnotation != null && Parameterized.class.isAssignableFrom(classAnnotation.value())) {
+                    if (classAnnotation != null && isParameterized(methodName, testClass)) {
                       final int idx = methodName.indexOf("[");
                       if (idx > -1) {
                         return methods.contains(methodName.substring(0, idx));
@@ -170,7 +156,7 @@ public class JUnit4TestRunnerUtil {
             }
           }
           else {
-            final Request request = getParameterizedRequest(name, methodName, clazz, clazzAnnotation);
+            final Request request = getParameterizedRequest(programParameters, methodName, clazz, clazzAnnotation);
             if (request != null) {
               return request;
             }
@@ -207,11 +193,11 @@ public class JUnit4TestRunnerUtil {
             }
           });
         }
-        else if (name != null && suiteClassNames.length == 1) {
+        else if (programParameters != null && suiteClassNames.length == 1) {
           final Class<?> clazz = loadTestClass(suiteClassName);
           if (clazz != null) {
             final RunWith clazzAnnotation = clazz.getAnnotation(RunWith.class);
-            final Request request = getParameterizedRequest(name, null, clazz, clazzAnnotation);
+            final Request request = getParameterizedRequest(programParameters, null, clazz, clazzAnnotation);
             if (request != null) {
               return request;
             }
@@ -236,6 +222,22 @@ public class JUnit4TestRunnerUtil {
     return Request.classes(getArrayOfClasses(result));
   }
 
+  private static boolean isParameterized(final String methodName,
+                                         final Class<?> clazz) {
+    final RunWith clazzAnnotation = clazz.getAnnotation(RunWith.class);
+    if (clazzAnnotation != null && Parameterized.class.isAssignableFrom(clazzAnnotation.value())) {
+      return true;
+    }
+    if (methodName != null) {
+      try {
+        Method method = clazz.getMethod(methodName);
+        return method.getParameterTypes().length > 0;
+      }
+      catch (NoSuchMethodException ignored) { }
+    }
+    return false;
+  }
+
   private static Request getParameterizedRequest(final String parameterString,
                                                  final String methodName,
                                                  Class<?> clazz,
@@ -243,13 +245,16 @@ public class JUnit4TestRunnerUtil {
     if (clazzAnnotation == null) return null;
 
     final Class<? extends Runner> runnerClass = clazzAnnotation.value();
-    if (Parameterized.class.isAssignableFrom(runnerClass)) {
+    if (parameterString != null || isParameterized(methodName, clazz)) {
       try {
         if (methodName != null) {
-          final Method method = clazz.getMethod(methodName);
-          if (method != null && !method.isAnnotationPresent(Test.class) && TestCase.class.isAssignableFrom(clazz)) {
-            return Request.runner(JUnit45ClassesRequestBuilder.createIgnoreAnnotationAndJUnit4ClassRunner(clazz));
+          try {
+            final Method method = clazz.getMethod(methodName);
+            if (method != null && !method.isAnnotationPresent(Test.class) && TestCase.class.isAssignableFrom(clazz)) {
+              return Request.runner(JUnit45ClassesRequestBuilder.createIgnoreAnnotationAndJUnit4ClassRunner(clazz));
+            }
           }
+          catch (NoSuchMethodException ignore) { }
         }
         Class.forName("org.junit.runners.BlockJUnit4ClassRunner"); //ignore for junit4.4 and <
         final Constructor<? extends Runner> runnerConstructor = runnerClass.getConstructor(Class.class);
@@ -264,8 +269,10 @@ public class JUnit4TestRunnerUtil {
 
             //filter only selected method
             if (methodName != null && descriptionMethodName != null &&
-                !descriptionMethodName.startsWith(methodName + "[") && //valid for any parameter for current method
-                !descriptionMethodName.equals(methodName)) { //if fork mode used, parameter is included in the name itself
+                !descriptionMethodName.equals(methodName) && //If fork mode is used, a parameter is included in the name itself
+                !(descriptionMethodName.startsWith(methodName) &&
+                  //methodName[ valid for any parameter for the current method.
+                  descriptionMethodName.length() > methodName.length() && descriptionMethodName.substring(methodName.length()).trim().startsWith("["))) {
               return false;
             }
             return true;
@@ -323,11 +330,11 @@ public class JUnit4TestRunnerUtil {
       if (clazz == null) {
         clazz = suiteClassName;
       }
-      System.err.print(MessageFormat.format(ResourceBundle.getBundle("RuntimeBundle").getString("junit.class.not.found"), clazz));
+      System.err.print(MessageFormat.format(ResourceBundle.getBundle("messages.RuntimeBundle").getString("junit.class.not.found"), clazz));
       System.exit(1);
     }
     catch (Exception e) {
-      System.err.println(MessageFormat.format(ResourceBundle.getBundle("RuntimeBundle").getString("junit.cannot.instantiate.tests"),
+      System.err.println(MessageFormat.format(ResourceBundle.getBundle("messages.RuntimeBundle").getString("junit.cannot.instantiate.tests"),
                                               e.toString()));
       System.exit(1);
     }

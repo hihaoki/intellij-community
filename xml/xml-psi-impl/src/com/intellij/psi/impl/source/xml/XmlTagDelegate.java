@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
 import com.intellij.javaee.ExternalResourceManager;
@@ -37,7 +37,6 @@ import com.intellij.xml.index.XmlNamespaceIndex;
 import com.intellij.xml.util.XmlPsiUtil;
 import com.intellij.xml.util.XmlTagUtil;
 import com.intellij.xml.util.XmlUtil;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.*;
 
 import java.util.*;
@@ -312,7 +311,9 @@ public abstract class XmlTagDelegate {
                                                                             @NotNull final Set<String> fileLocations,
                                                                             @Nullable Map<String, NullableLazyValue<XmlNSDescriptor>> map,
                                                                             final boolean nsDecl) {
-    if (map == null) map = new THashMap<>();
+    if (map == null) {
+      map = new HashMap<>();
+    }
 
     // We put cached value in any case to cause its value update on e.g. mapping change
     map.put(namespace, NullableLazyValue.createValue(() -> {
@@ -428,7 +429,7 @@ public abstract class XmlTagDelegate {
 
   @Nullable
   XmlElementDescriptor getDescriptor() {
-    return CachedValuesManager.getCachedValue(myTag, new CachedValueProvider<XmlElementDescriptor>() {
+    return CachedValuesManager.getCachedValue(myTag, new CachedValueProvider<>() {
       @Override
       public Result<XmlElementDescriptor> compute() {
         XmlElementDescriptor descriptor =
@@ -549,7 +550,7 @@ public abstract class XmlTagDelegate {
   protected String getAttributeValue(String qname) {
     Map<String, String> map = myAttributeValueMap;
     if (map == null) {
-      map = new THashMap<>();
+      map = new HashMap<>();
       for (XmlAttribute attribute : myTag.getAttributes()) {
         cacheOneAttributeValue(attribute.getName(), attribute.getValue(), map);
       }
@@ -613,7 +614,11 @@ public abstract class XmlTagDelegate {
   }
 
   protected XmlTag @NotNull [] findSubTags(@NotNull final String name, @Nullable final String namespace) {
-    final XmlTag[] subTags = myTag.getSubTags();
+    return findSubTags(name, namespace, myTag.getSubTags());
+  }
+
+  @NotNull
+  public static XmlTag[] findSubTags(@NotNull String name, @Nullable String namespace, XmlTag[] subTags) {
     final List<XmlTag> result = new ArrayList<>();
     for (final XmlTag subTag : subTags) {
       if (namespace == null) {
@@ -854,7 +859,7 @@ public abstract class XmlTagDelegate {
 
   @NotNull
   Map<String, String> getLocalNamespaceDeclarations() {
-    Map<String, String> namespaces = new THashMap<>();
+    Map<String, String> namespaces = new HashMap<>();
     for (final XmlAttribute attribute : myTag.getAttributes()) {
       if (!attribute.isNamespaceDeclaration() || attribute.getValue() == null) continue;
       // xmlns -> "", xmlns:a -> a

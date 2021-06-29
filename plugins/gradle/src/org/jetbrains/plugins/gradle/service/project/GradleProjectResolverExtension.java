@@ -63,16 +63,6 @@ public interface GradleProjectResolverExtension extends ParametersEnhancer {
   @Nullable
   GradleProjectResolverExtension getNext();
 
-  /**
-   * @deprecated is not used anymore
-   */
-  @NotNull
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
-  default ProjectData createProject() {
-    throw new UnsupportedOperationException();
-  }
-
   void populateProjectExtraModels(@NotNull IdeaProject gradleProject, @NotNull DataNode<ProjectData> ideProject);
 
   @Nullable
@@ -142,6 +132,7 @@ public interface GradleProjectResolverExtension extends ParametersEnhancer {
    * @deprecated not required anymore
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   default boolean requiresTaskRunning() {
     return false;
   }
@@ -216,11 +207,21 @@ public interface GradleProjectResolverExtension extends ParametersEnhancer {
   // flag that shows if tasks will be treated as tests invocation by the IDE (e.g., test events are expected)
   String TEST_EXECUTION_EXPECTED_KEY = "TEST_EXECUTION_EXPECTED";
 
+  // flag that shows a Gradle TestLauncher will be used to execute the build.
+  // Test events will be produces by TAPI and there is no need for console reporting
+  String TEST_LAUNCHER_WILL_BE_USED_KEY = "TEST_LAUNCHER_WILL_BE_USED";
+
   // port for callbacks which Gradle tasks communicate to IDE
   String DEBUG_DISPATCH_PORT_KEY = "DEBUG_DISPATCH_PORT";
 
+  // address for callbacks which Gradle tasks communicate to IDE
+  String DEBUG_DISPATCH_ADDR_KEY = "DEBUG_DISPATCH_ADDR";
+
   // options passed from project to Gradle
   String DEBUG_OPTIONS_KEY = "DEBUG_OPTIONS";
+
+  // for Gradle version specific init scripts
+  String GRADLE_VERSION = "GRADLE_VERSION";
 
   /**
    * Allows extension to contribute to init script

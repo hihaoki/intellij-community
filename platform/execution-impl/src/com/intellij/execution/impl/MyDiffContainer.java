@@ -22,24 +22,26 @@ import com.intellij.util.ui.AbstractLayoutManager;
 import com.intellij.util.ui.AnimatedIcon;
 import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 
 /**
-* Created by IntelliJ IDEA.
-* @author amakeev
-* @author Irina.Chernushina
-*/
-class MyDiffContainer extends JBLayeredPane implements Disposable {
+ * Created by IntelliJ IDEA.
+ *
+ * @author amakeev
+ * @author Irina.Chernushina
+ */
+public class MyDiffContainer extends JBLayeredPane implements Disposable {
   private final AnimatedIcon myIcon = new AsyncProcessIcon(getClass().getName());
 
   private final JComponent myContent;
   private final JComponent myLoadingPanel;
   private final JLabel myJLabel;
 
-  MyDiffContainer(@NotNull JComponent content, @NotNull String text) {
+  MyDiffContainer(@NotNull JComponent content, @NotNull @Nls String text) {
     setLayout(new MyOverlayLayout());
     myContent = content;
     myLoadingPanel = new JPanel(new MyPanelLayout());
@@ -85,6 +87,10 @@ class MyDiffContainer extends JBLayeredPane implements Disposable {
     public Dimension preferredLayoutSize(Container parent) {
       return myContent.getPreferredSize();
     }
+  }
+
+  public JComponent getContent() {
+    return myContent;
   }
 
   private class MyPanelLayout extends AbstractLayoutManager {

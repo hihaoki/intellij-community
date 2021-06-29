@@ -1,8 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.annotation;
 
 import com.intellij.codeInspection.GlobalSimpleInspectionTool;
+import com.intellij.lang.ExternalAnnotatorsFilter;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -15,9 +17,22 @@ import org.jetbrains.annotations.Nullable;
  * <p>Annotators work in three steps:
  * <ol>
  * <li>{@link #collectInformation(PsiFile, Editor, boolean)} is called to collect some data about a file needed for launching a tool</li>
- * <li>collected data is passed to {@link #doAnnotate} which executes a tool and collect highlighting data</li>
+ * <li>collected data is passed to {@link #doAnnotate} which executes a tool and collects highlighting data</li>
  * <li>highlighting data is applied to a file by {@link #apply}</li>
  * </ol>
+ * </p>
+ *
+ * <p>
+ * Implement {@link DumbAware} to allow running annotator during indexing.
+ * </p>
+ *
+ * <p>
+ * Use {@link ExternalAnnotatorsFilter} to skip running specific annotators for given file.
+ * </p>
+ *
+ * <p>
+ * Register in {@code com.intellij.externalAnnotator} extension point, {@code language} attribute <em>must</em> be specified.
+ * </p>
  *
  * @author ven
  * @see com.intellij.lang.ExternalLanguageAnnotators
@@ -33,7 +48,7 @@ public abstract class ExternalAnnotator<InitialInfoType, AnnotationResultType> {
 
   /**
    * Collects initial information needed for launching a tool. This method is called within a read action;
-   * non-{@link com.intellij.openapi.project.DumbAware DumbAware} annotators are skipped during indexing.
+   * non-{@link DumbAware} annotators are skipped during indexing.
    *
    * @param file      a file to annotate
    * @param editor    an editor in which file's document reside

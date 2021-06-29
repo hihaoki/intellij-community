@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.search;
 
 import com.intellij.lang.Language;
@@ -28,15 +28,14 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.CharSequenceSubSequence;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author yole
- */
+
 public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurrence, IndexPatternSearch.SearchParameters> {
   private static final String WHITESPACE = " \t";
 
@@ -69,7 +68,7 @@ public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurren
     final CharSequence chars = file.getViewProvider().getContents();
     boolean multiLine = queryParameters.isMultiLine();
     List<CommentRange> commentRanges = findCommentTokenRanges(file, chars, queryParameters.getRange(), multiLine);
-    IntArrayList occurrences = new IntArrayList(1);
+    IntList occurrences = new IntArrayList(1);
     IndexPattern[] patterns = patternProvider != null ? patternProvider.getIndexPatterns()
                                                       : new IndexPattern[] {queryParameters.getPattern()};
 
@@ -202,7 +201,7 @@ public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurren
                                                PsiFile file,
                                                TextRange range,
                                                Processor<? super IndexPatternOccurrence> consumer,
-                                               IntArrayList matches,
+                                               IntList matches,
                                                boolean multiLine
                                                ) {
     CommentRange commentRange = commentRanges.get(commentNum);

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui
 
 import com.intellij.openapi.components.BaseState
@@ -56,8 +56,12 @@ class UISettingsState : BaseState() {
 
   @get:OptionTag("REUSE_NOT_MODIFIED_TABS")
   var reuseNotModifiedTabs by property(false)
+  @get:OptionTag("OPEN_TABS_IN_MAIN_WINDOW")
+  var openTabsInMainWindow by property(false)
+  @get:OptionTag("OPEN_IN_PREVIEW_TAB_IF_POSSIBLE")
+  var openInPreviewTabIfPossible by property(false)
   @get:OptionTag("SHOW_TOOL_WINDOW_NUMBERS")
-  var showToolWindowsNumbers by property(true)
+  var showToolWindowsNumbers by property(false)
 
   @get:OptionTag("HIDE_TOOL_STRIPES")
   var hideToolStripes by property(false)
@@ -70,8 +74,6 @@ class UISettingsState : BaseState() {
   var rightHorizontalSplit by property(false)
   @get:OptionTag("SHOW_EDITOR_TOOLTIP")
   var showEditorToolTip by property(true)
-  @get:OptionTag("SHOW_MEMORY_INDICATOR")
-  var showMemoryIndicator by property(false)
   @get:OptionTag("SHOW_WRITE_THREAD_INDICATOR")
   var showWriteThreadIndicator by property(false)
   @get:OptionTag("ALLOW_MERGE_BUTTONS")
@@ -92,6 +94,8 @@ class UISettingsState : BaseState() {
   var scrollTabLayoutInEditor by property(true)
   @get:OptionTag("HIDE_TABS_IF_NEED")
   var hideTabsIfNeeded by property(true)
+  @get:OptionTag("SHOW_PINNED_TABS_IN_A_SEPARATE_ROW")
+  var showPinnedTabsInASeparateRow by property(false)
   @get:OptionTag("SHOW_CLOSE_BUTTON")
   var showCloseButton by property(true)
   @get:OptionTag("CLOSE_TAB_BUTTON_ON_THE_RIGHT")
@@ -173,6 +177,8 @@ class UISettingsState : BaseState() {
   var navigateToPreview by property(false)
   @get:OptionTag("FULL_PATHS_IN_TITLE_BAR")
   var fullPathsInWindowHeader by property(false)
+  @get:OptionTag("BORDERLESS_MODE")
+  var mergeMainMenuWithWindowTitle by property(SystemInfo.isWin10OrNewer && SystemInfo.isJetBrainsJvm)
 
   var animatedScrolling by property(!SystemInfo.isMac || !SystemInfo.isJetBrainsJvm)
   var animatedScrollingDuration by property(

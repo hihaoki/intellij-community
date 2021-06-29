@@ -66,13 +66,13 @@ public class GradleAutoImportAware implements ExternalSystemAutoImportAware {
     for (ExternalProjectSettings setting : projectsSettings) {
       if(setting != null) {
         for (String path : setting.getModules()) {
-          rootPaths.put(new File(path).getAbsolutePath(), setting.getExternalProjectPath());
+          rootPaths.put(new File(path).getPath(), setting.getExternalProjectPath());
         }
       }
     }
 
     for (File f = file.getParentFile(); f != null; f = f.getParentFile()) {
-      String dirPath = f.getAbsolutePath();
+      String dirPath = f.getPath();
       if (rootPaths.containsKey(dirPath)) {
         return rootPaths.get(dirPath);
       }
@@ -131,7 +131,7 @@ public class GradleAutoImportAware implements ExternalSystemAutoImportAware {
       ProgressManager.checkCanceled();
 
       try {
-        Files.walkFileTree(Paths.get(path), EnumSet.noneOf(FileVisitOption.class), 1, new SimpleFileVisitor<Path>() {
+        Files.walkFileTree(Paths.get(path), EnumSet.noneOf(FileVisitOption.class), 1, new SimpleFileVisitor<>() {
           @Override
           public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
             String fileName = path.getFileName().toString();

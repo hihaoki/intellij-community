@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.rename;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -24,16 +10,14 @@ import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
-import java.util.HashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author yole
- */
+
 public abstract class RenameJavaMemberProcessor extends RenamePsiElementProcessor {
   private static final Logger LOG = Logger.getInstance(RenameJavaMemberProcessor.class);
 
@@ -55,7 +39,7 @@ public abstract class RenameJavaMemberProcessor extends RenamePsiElementProcesso
       occurence.replace(qualified);
     }
     else {
-      PsiReferenceExpression qualified = createQualifiedMemberReference(occurence, newName, containingClass, isStatic);
+      PsiReferenceExpression qualified = createQualifiedMemberReference(occurence, newName, containingClass, false);
       qualified = (PsiReferenceExpression)CodeStyleManager.getInstance(psiManager.getProject()).reformat(qualified);
       occurence.replace(qualified);
     }
@@ -106,42 +90,34 @@ public abstract class RenameJavaMemberProcessor extends RenamePsiElementProcesso
 
   protected static void findMemberHidesOuterMemberCollisions(final PsiMember member, final String newName, final List<? super UsageInfo> result) {
     if (member instanceof PsiCompiledElement) return;
-    final PsiMember patternMember;
-    if (member instanceof PsiMethod) {
-      PsiMethod patternMethod = (PsiMethod) member.copy();
-      try {
-        patternMethod.setName(newName);
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-        return;
-      }
-      patternMember = patternMethod;
-    }
-    else {
-      patternMember = member;
-    }
-
-    final PsiClass fieldClass = member.getContainingClass();
-    for (PsiClass aClass = fieldClass != null ? fieldClass.getContainingClass() : null; aClass != null; aClass = aClass.getContainingClass()) {
-      final PsiMember conflict;
+    final PsiClass memberClass = member.getContainingClass();
+    for (PsiClass aClass = memberClass != null ? memberClass.getContainingClass() : null; aClass != null; aClass = aClass.getContainingClass()) {
       if (member instanceof PsiMethod) {
-        conflict = aClass.findMethodBySignature((PsiMethod)patternMember, true);
+        for (PsiMethod conflict : aClass.findMethodsByName(newName, true)) {
+          findMemberHidesOuterMemberCollisions(member, conflict, memberClass, result);
+        }
       }
       else {
-        conflict = aClass.findFieldByName(newName, false);
+        final PsiMember conflict = aClass.findFieldByName(newName, false);
+        if (conflict == null) continue;
+        findMemberHidesOuterMemberCollisions(member, conflict, memberClass, result);
       }
-      if (conflict == null) continue;
-      ReferencesSearch.search(conflict).forEach(reference -> {
-        PsiElement refElement = reference.getElement();
-        if (refElement instanceof PsiReferenceExpression && ((PsiReferenceExpression)refElement).isQualified()) return true;
-        if (PsiTreeUtil.isAncestor(fieldClass, refElement, false)) {
-          MemberHidesOuterMemberUsageInfo info = new MemberHidesOuterMemberUsageInfo(refElement, member);
-          result.add(info);
-        }
-        return true;
-      });
     }
+  }
+
+  private static void findMemberHidesOuterMemberCollisions(PsiMember member,
+                                                           PsiMember anotherMember,
+                                                           PsiClass memberClass, 
+                                                           List<? super UsageInfo> result) {
+    ReferencesSearch.search(anotherMember).forEach(reference -> {
+      PsiElement refElement = reference.getElement();
+      if (refElement instanceof PsiReferenceExpression && ((PsiReferenceExpression)refElement).isQualified()) return true;
+      if (PsiTreeUtil.isAncestor(memberClass, refElement, false)) {
+        MemberHidesOuterMemberUsageInfo info = new MemberHidesOuterMemberUsageInfo(refElement, member);
+        result.add(info);
+      }
+      return true;
+    });
   }
 
   protected static void qualifyOuterMemberReferences(final List<? extends MemberHidesOuterMemberUsageInfo> outerHides) throws IncorrectOperationException {
@@ -244,7 +220,7 @@ public abstract class RenameJavaMemberProcessor extends RenamePsiElementProcesso
       if (ref == null) return;
       final PsiElement occurrence = ref.getElement();
       final PsiElement target = info.getReferencedElement();
-      if (target instanceof PsiMember && occurrence != null) {
+      if (target instanceof PsiMember) {
         final PsiMember targetMember = (PsiMember)target;
         PsiClass containingClass = targetMember.getContainingClass();
         qualifyMember(occurrence, targetMember.getName(), containingClass, true);

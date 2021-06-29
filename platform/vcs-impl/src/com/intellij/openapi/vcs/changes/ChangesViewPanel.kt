@@ -8,7 +8,9 @@ import com.intellij.openapi.actionSystem.ActionPlaces.CHANGES_VIEW_TOOLBAR
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode
 import com.intellij.openapi.vcs.changes.ui.ChangesListView
+import com.intellij.openapi.vcs.changes.ui.HoverIcon
 import com.intellij.ui.IdeBorderFactory.createBorder
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory.createScrollPane
@@ -19,12 +21,13 @@ import com.intellij.util.Processor
 import com.intellij.util.ui.JBUI.Panels.simplePanel
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.tree.TreeUtil
+import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.SwingConstants
 import kotlin.properties.Delegates.observable
 
-private class ChangesViewPanel(project: Project) : BorderLayoutPanel() {
-  val changesView: ChangesListView = ChangesListView(project, false).apply {
+class ChangesViewPanel(project: Project) : BorderLayoutPanel() {
+  val changesView: ChangesListView = MyChangesListView(project).apply {
     treeExpander = object : DefaultTreeExpander(this) {
       override fun collapseAll(tree: JTree, keepSelectionLevel: Int) {
         super.collapseAll(tree, 2)
@@ -56,6 +59,13 @@ private class ChangesViewPanel(project: Project) : BorderLayoutPanel() {
       setTargetComponent(changesView)
     }
 
+  var statusComponent by observable<JComponent?>(null) { _, oldValue, newValue ->
+    if (oldValue == newValue) return@observable
+
+    if (oldValue != null) centerPanel.remove(oldValue)
+    if (newValue != null) centerPanel.addToBottom(newValue)
+  }
+
   private val centerPanel = simplePanel(createScrollPane(changesView))
 
   init {
@@ -73,6 +83,12 @@ private class ChangesViewPanel(project: Project) : BorderLayoutPanel() {
       toolbar.setOrientation(SwingConstants.VERTICAL)
       centerPanel.border = createBorder(JBColor.border(), SideBorder.LEFT)
       addToLeft(toolbar.component)
+    }
+  }
+
+  private class MyChangesListView(project: Project) : ChangesListView(project, false) {
+    override fun getHoverIcon(node: ChangesBrowserNode<*>): HoverIcon? {
+      return ChangesViewNodeAction.EP_NAME.computeSafeIfAny(project) { it.createNodeHoverIcon(node) }
     }
   }
 }

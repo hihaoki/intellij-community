@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml;
 
 import com.intellij.openapi.editor.Document;
@@ -18,9 +18,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Set;
 
-/**
- * @author yole
- */
+
 public abstract class XmlNamespaceHelper {
   private static final ExtensionPointName<XmlNamespaceHelper> EP_NAME = new ExtensionPointName<>("com.intellij.xml.namespaceHelper");
 
@@ -85,6 +83,6 @@ public abstract class XmlNamespaceHelper {
   public abstract Set<String> getNamespacesByTagName(@NotNull final String tagName, @NotNull final XmlFile context);
 
   public String getNamespaceAlias(@NotNull final XmlFile file) {
-    return XmlPsiBundle.message("namespace.alias");
+    return XmlPsiBundle.message("xml.terms.namespace.alias");
   }
 }

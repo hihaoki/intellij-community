@@ -13,7 +13,6 @@ import com.intellij.openapi.externalSystem.service.project.ExternalLibraryPathTy
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
-import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.externalSystem.util.Order;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -27,6 +26,7 @@ import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.SmartList;
@@ -53,7 +53,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
   }
 
   @Override
-  public void importData(@NotNull final Collection<DataNode<LibraryData>> toImport,
+  public void importData(final @NotNull Collection<? extends DataNode<LibraryData>> toImport,
                          @Nullable final ProjectData projectData,
                          @NotNull final Project project,
                          @NotNull final IdeModifiableModelsProvider modelsProvider) {
@@ -114,7 +114,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
                             @NotNull String libraryName) {
     for (Map.Entry<OrderRootType, Collection<File>> entry: libraryFiles.entrySet()) {
       for (File file: entry.getValue()) {
-        VirtualFile virtualFile = unresolved ? null : ExternalSystemUtil.refreshAndFindFileByIoFile(file);
+        VirtualFile virtualFile = unresolved ? null : VirtualFileManager.getInstance().findFileByNioPath(file.toPath().toAbsolutePath());
         if (virtualFile == null) {
           if (!unresolved && ExternalSystemConstants.VERBOSE_PROCESSING && entry.getKey() == OrderRootType.CLASSES) {
             LOG.warn(
@@ -170,7 +170,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
    * Remove orphan project libraries during postprocess phase (after execution of LibraryDependencyDataService#import)
    */
   @Override
-  public void postProcess(@NotNull Collection<DataNode<LibraryData>> toImport,
+  public void postProcess(@NotNull Collection<? extends DataNode<LibraryData>> toImport,
                           @Nullable ProjectData projectData,
                           @NotNull Project project,
                           @NotNull IdeModifiableModelsProvider modelsProvider) {
@@ -186,7 +186,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     final LibraryTable.ModifiableModel librariesModel = modelsProvider.getModifiableProjectLibrariesModel();
     final Map<String, Library> namesToLibs = new HashMap<>();
     final Set<Library> potentialOrphans = new HashSet<>();
-    RootPolicy<Void> excludeUsedLibraries = new RootPolicy<Void>() {
+    RootPolicy<Void> excludeUsedLibraries = new RootPolicy<>() {
       @Override
       public Void visitLibraryOrderEntry(@NotNull LibraryOrderEntry ideDependency, Void value) {
         if (ideDependency.isModuleLevel()) {
@@ -276,7 +276,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     for (Map.Entry<OrderRootType, Set<String>> entry: toAdd.entrySet()) {
       Map<OrderRootType, Collection<File>> roots = new HashMap<>();
       roots.put(entry.getKey(), ContainerUtil.map(entry.getValue(), PATH_TO_FILE));
-      registerPaths(externalLibrary.isUnresolved(), roots, excludedPaths, libraryModel, externalLibrary.getInternalName());
+      registerPaths(false, roots, excludedPaths, libraryModel, externalLibrary.getInternalName());
     }
   }
 }

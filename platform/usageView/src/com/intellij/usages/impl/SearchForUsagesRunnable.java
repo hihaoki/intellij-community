@@ -25,7 +25,10 @@ import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Factory;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Segment;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindowId;
@@ -37,9 +40,9 @@ import com.intellij.ui.HyperlinkAdapter;
 import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usageView.UsageViewContentManager;
 import com.intellij.usages.*;
-import com.intellij.util.Alarm;
 import com.intellij.util.Processor;
 import com.intellij.util.Processors;
+import com.intellij.util.concurrency.EdtScheduledExecutorService;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.RangeBlinker;
 import com.intellij.xml.util.XmlStringUtil;
@@ -51,6 +54,7 @@ import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -97,16 +101,17 @@ final class SearchForUsagesRunnable implements Runnable {
   @NotNull
   private static String createOptionsHtml(@NonNls UsageTarget @NotNull [] searchFor) {
     KeyboardShortcut shortcut = UsageViewImpl.getShowUsagesWithSettingsShortcut(searchFor);
-    String shortcutText = "";
+    HtmlBuilder builder = new HtmlBuilder()
+      .appendLink(FIND_OPTIONS_HREF_TARGET, UsageViewBundle.message("link.display.name.find.options"));
     if (shortcut != null) {
-      shortcutText = "&nbsp;(" + KeymapUtil.getShortcutText(shortcut) + ")";
+      builder.nbsp().append("(" + KeymapUtil.getShortcutText(shortcut) + ")");
     }
-    return "<a href='" + FIND_OPTIONS_HREF_TARGET + "'>Find Options...</a>" + shortcutText;
+    return builder.toString();
   }
 
   @NotNull
   private static String createSearchInProjectHtml() {
-    return "<a href='" + SEARCH_IN_PROJECT_HREF_TARGET + "'>Search in Project</a>";
+    return HtmlChunk.link(SEARCH_IN_PROJECT_HREF_TARGET, UsageViewBundle.message("link.display.name.search.in.project")).toString();
   }
 
   private void notifyByFindBalloon(@Nullable final HyperlinkListener listener,
@@ -133,8 +138,9 @@ final class SearchForUsagesRunnable implements Runnable {
 
     Runnable searchIncludingProjectFileUsages = myProcessPresentation.searchIncludingProjectFileUsages();
     if (searchIncludingProjectFileUsages != null) {
-      resultLines.add("Occurrences in project configuration files are skipped. " +
-                      "<a href='" + SHOW_PROJECT_FILE_OCCURRENCES_HREF_TARGET + "'>Include them</a>");
+      resultLines.add(UsageViewBundle.message("message.occurrences.in.project.configuration.files.are.skipped") +
+                      " <a href='" + SHOW_PROJECT_FILE_OCCURRENCES_HREF_TARGET + "'>" +
+                      UsageViewBundle.message("message.include.them") + "</a>");
       resultListener = addHrefHandling(resultListener, SHOW_PROJECT_FILE_OCCURRENCES_HREF_TARGET, searchIncludingProjectFileUsages);
     }
 
@@ -183,7 +189,8 @@ final class SearchForUsagesRunnable implements Runnable {
 
   @NotNull
   private static HyperlinkListener addHrefHandling(@Nullable final HyperlinkListener listener,
-                                                   @NotNull final String hrefTarget, @NotNull final Runnable handler) {
+                                                   @NotNull final String hrefTarget,
+                                                   @NotNull final Runnable handler) {
     return new HyperlinkAdapter() {
       @Override
       protected void hyperlinkActivated(HyperlinkEvent e) {
@@ -197,26 +204,17 @@ final class SearchForUsagesRunnable implements Runnable {
     };
   }
 
-  @NotNull
-  private static String wrapInHtml(@NotNull List<String> strings) {
+  private static @NotNull @NlsSafe String wrapInHtml(@NotNull List<String> strings) {
     return XmlStringUtil.wrapInHtml(StringUtil.join(strings, "<br>"));
   }
 
   @NotNull
   private static String detailedLargeFilesMessage(@NotNull Collection<? extends VirtualFile> largeFiles) {
-    String message;
-    if (largeFiles.size() == 1) {
-      final VirtualFile vFile = largeFiles.iterator().next();
-      message = "File " + presentableFileInfo(vFile) + " is ";
-    }
-    else {
-      message = "Files<br> "
-      + StringUtil.join(ContainerUtil.getFirstItems(new ArrayList<>(largeFiles), 10), vFile -> presentableFileInfo(vFile), "<br> ")
-      + "<br> are ";
-    }
-
-    message += "too large and cannot be scanned";
-    return message;
+    return UsageViewBundle.message("files.are.too.large.large.and.cannot.be.scanned",
+                                   largeFiles.size(),
+                                   "<br> " + StringUtil.join(ContainerUtil.getFirstItems(new ArrayList<>(largeFiles), 10),
+                                                             vFile -> presentableFileInfo(vFile), "<br> ")
+                                   + "<br> ");
   }
 
   @NotNull
@@ -346,7 +344,7 @@ final class SearchForUsagesRunnable implements Runnable {
     searchUsages(findUsagesStartedShown);
     endSearchForUsages(findUsagesStartedShown);
 
-    snapshot.logResponsivenessSinceCreation("Find Usages");
+    snapshot.logResponsivenessSinceCreation("Find Usages in " + myProject.getName());
   }
 
   private void searchUsages(@NotNull final AtomicBoolean findStartedBalloonShown) {
@@ -357,12 +355,13 @@ final class SearchForUsagesRunnable implements Runnable {
       CoreProgressManager.assertUnderProgress(indicator);
     }
     TooManyUsagesStatus.createFor(indicator);
-    Alarm findUsagesStartedBalloon = new Alarm();
-    findUsagesStartedBalloon.addRequest(() -> {
-      notifyByFindBalloon(null, MessageType.WARNING,
-                          Collections.singletonList(StringUtil.escapeXmlEntities(UsageViewManagerImpl.getProgressTitle(myPresentation))));
+    EdtScheduledExecutorService.getInstance().schedule(() -> {
+      if (!myProject.isDisposed()) {
+        notifyByFindBalloon(null, MessageType.WARNING,
+                            Collections.singletonList(StringUtil.escapeXmlEntities(UsageViewManagerImpl.getProgressTitle(myPresentation))));
+      }
       findStartedBalloonShown.set(true);
-    }, 300, ModalityState.NON_MODAL);
+    }, ModalityState.NON_MODAL, 300, TimeUnit.MILLISECONDS);
     UsageSearcher usageSearcher = mySearcherFactory.create();
     long startSearchStamp = System.currentTimeMillis();
     usageSearcher.generate(usage -> {
@@ -400,7 +399,6 @@ final class SearchForUsagesRunnable implements Runnable {
     if (getUsageView(indicator, startSearchStamp) != null) {
       ApplicationManager.getApplication().invokeLater(() -> myUsageViewManager.showToolWindow(true), myProject.getDisposed());
     }
-    Disposer.dispose(findUsagesStartedBalloon);
     ApplicationManager.getApplication().invokeLater(() -> {
       if (findStartedBalloonShown.get()) {
         Balloon balloon = ToolWindowManager.getInstance(myProject).getToolWindowBalloon(ToolWindowId.FIND);
@@ -418,7 +416,8 @@ final class SearchForUsagesRunnable implements Runnable {
       if (myProcessPresentation.isShowNotFoundMessage()) {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (myProcessPresentation.isCanceled()) {
-            notifyByFindBalloon(null, MessageType.WARNING, Collections.singletonList("Usage search was canceled"));
+            notifyByFindBalloon(null, MessageType.WARNING,
+                                Collections.singletonList(UsageViewBundle.message("message.usage.search.was.canceled")));
             findStartedBalloonShown.set(false);
             return;
           }
@@ -446,7 +445,7 @@ final class SearchForUsagesRunnable implements Runnable {
         }
         List<String> lines = new ArrayList<>();
 
-        lines.add("Only one usage found.");
+        lines.add(UsageViewBundle.message("message.only.one.usage.found"));
         if (myOutOfScopeUsages.get() != 0) {
           lines.add(UsageViewManagerImpl.outOfScopeMessage(myOutOfScopeUsages.get(), mySearchScopeToWarnOfFallingOutOf));
         }
@@ -491,9 +490,11 @@ final class SearchForUsagesRunnable implements Runnable {
 
   @NotNull
   private static String mayHaveUsagesInUnloadedModulesMessage(@NotNull Collection<? extends UnloadedModuleDescription> unloadedModules) {
-    String modulesText = unloadedModules.size() > 1 ? unloadedModules.size() + " unloaded modules"
-                                                    : "unloaded module '" + Objects
-                                                      .requireNonNull(ContainerUtil.getFirstItem(unloadedModules)).getName() + "'";
-    return "Occurrences in " + modulesText + " may be skipped. Load all modules and repeat the search to get complete results.";
+    String modulesText = unloadedModules.size() > 1
+                         ? UsageViewBundle.message("message.part.number.of.unloaded.modules", unloadedModules.size())
+                         : UsageViewBundle.message("message.part.unloaded.module.0",
+                                                   Objects.requireNonNull(ContainerUtil.getFirstItem(unloadedModules)).getName());
+    return UsageViewBundle.message(
+      "message.occurrences.in.0.may.be.skipped.load.all.modules.and.repeat.the.search.to.get.complete.results", modulesText);
   }
 }

@@ -45,6 +45,15 @@ class ServiceSingleView extends ServiceView {
 
   @Override
   Promise<Void> expand(@NotNull Object service, @NotNull Class<?> contributorClass) {
+    return matches(service);
+  }
+
+  @Override
+  Promise<Void> extract(@NotNull Object service, @NotNull Class<?> contributorClass) {
+    return matches(service);
+  }
+
+  private Promise<Void> matches(@NotNull Object service) {
     ServiceViewItem item = myRef.get();
     return item == null || !item.getValue().equals(service) ? Promises.rejectedPromise("Service not found") : Promises.resolvedPromise();
   }
@@ -112,7 +121,7 @@ class ServiceSingleView extends ServiceView {
   }
 
   @Override
-  List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath) {
+  List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath, @NotNull Class<?> contributorClass) {
     return Collections.emptyList();
   }
 }

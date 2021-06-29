@@ -41,11 +41,4 @@ public interface TestResultsViewer extends Disposable {
                             @NotNull TestFrameworkRunningModel model) {
     }
   }
-
-  /**
-   * @deprecated Use {@link EventsListener} directly.
-   */
-  @Deprecated
-  class SMEventsAdapter implements EventsListener {
-  }
 }

@@ -194,18 +194,12 @@ final class ShTextRenameRefactoring {
     public Result calculateResult(ExpressionContext context) {
       Editor editor = context.getEditor();
       if (editor != null) {
-        TemplateState templateState = TemplateManagerImpl.getTemplateState(editor);
-        TextResult insertedValue = templateState != null ? templateState.getVariableValue(PRIMARY_VARIABLE_NAME) : null;
+        TextResult insertedValue = context.getVariableValue(PRIMARY_VARIABLE_NAME);
         if (insertedValue != null && !insertedValue.getText().isEmpty()) {
           return insertedValue;
         }
       }
       return new TextResult(myInitialText);
-    }
-
-    @Override
-    public Result calculateQuickResult(ExpressionContext context) {
-      return calculateResult(context);
     }
 
     @Override

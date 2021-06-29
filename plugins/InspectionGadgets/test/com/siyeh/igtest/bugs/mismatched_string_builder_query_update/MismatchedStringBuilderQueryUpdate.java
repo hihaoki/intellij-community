@@ -1,18 +1,3 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.siyeh.igtest.bugs.mismatched_string_builder_query_update;
 
 import java.util.*;
@@ -32,7 +17,7 @@ public class MismatchedStringBuilderQueryUpdate {
     b.append("");
     System.out.println("" + b + "");
 
-    final StringBuilder <warning descr="Contents of StringBuilder 'c' are updated, but never queried">c</warning> = new StringBuilder();
+    final StringBuilder <warning descr="Contents of 'StringBuilder c' are updated, but never queried">c</warning> = new StringBuilder();
     c.append(' ');
   }
 
@@ -62,7 +47,7 @@ public class MismatchedStringBuilderQueryUpdate {
   }
 
   static String testUselessQuery(java.util.List<String> list) {
-    StringBuilder <warning descr="Contents of StringBuilder 'sb' are updated, but never queried">sb</warning> = new StringBuilder();
+    StringBuilder <warning descr="Contents of 'StringBuilder sb' are updated, but never queried">sb</warning> = new StringBuilder();
     for (String s : list) {
       if (s != null) {
         if (sb.length() > 0) {
@@ -77,7 +62,7 @@ public class MismatchedStringBuilderQueryUpdate {
   }
 
   static String testUselessQueryTernary(java.util.List<String> list) {
-    StringBuilder <warning descr="Contents of StringBuilder 'sb' are updated, but never queried">sb</warning> = new StringBuilder();
+    StringBuilder <warning descr="Contents of 'StringBuilder sb' are updated, but never queried">sb</warning> = new StringBuilder();
     for (String s : list) {
       if (s != null) {
         if(sb.length() > 0) {
@@ -113,7 +98,7 @@ public class MismatchedStringBuilderQueryUpdate {
     sb2.append("Hello, ").append(name != null ? name : "world");
     foo2(sb2::append); // StringBuilder can leak, because it's returned from function
 
-    final StringBuilder <warning descr="Contents of StringBuilder 'sb3' are updated, but never queried">sb3</warning> = new StringBuilder();
+    final StringBuilder <warning descr="Contents of 'StringBuilder sb3' are updated, but never queried">sb3</warning> = new StringBuilder();
     sb3.append("Hello, ").append(name != null ? name : "world");
     foo3(sb3::append); // StringBuilder cannot leak
   }
@@ -152,5 +137,17 @@ class EnumConstant {
 class Assert {
   static Object assertEquals(Object a, Object b) {
     return a;
+  }
+}
+class Main {
+
+  static String foo() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("txet");
+    return "some " + sb.reverse();
+  }
+
+  public static void main(String[] args) {
+    System.out.println(foo());
   }
 }

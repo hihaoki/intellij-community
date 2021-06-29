@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.navigator;
 
 import com.intellij.openapi.project.Project;
@@ -59,8 +59,9 @@ public final class MavenNavigationUtil {
     };
   }
 
-  @Nullable
-  public static Navigatable createNavigatableForDependency(final Project project, final VirtualFile file, final MavenArtifact artifact) {
+  public static @NotNull Navigatable createNavigatableForDependency(@NotNull Project project,
+                                                                    @NotNull VirtualFile file,
+                                                                    @NotNull MavenArtifact artifact) {
     return new NavigatableAdapter() {
       @Override
       public void navigate(boolean requestFocus) {
@@ -88,20 +89,21 @@ public final class MavenNavigationUtil {
 
   @Nullable
   public static MavenDomDependency findDependency(@NotNull MavenDomProjectModel projectDom, final String groupId, final String artifactId) {
-    MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies> processor = new MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies>() {
-      @Nullable
-      @Override
-      protected MavenDomDependency find(MavenDomDependencies element) {
-        for (MavenDomDependency dependency : element.getDependencies()) {
-          if (Objects.equals(groupId, dependency.getGroupId().getStringValue()) &&
-              Objects.equals(artifactId, dependency.getArtifactId().getStringValue())) {
-            return dependency;
+    MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies> processor =
+      new MavenDomProjectProcessorUtils.SearchProcessor<>() {
+        @Nullable
+        @Override
+        protected MavenDomDependency find(MavenDomDependencies element) {
+          for (MavenDomDependency dependency : element.getDependencies()) {
+            if (Objects.equals(groupId, dependency.getGroupId().getStringValue()) &&
+                Objects.equals(artifactId, dependency.getArtifactId().getStringValue())) {
+              return dependency;
+            }
           }
-        }
 
-        return null;
-      }
-    };
+          return null;
+        }
+      };
 
     MavenDomProjectProcessorUtils.processDependencies(projectDom, processor);
 

@@ -2,13 +2,9 @@
 package com.intellij.workspaceModel.storage
 
 import com.intellij.openapi.util.Ref
-import com.intellij.workspaceModel.storage.impl.WorkspaceEntityStorageBuilderImpl
-import com.intellij.workspaceModel.storage.impl.VirtualFileUrlManagerImpl
 import com.intellij.workspaceModel.storage.entities.*
-import com.intellij.workspaceModel.storage.entities.ModifiableSampleEntity
-import com.intellij.workspaceModel.storage.entities.ModifiableSecondSampleEntity
-import com.intellij.workspaceModel.storage.entities.SampleEntity
-import com.intellij.workspaceModel.storage.entities.SampleEntitySource
+import com.intellij.workspaceModel.storage.impl.url.VirtualFileUrlManagerImpl
+import com.intellij.workspaceModel.storage.url.VirtualFileUrlManager
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -24,7 +20,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `add entity`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     val source = SampleEntitySource("test")
     val entity = builder.addSampleEntity("hello", source, true, mutableListOf("one", "two"))
     assertTrue(entity.booleanProperty)
@@ -36,7 +32,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `remove entity`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     val entity = builder.addSampleEntity("hello")
     builder.removeEntity(entity)
     assertTrue(builder.entities(SampleEntity::class.java).toList().isEmpty())
@@ -44,7 +40,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `modify entity`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     val original = builder.addSampleEntity("hello")
     val modified = builder.modifyEntity(ModifiableSampleEntity::class.java, original) {
       stringProperty = "foo"
@@ -62,13 +58,13 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `builder from storage`() {
-    val storage = WorkspaceEntityStorageBuilderImpl.create().apply {
+    val storage = createEmptyBuilder().apply {
       addSampleEntity("hello")
     }.toStorage()
 
     assertEquals("hello", storage.singleSampleEntity().stringProperty)
 
-    val builder = WorkspaceEntityStorageBuilderImpl.from(storage)
+    val builder = createBuilderFrom(storage)
 
     assertEquals("hello", builder.singleSampleEntity().stringProperty)
     builder.modifyEntity(ModifiableSampleEntity::class.java, builder.singleSampleEntity()) {
@@ -81,7 +77,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `snapshot from builder`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     builder.addSampleEntity("hello")
 
     val snapshot = builder.toStorage()
@@ -99,7 +95,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `different entities with same properties`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     val foo1 = builder.addSampleEntity("foo1", virtualFileManager = virtualFileManager)
     val foo2 = builder.addSampleEntity("foo1", virtualFileManager = virtualFileManager)
     val bar = builder.addSampleEntity("bar", virtualFileManager = virtualFileManager)
@@ -107,7 +103,7 @@ class SimplePropertiesInStorageTest {
     assertTrue(foo1.hasEqualProperties(foo1))
     assertTrue(foo1.hasEqualProperties(foo2))
     assertFalse(foo1.hasEqualProperties(bar))
-    val builder2 = WorkspaceEntityStorageBuilderImpl.create()
+    val builder2 = createEmptyBuilder()
     val foo1a = builder2.addSampleEntity("foo1", virtualFileManager = virtualFileManager)
     assertTrue(foo1.hasEqualProperties(foo1a))
 
@@ -125,7 +121,7 @@ class SimplePropertiesInStorageTest {
 
   @Test
   fun `change source`() {
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     val source1 = SampleEntitySource("1")
     val source2 = SampleEntitySource("2")
     val foo = builder.addSampleEntity("foo", source1)
@@ -140,11 +136,21 @@ class SimplePropertiesInStorageTest {
   @Test(expected = IllegalStateException::class)
   fun `modifications are allowed inside special methods only`() {
     val thief = Ref.create<ModifiableSecondSampleEntity>()
-    val builder = WorkspaceEntityStorageBuilderImpl.create()
+    val builder = createEmptyBuilder()
     builder.addEntity(ModifiableSecondSampleEntity::class.java, SampleEntitySource("test")) {
       thief.set(this)
       intProperty = 10
     }
     thief.get().intProperty = 30
+  }
+
+  @Test(expected = IllegalStateException::class)
+  fun `test trying to modify non-existing entity`() {
+    val builder = createEmptyBuilder()
+    val sampleEntity = builder.addSampleEntity("Prop")
+    val anotherBuilder = createEmptyBuilder()
+    anotherBuilder.modifyEntity(ModifiableSampleEntity::class.java, sampleEntity) {
+      this.stringProperty = "Another prop"
+    }
   }
 }

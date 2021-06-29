@@ -1,7 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl.nodes;
 
 import com.intellij.ide.projectView.PresentationData;
+import com.intellij.ide.projectView.NodeSortOrder;
+import com.intellij.ide.projectView.NodeSortSettings;
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.CompoundIconProvider;
 import com.intellij.ide.projectView.impl.ProjectRootsUtil;
@@ -32,8 +34,10 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.file.PsiDirectoryFactory;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.IconUtil;
 import com.intellij.util.PlatformUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SmartHashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -136,8 +140,12 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
     setupIcon(data, psiDirectory);
   }
 
+  protected static boolean canRealModuleNameBeHidden() {
+    return Registry.is("ide.hide.real.module.name");
+  }
+
   private static boolean moduleNameMatchesDirectoryName(@NotNull Module module, @NotNull VirtualFile directoryFile, @NotNull ProjectFileIndex fileIndex) {
-    if (Registry.is("ide.hide.real.module.name")) return true;
+    if (canRealModuleNameBeHidden()) return true;
     String moduleName = module.getName();
     String directoryName = directoryFile.getName();
     if (moduleName.equalsIgnoreCase(directoryName)) {
@@ -163,9 +171,7 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
     final VirtualFile virtualFile = psiDirectory.getVirtualFile();
     if (PlatformUtils.isAppCode()) {
       final Icon icon = IconUtil.getIcon(virtualFile, 0, myProject);
-      if (icon != null) {
-        data.setIcon(icon);
-      }
+      data.setIcon(icon);
     }
     else {
       Icon icon = CompoundIconProvider.findIcon(psiDirectory, 0);
@@ -244,8 +250,12 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
       }
     }
     if (super.canRepresent(element)) return true;
-    return ProjectViewDirectoryHelper.getInstance(getProject())
-      .canRepresent(element, getValue(), getParentValue(), getSettings());
+    PsiDirectory directory = getValue();
+    Object owner = getParentValue();
+    if (file == null || directory == null) return false;
+    ProjectViewDirectoryHelper helper = ProjectViewDirectoryHelper.getInstance(directory.getProject());
+    return helper.canRepresent(file, directory) ||
+    owner instanceof PsiDirectory && helper.canRepresent(file, directory, (PsiDirectory)owner, getSettings());
   }
 
   @Override
@@ -329,6 +339,11 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
   }
 
   @Override
+  public @NotNull NodeSortOrder getSortOrder(@NotNull NodeSortSettings settings) {
+    return settings.isFoldersAlwaysOnTop() ? NodeSortOrder.FOLDER : super.getSortOrder(settings);
+  }
+
+  @Override
   public Comparable getSortKey() {
     if (ProjectAttachProcessor.canAttachToProject()) {
       // primary module is always on top; attached modules are sorted alphabetically
@@ -344,13 +359,8 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
   @Override
   public Comparable getTypeSortKey() {
     VirtualFile file = getVirtualFile();
-    if (file != null) {
-      String extension = file.getExtension();
-      if (extension != null) {
-        return new PsiFileNode.ExtensionSortKey(extension);
-      }
-    }
-    return null;
+    String extension = file == null ? null : file.getExtension();
+    return extension == null ? null : new PsiFileNode.ExtensionSortKey(extension);
   }
 
   @Override
@@ -372,6 +382,11 @@ public class PsiDirectoryNode extends BasePsiNode<PsiDirectory> implements Navig
   @Override
   public boolean isAlwaysShowPlus() {
     final VirtualFile file = getVirtualFile();
-    return file == null || file.getChildren().length > 0;
+    if (file == null || !file.isValid()) return false;
+    VirtualFile[] children = file.getChildren();
+    if (ArrayUtil.isEmpty(children)) return false;
+    if (ContainerUtil.exists(children, child -> !child.isDirectory())) return true;
+    ViewSettings settings = getSettings();
+    return settings == null || !settings.isFlattenPackages();
   }
 }

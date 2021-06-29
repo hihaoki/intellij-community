@@ -1,12 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.jetbrains.python.fixtures.PyLexerTestCase;
 import com.jetbrains.python.lexer.PythonIndentingLexer;
 
-/**
- * @author yole
- */
+
 public class PythonLexerTest extends PyLexerTestCase {
   public void testSimpleExpression() {
     doTest("a=1", "Py:IDENTIFIER", "Py:EQ", "Py:INTEGER_LITERAL", "Py:STATEMENT_BREAK");
@@ -415,14 +413,14 @@ public class PythonLexerTest extends PyLexerTestCase {
   public void testFStringUnmatchedQuotesAsTextParts() {
     doTest("s = f'foo\"bar'", 
            "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
-           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
   }
 
   public void testFStringUnmatchedLineBreaksAsTextParts() {
     doTest("s = f'''foo\n" +
            "bar'''",
            "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
-           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
   }
 
   public void testFStringNamedUnicodeEscapes() {
@@ -440,15 +438,15 @@ public class PythonLexerTest extends PyLexerTestCase {
   public void testFStringBackslashEscapedBraces() {
     doTest("s = f'foo\\{x}'", 
            "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
-           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT",
            "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_END", 
            "Py:FSTRING_END", "Py:STATEMENT_BREAK");
     doTest("s = f'{x:foo\\{y}bar\\}'", 
            "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
            "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", 
-           "Py:FSTRING_FRAGMENT_FORMAT_START", "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", 
+           "Py:FSTRING_FRAGMENT_FORMAT_START", "Py:FSTRING_TEXT",
            "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_END", 
-           "Py:FSTRING_TEXT", "Py:FSTRING_TEXT", 
+           "Py:FSTRING_TEXT",
            "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
   }
 

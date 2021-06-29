@@ -1,7 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.libraries;
 
-import com.intellij.ide.ApplicationInitializedListener;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.PluginDescriptor;
@@ -16,14 +15,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.function.Consumer;
 
-final class LibraryKindLoader implements ApplicationInitializedListener {
-  @Override
-  public void componentsInitialized() {
+final class LibraryKindLoader {
+  private LibraryKindLoader() {
     //todo[nik] this is temporary workaround for IDEA-98118: we need to initialize all library types to ensure that their kinds are created and registered in LibraryKind.ourAllKinds
     //In order to properly fix the problem we should extract all UI-related methods from LibraryType to a separate class and move LibraryType to intellij.platform.projectModel.impl module
     LibraryType.EP_NAME.getExtensionList();
 
-    LibraryType.EP_NAME.addExtensionPointListener(new ExtensionPointListener<LibraryType<?>>() {
+    LibraryType.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionAdded(@NotNull LibraryType<?> extension, @NotNull PluginDescriptor pluginDescriptor) {
         WriteAction.run(() -> {
@@ -40,7 +38,7 @@ final class LibraryKindLoader implements ApplicationInitializedListener {
     }, null);
   }
 
-  private static void processAllLibraries(@NotNull Consumer<Library> processor) {
+  private static void processAllLibraries(@NotNull Consumer<? super Library> processor) {
     processLibraries(LibraryTablesRegistrar.getInstance().getLibraryTable(), processor);
     for (LibraryTable table : LibraryTablesRegistrar.getInstance().getCustomLibraryTables()) {
       processLibraries(table, processor);
@@ -55,7 +53,7 @@ final class LibraryKindLoader implements ApplicationInitializedListener {
     }
   }
 
-  private static void processLibraries(@NotNull LibraryTable table, Consumer<Library> processor) {
+  private static void processLibraries(@NotNull LibraryTable table, Consumer<? super Library> processor) {
     for (Library library : table.getLibraries()) {
       processor.accept(library);
     }

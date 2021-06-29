@@ -1,10 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.process;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.util.Key;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -22,6 +21,11 @@ public class ColoredProcessHandler extends KillableProcessHandler implements Ans
 
   public ColoredProcessHandler(@NotNull GeneralCommandLine commandLine) throws ExecutionException {
     super(commandLine);
+    setShouldKillProcessSoftly(false);
+  }
+
+  protected ColoredProcessHandler(@NotNull Process process, @NotNull GeneralCommandLine commandLine) {
+    super(process, commandLine);
     setShouldKillProcessSoftly(false);
   }
 
@@ -62,29 +66,5 @@ public class ColoredProcessHandler extends KillableProcessHandler implements Ans
   @Override
   public void coloredTextAvailable(@NotNull String text, @NotNull Key attributes) {
     super.notifyTextAvailable(text, attributes);
-  }
-
-  /**
-   * @deprecated the method is kept for backward compatibility only
-   */
-  @SuppressWarnings("rawtypes")
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
-  protected void notifyColoredListeners(String text, Key attributes) {
-  }
-
-  /**
-     * @deprecated use {@link #addProcessListener(ProcessListener)} instead and
-     *             listen for {@link ProcessListener#onTextAvailable(ProcessEvent, Key)} events
-     */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
-  public void addColoredTextListener(AnsiEscapeDecoder.ColoredTextAcceptor listener) {
-    addProcessListener(new ProcessAdapter() {
-      @Override
-      public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
-        listener.coloredTextAvailable(event.getText(), outputType);
-      }
-    });
   }
 }

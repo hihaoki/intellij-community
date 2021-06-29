@@ -3,6 +3,7 @@ package com.intellij.psi.codeStyle;
 
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.text.NameUtilCore;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -267,6 +268,7 @@ public final class NameUtil {
    * @deprecated use {@link com.intellij.util.text.Matcher}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public interface Matcher {
     boolean matches(@NotNull String name);
   }
@@ -279,15 +281,6 @@ public final class NameUtil {
                                                                      : exactPrefixLen > 0 ? MatchingCaseSensitivity.FIRST_LETTER
                                                                                           : MatchingCaseSensitivity.NONE;
     return buildMatcher(pattern, options);
-  }
-
-  /**
-   * @deprecated Parameter {@code lowerCaseWords} is ignored, same as {@link #buildMatcher(String, int, boolean, boolean)} )}
-   */
-  @Deprecated
-  @NotNull
-  public static com.intellij.util.text.Matcher buildMatcher(@NotNull String pattern, int exactPrefixLen, boolean allowToUpper, boolean allowToLower, @SuppressWarnings("unused") boolean lowerCaseWords) {
-    return buildMatcher(pattern, exactPrefixLen, allowToUpper, allowToLower);
   }
 
   public static class MatcherBuilder {

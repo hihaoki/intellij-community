@@ -1,83 +1,66 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+@file:Suppress("DEPRECATION")
+
 package com.intellij.grazie.ide.inspection.grammar
 
-import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInspection.LocalInspectionTool
+import com.intellij.codeInspection.LocalInspectionToolSession
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.grazie.GrazieBundle
 import com.intellij.grazie.GrazieConfig
-import com.intellij.grazie.config.CheckingContext
-import com.intellij.grazie.config.SuppressingContext
-import com.intellij.grazie.grammar.GrammarChecker
-import com.intellij.grazie.grammar.Typo
-import com.intellij.grazie.grammar.strategy.GrammarCheckingStrategy
-import com.intellij.grazie.ide.inspection.grammar.problem.GrazieProblemDescriptor
-import com.intellij.grazie.ide.language.LanguageGrammarChecking
-import com.intellij.grazie.ide.msg.GrazieStateLifecycle
-import com.intellij.grazie.utils.lazyConfig
+import com.intellij.grazie.text.CheckerRunner
+import com.intellij.grazie.text.TextChecker
+import com.intellij.grazie.text.TextContent
+import com.intellij.grazie.text.TextExtractor
+import com.intellij.lang.Language
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
-import com.intellij.util.containers.CollectionFactory
+import com.intellij.psi.PsiWhiteSpace
+import java.util.*
 
 class GrazieInspection : LocalInspectionTool() {
-  companion object : GrazieStateLifecycle {
-    private var enabledStrategiesIDs: Set<String> by lazyConfig(this::init)
-    private var disabledStrategiesIDs: Set<String> by lazyConfig(this::init)
 
-    private var suppression: SuppressingContext by lazyConfig(this::init)
-    private var checking: CheckingContext by lazyConfig(this::init)
+  override fun getDisplayName() = GrazieBundle.message("grazie.grammar.inspection.grammar.text")
 
-    override fun init(state: GrazieConfig.State) {
-      enabledStrategiesIDs = state.enabledGrammarStrategies
-      disabledStrategiesIDs = state.disabledGrammarStrategies
-      suppression = state.suppressingContext
-      checking = state.checkingContext
-    }
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
+    val checkers = TextChecker.allCheckers()
+    val checkedDomains = checkedDomains()
+    val fileLanguage = holder.file.language
 
-    override fun update(prevState: GrazieConfig.State, newState: GrazieConfig.State) {
-      enabledStrategiesIDs = newState.enabledGrammarStrategies
-      disabledStrategiesIDs = newState.disabledGrammarStrategies
-      suppression = newState.suppressingContext
-      checking = newState.checkingContext
+    return object : PsiElementVisitor() {
+      override fun visitElement(element: PsiElement) {
+        if (element is PsiWhiteSpace || areChecksDisabled(element, fileLanguage)) return
 
-      ProjectManager.getInstance().openProjects.forEach {
-        DaemonCodeAnalyzer.getInstance(it).restart()
+        val extracted = TextExtractor.findUniqueTextAt(element, checkedDomains) ?: return
+        if (extracted.length > 50_000) return // too large text
+
+        val runner = CheckerRunner(extracted)
+        val warnings = runner.toProblemDescriptors(runner.run(checkers), isOnTheFly)
+        warnings.forEach(holder::registerProblem)
       }
     }
   }
 
-  override fun getDisplayName() = GrazieBundle.message("grazie.grammar.inspection.grammar.text")
-
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
-    return object : PsiElementVisitor() {
-      override fun visitElement(element: PsiElement) {
-        if (InjectedLanguageManager.getInstance(holder.project).isInjectedFragment(holder.file)) return
-
-        val typos = CollectionFactory.createSmallMemoryFootprintSet<Typo>()
-
-        val strategies = LanguageGrammarChecking.getStrategiesForElement(element, enabledStrategiesIDs, disabledStrategiesIDs)
-
-        for (strategy in strategies) {
-          val isCheckNeeded = ApplicationManager.getApplication().isUnitTestMode || when (strategy.getContextRootTextDomain(element)) {
-            GrammarCheckingStrategy.TextDomain.NON_TEXT -> false
-            GrammarCheckingStrategy.TextDomain.LITERALS -> checking.isCheckInStringLiteralsEnabled
-            GrammarCheckingStrategy.TextDomain.COMMENTS -> checking.isCheckInCommentsEnabled
-            GrammarCheckingStrategy.TextDomain.DOCS -> checking.isCheckInDocumentationEnabled
-            GrammarCheckingStrategy.TextDomain.PLAIN_TEXT -> true
-          }
-
-          if (isCheckNeeded) typos.addAll(GrammarChecker.check(element, strategy))
-        }
-
-        for (typo in typos.asSequence().filterNot { suppression.isSuppressed(it) }) {
-          holder.registerProblem(GrazieProblemDescriptor(typo, isOnTheFly))
-        }
-
-        super.visitElement(element)
+  companion object {
+    internal fun checkedDomains(): Set<TextContent.TextDomain> {
+      val result = EnumSet.of(TextContent.TextDomain.PLAIN_TEXT)
+      if (GrazieConfig.get().checkingContext.isCheckInStringLiteralsEnabled) {
+        result.add(TextContent.TextDomain.LITERALS)
       }
+      if (GrazieConfig.get().checkingContext.isCheckInCommentsEnabled) {
+        result.add(TextContent.TextDomain.COMMENTS)
+      }
+      if (GrazieConfig.get().checkingContext.isCheckInDocumentationEnabled) {
+        result.add(TextContent.TextDomain.DOCUMENTATION)
+      }
+      return result
+    }
+
+    internal fun areChecksDisabled(element: PsiElement, fileLanguage: Language): Boolean {
+      var psiLanguage = element.language
+      if (fileLanguage.isKindOf(psiLanguage)) psiLanguage = fileLanguage // e.g. XML PSI in HTML files
+      return psiLanguage.id in GrazieConfig.get().checkingContext.getEffectivelyDisabledLanguageIds()
     }
   }
 }

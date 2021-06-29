@@ -2,26 +2,27 @@
 package com.intellij.openapi.vcs.impl.projectlevelman;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.util.text.FilePathHashingStrategy;
-import gnu.trove.THashMap;
-import gnu.trove.TIntArrayList;
-import gnu.trove.TIntHashSet;
+import com.intellij.util.containers.CollectionFactory;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 
-public class FilePathMapping<T> {
+public final class FilePathMapping<T> {
   private final boolean myCaseSensitive;
 
   private final Map<String, T> myPathMap;
-  private final TIntHashSet myPathHashSet = new TIntHashSet();
+  private final IntSet myPathHashSet = new IntOpenHashSet();
 
   public FilePathMapping(boolean caseSensitive) {
     myCaseSensitive = caseSensitive;
-    myPathMap = new THashMap<>(FilePathHashingStrategy.create(caseSensitive));
+    myPathMap = caseSensitive ? new HashMap<>() : CollectionFactory.createCaseInsensitiveStringMap();
   }
 
   public void add(@NotNull String filePath, @NotNull T value) {
@@ -36,18 +37,28 @@ public class FilePathMapping<T> {
     // We do not update myPathHashSet, so hash collisions might become worse over time.
   }
 
+  public void clear() {
+    myPathMap.clear();
+    myPathHashSet.clear();
+  }
+
   @NotNull
   public Collection<T> values() {
     return myPathMap.values();
   }
 
+  public boolean containsKey(@NotNull String filePath) {
+    String path = StringUtil.trimTrailing(filePath, '/');
+    return myPathMap.containsKey(path);
+  }
+
   @Nullable
-  public T getMappingFor(@NotNull FilePath filePath) {
-    String path = filePath.getPath();
+  public T getMappingFor(@NotNull String filePath) {
+    String path = StringUtil.trimTrailing(filePath, '/');
 
     int index = 0;
     int prefixHash = 0;
-    TIntArrayList matches = new TIntArrayList();
+    IntList matches = new IntArrayList();
 
     // check empty string for FS root
     if (myPathHashSet.contains(prefixHash)) {
@@ -68,7 +79,7 @@ public class FilePathMapping<T> {
     }
 
     for (int i = matches.size() - 1; i >= 0; i--) {
-      String prefix = path.substring(0, matches.get(i));
+      String prefix = path.substring(0, matches.getInt(i));
       T root = myPathMap.get(prefix);
       if (root != null) return root;
     }

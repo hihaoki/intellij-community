@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.execution.CantRunException;
@@ -14,6 +14,7 @@ import com.intellij.openapi.projectRoots.JdkUtil;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.util.PathsList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,6 +38,8 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
   private boolean myArgFile;
   private boolean myClasspathFile = true;
   private String myJarPath;
+
+  private final JavaTargetDependentParameters myTargetDependentParameters = new JavaTargetDependentParameters();
 
   @Nullable
   public Sdk getJdk() {
@@ -88,6 +91,15 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     return myUseDynamicClasspath;
   }
 
+  /**
+   * Enables command line shortening considering current {@link #getJdk JDK}
+   * and ignoring whether dynamic classpath is {@linkplain JdkUtil#useDynamicClasspath enabled on project or application level}.
+   */
+  public void useDynamicClasspathDefinedByJdkLevel() {
+    Sdk jdk = getJdk();
+    setShortenCommandLine(ShortenCommandLine.getDefaultMethodForJdkLevel(jdk != null ? jdk.getHomePath() : null));
+  }
+
   public void setUseDynamicClasspath(boolean useDynamicClasspath) {
     myUseDynamicClasspath = useDynamicClasspath && (myArgFile || myUseClasspathJar || myClasspathFile);
   }
@@ -104,7 +116,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     return myUseDynamicVMOptions;
   }
 
-  /** Allows passing system properties via a temporary file in order to avoid "too long command line" problem. */
+  /**
+   * Allows passing system properties via a temporary file in order to avoid "too long command line" problem.
+   */
   public void setUseDynamicVMOptions(boolean useDynamicVMOptions) {
     myUseDynamicVMOptions = useDynamicVMOptions;
   }
@@ -113,7 +127,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     return myUseDynamicParameters;
   }
 
-  /** Allows passing program parameters via a temporary file in order to avoid "too long command line" problem. */
+  /**
+   * Allows passing program parameters via a temporary file in order to avoid "too long command line" problem.
+   */
   public void setUseDynamicParameters(boolean useDynamicParameters) {
     myUseDynamicParameters = useDynamicParameters;
   }
@@ -154,6 +170,10 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
       Sdk jdk = getJdk();
       mode = ShortenCommandLine.getDefaultMethod(project, jdk != null ? jdk.getHomePath() : null);
     }
+    setShortenCommandLine(mode);
+  }
+
+  public void setShortenCommandLine(@NotNull ShortenCommandLine mode) {
     myUseDynamicClasspath = mode != ShortenCommandLine.NONE;
     myUseClasspathJar = mode == ShortenCommandLine.MANIFEST;
     setClasspathFile(mode == ShortenCommandLine.CLASSPATH_FILE);
@@ -168,8 +188,14 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     myJarPath = jarPath;
   }
 
+  @ApiStatus.Experimental
+  @NotNull
+  public JavaTargetDependentParameters getTargetDependentParameters() {
+    return myTargetDependentParameters;
+  }
+
   /**
-   * Consider using {@link #toCommandLine(TargetEnvironmentRequest, TargetEnvironmentConfiguration)} instead with request created by {@link com.intellij.execution.target.local.LocalTargetEnvironmentFactory} as an argument
+   * Consider using {@link #toCommandLine(TargetEnvironmentRequest, TargetEnvironmentConfiguration)} instead with {@link com.intellij.execution.target.local.LocalTargetEnvironmentRequest} as an argument
    *
    * @throws CantRunException when incorrect Java SDK is specified
    * @see JdkUtil#setupJVMCommandLine(SimpleJavaParameters)
@@ -184,9 +210,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
    * @see JdkUtil#setupJVMCommandLine(SimpleJavaParameters)
    */
   @NotNull
-  public TargetedCommandLineBuilder toCommandLine(@NotNull TargetEnvironmentRequest request, @Nullable TargetEnvironmentConfiguration configuration)
+  public TargetedCommandLineBuilder toCommandLine(@NotNull TargetEnvironmentRequest request)
     throws CantRunException {
-    return JdkUtil.setupJVMCommandLine(this, request, configuration);
+    return JdkUtil.setupJVMCommandLine(this, request);
   }
 
   @NotNull

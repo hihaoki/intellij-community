@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
 import com.intellij.openapi.util.BuildNumber;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -30,7 +31,7 @@ public abstract class ApplicationInfo {
 
   public abstract String getPatchVersion();
 
-  public abstract String getVersionName();
+  public abstract @NlsSafe String getVersionName();
 
   /**
    * Returns the first number from 'minor' part of the version. This method is temporarily added because some products specify a composite number (like '1.3')
@@ -38,7 +39,7 @@ public abstract class ApplicationInfo {
    *
    * @see org.jetbrains.intellij.build.ApplicationInfoProperties#minorVersionMainPart
    */
-  public final String getMinorVersionMainPart() {
+  public final @NlsSafe String getMinorVersionMainPart() {
     String value = StringUtil.substringBefore(getMinorVersion(), ".");
     return value == null ? getMinorVersion() : value;
   }
@@ -49,7 +50,7 @@ public abstract class ApplicationInfo {
    * @return full name of the product vendor, e.g. 'JetBrains s.r.o.' for JetBrains products
    * @see #getShortCompanyName()
    */
-  public abstract String getCompanyName();
+  public abstract @NlsSafe String getCompanyName();
 
   /**
    * Use this method to refer to the company in a less formal way, e.g. in UI messages or directory names.
@@ -57,13 +58,11 @@ public abstract class ApplicationInfo {
    * @return shortened name of the product vendor without 'Inc.' or similar suffixes, e.g. 'JetBrains' for JetBrains products
    * @see #getCompanyName()
    */
-  public abstract String getShortCompanyName();
+  public abstract @NlsSafe String getShortCompanyName();
 
   public abstract String getCompanyURL();
 
   public abstract String getJetBrainsTvUrl();
-
-  public abstract String getEvalLicenseUrl();
 
   public abstract String getKeyConversionUrl();
 
@@ -71,9 +70,16 @@ public abstract class ApplicationInfo {
 
   public abstract boolean hasContextHelp();
 
-  public abstract @NotNull String getFullVersion();
+  public abstract @NlsSafe @NotNull String getFullVersion();
 
-  public abstract @NotNull String getStrictVersion();
+  /**
+   * "major.minor"; when minor version is composite, only the first part is used.
+   */
+  public final @NlsSafe String getShortVersion() {
+    return getMajorVersion() + '.' + getMinorVersionMainPart();
+  }
+
+  public abstract @NlsSafe @NotNull String getStrictVersion();
 
   public static boolean helpAvailable() {
     return ApplicationManager.getApplication() != null && getInstance() != null && getInstance().hasHelp();

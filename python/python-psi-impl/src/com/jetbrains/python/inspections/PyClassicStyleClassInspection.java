@@ -23,7 +23,6 @@ import com.jetbrains.python.PyPsiBundle;
 import com.jetbrains.python.inspections.quickfix.TransformClassicClassQuickFix;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyExpression;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,11 +30,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Alexey.Ivanov
  */
 public class PyClassicStyleClassInspection extends PyInspection {
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return false;
-  }
 
   @NotNull
   @Override
@@ -51,7 +45,7 @@ public class PyClassicStyleClassInspection extends PyInspection {
     }
 
     @Override
-    public void visitPyClass(PyClass node) {
+    public void visitPyClass(@NotNull PyClass node) {
       final ASTNode nameNode = node.getNameNode();
       if (!node.isNewStyleClass(myTypeEvalContext) && nameNode != null) {
         PyExpression[] superClassExpressions = node.getSuperClassExpressions();

@@ -25,6 +25,7 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
   private boolean myNeedsMore = false;
   private boolean firstExecution = true;
   @NotNull private final PythonConsoleView myConsoleView;
+  private boolean isExecuting = false;
 
   public PythonDebugConsoleCommunication(@NotNull Project project,
                                          @NotNull PyDebugProcess debugProcess,
@@ -57,7 +58,7 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
 
   @Override
   public boolean isExecuting() {
-    return false;
+    return isExecuting;
   }
 
   protected void exec(ConsoleCodeFragment command, final PyDebugCallback<Pair<String, Boolean>> callback) {
@@ -65,7 +66,7 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
       firstExecution = false;
       myConsoleView.addConsoleFolding(true, false);
     }
-    myDebugProcess.consoleExec(command.getText(), new PyDebugCallback<String>() {
+    myDebugProcess.consoleExec(command.getText(), new PyDebugCallback<>() {
       @Override
       public void ok(String value) {
         callback.ok(parseExecResponseString(value));
@@ -80,6 +81,7 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
 
   @Override
   public void execInterpreter(ConsoleCodeFragment code, final Function<InterpreterResponse, Object> callback) {
+    isExecuting = true;
     if (waitingForInput) {
       final OutputStream processInput = myDebugProcess.getProcessHandler().getProcessInput();
       if (processInput != null) {
@@ -94,25 +96,27 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
         }
       }
       myNeedsMore = false;
+      isExecuting = false;
       waitingForInput = false;
       notifyCommandExecuted(waitingForInput);
 
     }
     else {
 
-      exec(new ConsoleCodeFragment(code.getText(), false), new PyDebugCallback<Pair<String, Boolean>>() {
+      exec(new ConsoleCodeFragment(code.getText(), false), new PyDebugCallback<>() {
         @Override
         public void ok(Pair<String, Boolean> executed) {
           boolean more = executed.second;
           myNeedsMore = more;
+          isExecuting = false;
           notifyCommandExecuted(more);
           callback.fun(new InterpreterResponse(more, isWaitingForInput()));
-
         }
 
         @Override
         public void error(PyDebuggerException exception) {
           myNeedsMore = false;
+          isExecuting = false;
           notifyCommandExecuted(false);
           callback.fun(new InterpreterResponse(false, isWaitingForInput()));
         }
@@ -126,10 +130,9 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
     super.notifyInputRequested();
   }
 
-
   @Override
   public void interrupt() {
-    throw new UnsupportedOperationException();
+    myDebugProcess.interruptDebugConsole();
   }
 
   public boolean isSuspended() {

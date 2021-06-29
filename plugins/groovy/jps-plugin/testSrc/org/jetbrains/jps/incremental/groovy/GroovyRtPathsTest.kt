@@ -3,6 +3,7 @@ package org.jetbrains.jps.incremental.groovy
 
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.io.directoryContent
+import org.jetbrains.groovy.compiler.rt.GroovyRtJarPaths
 import org.junit.Assert
 import org.junit.Test
 import java.io.File
@@ -15,19 +16,19 @@ class GroovyRtPathsTest {
       dir("intellij.groovy.jps") {}
       dir("intellij.groovy.rt") {}
     }.generateInTempDir().toFile()
-    val roots = GroovyBuilder.getGroovyRtRoots(File(out, "intellij.groovy.jps"))
+    val roots = GroovyRtJarPaths.getGroovyRtRoots(File(out, "intellij.groovy.jps"))
     assertSameFiles(roots, File(out, "intellij.groovy.rt"), File(out, "intellij.groovy.constants.rt"))
   }
 
   @Test
   fun pluginDistribution() {
     val lib = directoryContent {
-      file("groovy-jps-plugin.jar")
-      file("groovy-rt-constants.jar")
-      file("groovy_rt.jar")
+      file("groovy-jps.jar")
+      file("groovy-constants-rt.jar")
+      file("groovy-rt.jar")
     }.generateInTempDir().toFile()
-    val roots = GroovyBuilder.getGroovyRtRoots(File(lib, "groovy-jps-plugin.jar"))
-    assertSameFiles(roots, File(lib, "groovy_rt.jar"), File(lib, "groovy-rt-constants.jar"))
+    val roots = GroovyRtJarPaths.getGroovyRtRoots(File(lib, "groovy-jps.jar"))
+    assertSameFiles(roots, File(lib, "groovy-rt.jar"), File(lib, "groovy-constants-rt.jar"))
   }
 
   @Test
@@ -37,7 +38,7 @@ class GroovyRtPathsTest {
       file("groovy-rt-193.239.jar")
       file("groovy-jps-193.239.jar")
     }.generateInTempDir().toFile()
-    val roots = GroovyBuilder.getGroovyRtRoots(File(lib, "groovy-jps-193.239.jar"))
+    val roots = GroovyRtJarPaths.getGroovyRtRoots(File(lib, "groovy-jps-193.239.jar"))
     assertSameFiles(roots, File(lib, "groovy-rt-193.239.jar"), File(lib, "groovy-constants-rt-193.239.jar"))
   }
 
@@ -62,7 +63,8 @@ class GroovyRtPathsTest {
         }
       }
     }.generateInTempDir().toFile()
-    val roots = GroovyBuilder.getGroovyRtRoots(File(repo, "com/jetbrains/intellij/groovy/groovy-jps/193.239/groovy-jps-193.239.jar"))
+    val roots = GroovyRtJarPaths.getGroovyRtRoots(
+      File(repo, "com/jetbrains/intellij/groovy/groovy-jps/193.239/groovy-jps-193.239.jar"))
     assertSameFiles(roots, File(repo, "com/jetbrains/intellij/groovy/groovy-rt/193.239/groovy-rt-193.239.jar"),
                     File(repo, "com/jetbrains/intellij/groovy/groovy-constants-rt/193.239/groovy-constants-rt-193.239.jar"))
   }

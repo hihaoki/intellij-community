@@ -23,6 +23,11 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   }
 
   @Override
+  public void freezeFileTypeTemporarilyIn(@NotNull VirtualFile file, @NotNull Runnable runnable) {
+
+  }
+
+  @Override
   public void registerFileType(@NotNull FileType fileType) {
   }
 
@@ -102,6 +107,11 @@ public class MockFileTypeManager extends FileTypeManagerEx {
 
   @Override
   public void fireBeforeFileTypesChanged() {
+  }
+
+  @Override
+  public void makeFileTypesChange(@NotNull String message, @NotNull Runnable command) {
+    command.run();
   }
 
   @Override

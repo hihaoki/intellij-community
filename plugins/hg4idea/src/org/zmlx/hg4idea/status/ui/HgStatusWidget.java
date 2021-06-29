@@ -4,6 +4,7 @@ package org.zmlx.hg4idea.status.ui;
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.dvcs.repo.VcsRepositoryMappingListener;
 import com.intellij.dvcs.ui.DvcsStatusWidget;
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.Disposer;
@@ -11,8 +12,9 @@ import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.openapi.wm.StatusBarWidgetFactory;
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.HgBundle;
@@ -29,7 +31,7 @@ import java.util.Objects;
  * Widget to display basic hg status in the status bar.
  */
 public class HgStatusWidget extends DvcsStatusWidget<HgRepository> {
-  private static final String ID = "hg";
+  private static final @NonNls String ID = "hg";
 
   @NotNull private final HgVcs myVcs;
   @NotNull private final HgProjectSettings myProjectSettings;
@@ -54,7 +56,7 @@ public class HgStatusWidget extends DvcsStatusWidget<HgRepository> {
 
   @Nullable
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected HgRepository guessCurrentRepository(@NotNull Project project) {
     return DvcsUtil.guessCurrentRepositoryQuick(project, HgUtil.getRepositoryManager(project),
                                                 HgProjectSettings.getInstance(project).getRecentRootPath());
@@ -74,7 +76,8 @@ public class HgStatusWidget extends DvcsStatusWidget<HgRepository> {
   @NotNull
   @Override
   protected ListPopup getPopup(@NotNull Project project, @NotNull HgRepository repository) {
-    return HgBranchPopup.getInstance(project, repository).asListPopup();
+    return HgBranchPopup.getInstance(project, repository, DataManager.getInstance().getDataContext(myStatusBar.getComponent()))
+      .asListPopup();
   }
 
   @Override

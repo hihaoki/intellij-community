@@ -34,6 +34,7 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testLongRangeBasics() { doTest(); }
 
   public void testLongRangeLoop() { doTest(); }
+  public void testCountedLoopWithOverflow() { doTest(); }
 
   public void testLongRangeAnnotation() {
     myFixture.addClass("package javax.annotation;\n" +
@@ -59,6 +60,7 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testManyAdditionsDoNotCauseExponentialBlowUp() { doTest(); }
   public void testBoxedRanges() { doTest(); }
   public void testLongRangeDiff() { doTest(); }
+  public void testIntLongTypeConversion() { doTest(); }
   public void testBackPropagation() { doTest(); }
   public void testTwoArraysDiff() { doTest(); }
   public void testModRange() { doTest(); }
@@ -73,4 +75,12 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testReduceBinOpOnCast() { doTest(); }
   public void testSuppressZeroReport() { doTest(); }
   public void testCompareMethods() { doTest(); }
+  public void testWidenMismatch() { doTest(); }
+  public void testDontWidenPlusInLoop() { doTest(); }
+  public void testCollectionAddRemove() { doTest(); }
+  public void testRelationsOnAddition() { doTest(); }
+  public void testModSpecialCase() { doTest(); }
+  public void testArrayAccessWithCastInCountedLoop() { doTest(); }
+  public void testFloatingPointRanges() { doTest(); }
+  public void testFloatingPointCasts() { doTest(); }
 }

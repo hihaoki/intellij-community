@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.impl;
 
 import com.intellij.codeInsight.hint.HintManager;
@@ -32,8 +32,6 @@ import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.diff.impl.DiffUsageTriggerCollector;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
-import com.intellij.openapi.keymap.Keymap;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
@@ -44,22 +42,18 @@ import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.UserDataHolder;
-import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.mac.TouchbarDataKeys;
-import com.intellij.ui.mac.UpdatableDefaultActionGroup;
 import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -67,9 +61,9 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
+
+import static com.intellij.diff.tools.util.base.TextDiffViewerUtil.recursiveRegisterShortcutSet;
 
 public abstract class DiffRequestProcessor implements Disposable {
   private static final Logger LOG = Logger.getInstance(DiffRequestProcessor.class);
@@ -86,7 +80,7 @@ public abstract class DiffRequestProcessor implements Disposable {
 
   @NotNull private final DefaultActionGroup myToolbarGroup;
   @NotNull private final DefaultActionGroup myPopupActionGroup;
-  @NotNull private final UpdatableDefaultActionGroup myTouchbarActionGroup;
+  @NotNull private final DefaultActionGroup myTouchbarActionGroup;
 
   @NotNull private final JPanel myPanel;
   @NotNull private final MyPanel myMainPanel;
@@ -127,8 +121,7 @@ public abstract class DiffRequestProcessor implements Disposable {
 
     myToolbarGroup = new DefaultActionGroup();
     myPopupActionGroup = new DefaultActionGroup();
-    myTouchbarActionGroup = new UpdatableDefaultActionGroup();
-    TouchbarDataKeys.putActionDescriptor(myTouchbarActionGroup).setReplaceEsc(false);
+    myTouchbarActionGroup = new DefaultActionGroup();
 
     // UI
 
@@ -172,22 +165,22 @@ public abstract class DiffRequestProcessor implements Disposable {
   // Update
   //
 
-  @CalledInAwt
+  @RequiresEdt
   protected void reloadRequest() {
     updateRequest(true);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void updateRequest() {
     updateRequest(false);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void updateRequest(boolean force) {
     updateRequest(force, null);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public abstract void updateRequest(boolean force, @Nullable ScrollToPolicy scrollToChangePolicy);
 
   @NotNull
@@ -299,12 +292,12 @@ public abstract class DiffRequestProcessor implements Disposable {
 
   @Nullable private ApplyData myQueuedApplyRequest;
 
-  @CalledInAwt
+  @RequiresEdt
   protected void applyRequest(@NotNull DiffRequest request, boolean force, @Nullable ScrollToPolicy scrollToChangePolicy) {
     applyRequest(request, force, scrollToChangePolicy, false);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void applyRequest(@NotNull DiffRequest request, boolean force, @Nullable ScrollToPolicy scrollToChangePolicy, boolean sync) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     myIterationState = IterationState.NONE;
@@ -326,7 +319,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
   }
 
-  @CalledInAwt
+  @RequiresEdt
   private void doApplyRequest(@NotNull DiffRequest request, boolean force, @Nullable ScrollToPolicy scrollToChangePolicy) {
     if (!force && request == myActiveRequest) return;
 
@@ -366,13 +359,13 @@ public abstract class DiffRequestProcessor implements Disposable {
     });
   }
 
-  protected void setWindowTitle(@NotNull String title) {
+  protected void setWindowTitle(@NotNull @NlsContexts.DialogTitle String title) {
   }
 
   protected void onAfterNavigate() {
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void onDispose() {
   }
 
@@ -387,16 +380,21 @@ public abstract class DiffRequestProcessor implements Disposable {
 
   @NotNull
   protected List<AnAction> getNavigationActions() {
-    return Arrays.asList(new MyPrevDifferenceAction(), new MyNextDifferenceAction(), new MyOpenInEditorAction(), Separator.getInstance(),
-                         new MyPrevChangeAction(), new MyNextChangeAction());
+    List<AnAction> actions = ContainerUtil.newArrayList(
+      new MyPrevDifferenceAction(), new MyNextDifferenceAction(), new MyOpenInEditorAction(),
+      Separator.getInstance(),
+      new MyPrevChangeAction(), new MyNextChangeAction());
+
+    ContainerUtil.addIfNotNull(actions, createGoToChangeAction());
+
+    return actions;
   }
 
-  @NotNull
-  private List<AnAction> getTouchbarActions() {
-    final DefaultActionGroup left = new DefaultActionGroup(new MyPrevDifferenceAction(), new MyNextDifferenceAction());
-    final DefaultActionGroup main = new DefaultActionGroup(new MyPrevChangeAction(), new MyNextChangeAction());
-    TouchbarDataKeys.putActionDescriptor(main).setShowText(true).setShowImage(false).setMainGroup(true);
-    return Arrays.asList(left, main);
+  /**
+   * @see com.intellij.openapi.vcs.changes.actions.diff.ChangeGoToChangePopupAction
+   */
+  protected @Nullable AnAction createGoToChangeAction() {
+    return null;
   }
 
   //
@@ -466,6 +464,8 @@ public abstract class DiffRequestProcessor implements Disposable {
     });
   }
 
+  private static final boolean SHOW_VIEWER_ACTIONS_IN_TOUCHBAR = Boolean.getBoolean("touchbar.diff.show.viewer.actions");
+
   protected void collectToolbarActions(@Nullable List<? extends AnAction> viewerActions) {
     myToolbarGroup.removeAll();
 
@@ -486,7 +486,15 @@ public abstract class DiffRequestProcessor implements Disposable {
                             new ShowInExternalToolAction(),
                             ActionManager.getInstance().getAction(IdeActions.ACTION_CONTEXT_HELP));
 
-    myTouchbarActionGroup.replaceAll(getTouchbarActions());
+    if (SystemInfo.isMac) { // collect touchbar actions
+      myTouchbarActionGroup.removeAll();
+      myTouchbarActionGroup.addAll(
+        new MyPrevDifferenceAction(), new MyNextDifferenceAction(), new MyOpenInEditorAction(), Separator.getInstance(),
+        new MyPrevChangeAction(), new MyNextChangeAction()
+      );
+      if (SHOW_VIEWER_ACTIONS_IN_TOUCHBAR && viewerActions != null)
+        myTouchbarActionGroup.addAll(viewerActions);
+    }
   }
 
   protected void collectPopupActions(@Nullable List<? extends AnAction> viewerActions) {
@@ -509,7 +517,12 @@ public abstract class DiffRequestProcessor implements Disposable {
     ((ActionToolbarImpl)myToolbar).clearPresentationCache();
     myToolbar.updateActionsImmediately();
 
-    ActionUtil.recursiveRegisterShortcutSet(myToolbarGroup, myMainPanel, null);
+    recursiveRegisterShortcutSet(myToolbarGroup, myMainPanel, null);
+  }
+
+  @NotNull
+  public ActionToolbar getToolbar() {
+    return myToolbar;
   }
 
   protected void buildActionPopup(@Nullable List<? extends AnAction> viewerActions) {
@@ -518,7 +531,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     DiffUtil.registerAction(new ShowActionGroupPopupAction(), myMainPanel);
   }
 
-  private void setTitle(@Nullable String title) {
+  private void setTitle(@Nullable @NlsContexts.DialogTitle String title) {
     if (getContextUserData(DiffUserDataKeys.DO_NOT_CHANGE_WINDOW_TITLE) == Boolean.TRUE) return;
     if (title == null) title = DiffBundle.message("diff.files.dialog.title");
     setWindowTitle(title);
@@ -547,9 +560,25 @@ public abstract class DiffRequestProcessor implements Disposable {
     return myProject;
   }
 
+  @Nullable
+  public DiffRequest getActiveRequest() {
+    return myActiveRequest;
+  }
+
   @NotNull
   public DiffContext getContext() {
     return myContext;
+  }
+
+  @Nullable
+  public DiffViewer getActiveViewer() {
+    if (myState instanceof DefaultState) {
+      return ((DefaultState)myState).myViewer;
+    }
+    if (myState instanceof WrapperState) {
+      return ((WrapperState)myState).myViewer;
+    }
+    return null;
   }
 
   @NotNull
@@ -648,7 +677,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     public void actionPerformed(@NotNull AnActionEvent e) {
       if (myState.getActiveTool() == myDiffTool) return;
 
-      DiffUsageTriggerCollector.trigger("toggle.diff.tool", myDiffTool, myContext.getUserData(DiffUserDataKeys.PLACE));
+      DiffUsageTriggerCollector.trigger(e.getProject(), "toggle.diff.tool", myDiffTool, myContext.getUserData(DiffUserDataKeys.PLACE));
       moveToolOnTop(myDiffTool);
 
       updateRequest(true);
@@ -682,25 +711,25 @@ public abstract class DiffRequestProcessor implements Disposable {
 
   @NotNull private IterationState myIterationState = IterationState.NONE;
 
-  @CalledInAwt
+  @RequiresEdt
   protected boolean hasNextChange(boolean fromUpdate) {
     return false;
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected boolean hasPrevChange(boolean fromUpdate) {
     return false;
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void goToNextChange(boolean fromDifferences) {
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void goToPrevChange(boolean fromDifferences) {
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected boolean isNavigationEnabled() {
     return false;
   }
@@ -854,11 +883,7 @@ public abstract class DiffRequestProcessor implements Disposable {
   // Iterate requests
 
   protected class MyNextChangeAction extends NextChangeAction {
-    public MyNextChangeAction() {
-      if (DiffUtil.isUserDataFlagSet(DiffUserDataKeysEx.DIFF_IN_EDITOR, getContext())) {
-        patchShortcutSet(this, IdeActions.ACTION_NEXT_TAB, IdeActions.ACTION_NEXT_EDITOR_TAB);
-      }
-    }
+    public MyNextChangeAction() {}
 
     @Override
     public void update(@NotNull AnActionEvent e) {
@@ -885,11 +910,7 @@ public abstract class DiffRequestProcessor implements Disposable {
   }
 
   protected class MyPrevChangeAction extends PrevChangeAction {
-    public MyPrevChangeAction() {
-      if (DiffUtil.isUserDataFlagSet(DiffUserDataKeysEx.DIFF_IN_EDITOR, getContext())) {
-        patchShortcutSet(this, IdeActions.ACTION_PREVIOUS_TAB, IdeActions.ACTION_PREVIOUS_EDITOR_TAB);
-      }
-    }
+    public MyPrevChangeAction() {}
 
     @Override
     public void update(@NotNull AnActionEvent e) {
@@ -913,26 +934,6 @@ public abstract class DiffRequestProcessor implements Disposable {
 
       goToPrevChange(false);
     }
-  }
-
-  protected static void patchShortcutSet(@NotNull AnAction action,
-                                         @NotNull @NonNls String originalActionId,
-                                         @Nullable @NonNls String replacementActionId) {
-    //noinspection ConstantConditions
-    Keymap keymap = KeymapManager.getInstance().getActiveKeymap();
-    Shortcut[] originalShortcuts = keymap.getShortcuts(originalActionId);
-
-    Shortcut[] shortcuts = action.getShortcutSet().getShortcuts();
-    Set<Shortcut> newShortcuts = ContainerUtil.set(shortcuts);
-    boolean hadOriginalShortcut = ContainerUtil.removeAll(newShortcuts, originalShortcuts);
-    if (!hadOriginalShortcut) return;
-
-    if (replacementActionId != null) {
-      Shortcut[] replacementShortcuts = keymap.getShortcuts(replacementActionId);
-      ContainerUtil.addAll(newShortcuts, replacementShortcuts);
-    }
-
-    action.registerCustomShortcutSet(new CustomShortcutSet(newShortcuts.toArray(Shortcut.EMPTY_ARRAY)), null);
   }
 
   //
@@ -1144,10 +1145,10 @@ public abstract class DiffRequestProcessor implements Disposable {
   //
 
   private interface ViewerState {
-    @CalledInAwt
+    @RequiresEdt
     void init();
 
-    @CalledInAwt
+    @RequiresEdt
     void destroy();
 
     @Nullable
@@ -1208,7 +1209,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void init() {
       myContentPanel.setContent(myViewer.getComponent());
 
@@ -1217,9 +1218,14 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void destroy() {
-      Disposer.dispose(myViewer);
+      try {
+        Disposer.dispose(myViewer);
+      }
+      catch (Throwable e) {
+        LOG.error(e);
+      }
     }
 
     @Nullable
@@ -1251,7 +1257,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void init() {
       myContentPanel.setContent(myViewer.getComponent());
       setTitle(myActiveRequest.getTitle());
@@ -1268,9 +1274,14 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void destroy() {
-      Disposer.dispose(myViewer);
+      try {
+        Disposer.dispose(myViewer);
+      }
+      catch (Throwable e) {
+        LOG.error(e);
+      }
     }
 
     @Nullable
@@ -1308,7 +1319,7 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void init() {
       myContentPanel.setContent(myWrapperViewer.getComponent());
       setTitle(myActiveRequest.getTitle());
@@ -1346,10 +1357,15 @@ public abstract class DiffRequestProcessor implements Disposable {
     }
 
     @Override
-    @CalledInAwt
+    @RequiresEdt
     public void destroy() {
-      Disposer.dispose(myViewer);
-      Disposer.dispose(myWrapperViewer);
+      try {
+        Disposer.dispose(myViewer);
+        Disposer.dispose(myWrapperViewer);
+      }
+      catch (Throwable e) {
+        LOG.error(e);
+      }
     }
 
     @Nullable

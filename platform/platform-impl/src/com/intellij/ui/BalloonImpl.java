@@ -13,7 +13,6 @@ import com.intellij.ide.ui.ScreenAreaConsumer;
 import com.intellij.openapi.MnemonicHelper;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -69,7 +68,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
   public static final Key<Boolean> FORCED_NO_SHADOW = Key.create("BALLOON_FORCED_NO_SHADOW");
 
   private static final JBValue DIALOG_ARC = new JBValue.Float(6);
-  public static final JBValue ARC = new JBValue.Float(3);
+  public static final JBValue ARC = new JBValue.UIInteger("ToolTip.arc", 4);
   private static final JBValue DIALOG_TOPBOTTOM_POINTER_WIDTH = new JBValue.Float(24);
   public static final JBValue DIALOG_POINTER_WIDTH = new JBValue.Float(17);
   private static final JBValue TOPBOTTOM_POINTER_WIDTH = new JBValue.Float(14);
@@ -108,6 +107,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
 
   private ActionProvider myActionProvider;
   private List<ActionButton> myActionButtons;
+  private boolean invalidateShadow;
 
   private final AWTEventListener myAwtActivityListener = new AWTEventListener() {
     @Override
@@ -253,7 +253,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
   private final int myPositionChangeYShift;
   private boolean myDialogMode;
   private IdeFocusManager myFocusManager;
-  private String myTitle;
+  private @NlsContexts.PopupTitle String myTitle;
   private JLabel myTitleLabel;
 
   private boolean myAnimationEnabled = true;
@@ -342,7 +342,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
                      int positionChangeXShift,
                      int positionChangeYShift,
                      boolean dialogMode,
-                     String title,
+                     @NlsContexts.PopupTitle String title,
                      Insets contentInsets,
                      boolean shadow,
                      boolean smallVariant,
@@ -430,7 +430,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
     return result;
   }
 
-  private static AbstractPosition getAbstractPositionFor(@NotNull Position position) {
+  public static AbstractPosition getAbstractPositionFor(@NotNull Position position) {
     switch (position) {
       case atLeft:
         return AT_LEFT;
@@ -612,7 +612,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
           // Set the accessible parent so that screen readers don't announce
           // a window context change -- the tooltip is "logically" hosted
           // inside the component (e.g. editor) it appears on top of.
-          AccessibleContextUtil.setParent((Component)myContent, myOriginalFocusOwner);
+          AccessibleContextUtil.setParent(myContent, myOriginalFocusOwner);
 
           // Set the focus to "myContent"
           myFocusManager.requestFocus(getContentToFocus(), true);
@@ -630,7 +630,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
     if (ApplicationManager.getApplication() != null) {
       ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(AnActionListener.TOPIC, new AnActionListener() {
         @Override
-        public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
+        public void beforeActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event) {
           if (myHideOnAction && !(action instanceof HintManagerImpl.ActionToIgnore)) {
             hide();
           }
@@ -649,6 +649,10 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
         });
       }
     }
+  }
+
+  public AbstractPosition getPosition() {
+    return myPosition;
   }
 
   /**
@@ -827,7 +831,9 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
     RelativePoint newPosition = tracker.recalculateLocation(this);
 
     if (newPosition != null) {
-      myTargetPoint = myPosition.getShiftedPoint(newPosition.getPoint(myLayeredPane), myCalloutShift);
+      Point newPoint = myPosition.getShiftedPoint(newPosition.getPoint(myLayeredPane), myCalloutShift);
+      invalidateShadow = !Objects.equals(myTargetPoint, newPoint);
+      myTargetPoint = newPoint;
       myPosition.updateBounds(this);
     }
   }
@@ -1175,7 +1181,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
                          : new Point(point.x - preferredSize.width / 2, point.y - preferredSize.height / 2);
         bounds = new Rectangle(location.x, location.y, preferredSize.width, preferredSize.height);
 
-        ScreenUtil.moveToFit(bounds, new Rectangle(0, 0, layeredPaneSize.width, layeredPaneSize.height), balloon.myContainerInsets);
+        ScreenUtil.moveToFit(bounds, new Rectangle(0, 0, layeredPaneSize.width, layeredPaneSize.height), balloon.myContainerInsets, true);
       }
 
       return bounds;
@@ -1641,7 +1647,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
     private final Consumer<? super MouseEvent> myListener;
     protected final BaseButtonBehavior myButton;
 
-    public ActionButton(@NotNull Icon icon, @Nullable Icon hoverIcon, @Nullable String hint, @NotNull Consumer<? super MouseEvent> listener) {
+    public ActionButton(@NotNull Icon icon, @Nullable Icon hoverIcon, @NlsContexts.Tooltip @Nullable String hint, @NotNull Consumer<? super MouseEvent> listener) {
       myIcon = icon;
       myHoverIcon = hoverIcon;
       myListener = listener;
@@ -1851,23 +1857,26 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
 
       Point pointTarget = SwingUtilities.convertPoint(myLayeredPane, myBalloon.myTargetPoint, this);
       Rectangle shapeBounds = myContent.getBounds();
-      int shadowSize = myBalloon.getShadowBorderSize();
 
-      if (shadowSize > 0 && myShadow == null && myShadowBorderProvider == null) {
-        initComponentImage(pointTarget, shapeBounds);
-        myShadow = ShadowBorderPainter.createShadow(myImage, 0, 0, false, shadowSize / 2);
-      }
+      if (!DrawUtil.isSimplifiedUI()) {
+        int shadowSize = myBalloon.getShadowBorderSize();
 
-      if (myImage == null && myAlpha != -1) {
-        initComponentImage(pointTarget, shapeBounds);
-      }
+        if (shadowSize > 0 && myShadow == null && myShadowBorderProvider == null) {
+          initComponentImage(pointTarget, shapeBounds);
+          myShadow = ShadowBorderPainter.createShadow(myImage, 0, 0, false, shadowSize / 2);
+        }
 
-      if (myImage != null && myAlpha != -1) {
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, myAlpha));
-      }
+        if (myImage == null && myAlpha != -1) {
+          initComponentImage(pointTarget, shapeBounds);
+        }
 
-      if (myShadowBorderProvider != null) {
-        myShadowBorderProvider.paintShadow(this, g);
+        if (myImage != null && myAlpha != -1) {
+          g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, myAlpha));
+        }
+
+        if (myShadowBorderProvider != null) {
+          myShadowBorderProvider.paintShadow(this, g);
+        }
       }
 
       if (myImage != null && myAlpha != -1) {
@@ -1949,8 +1958,9 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
 
     void _setBounds(@NotNull Rectangle bounds) {
       Rectangle currentBounds = getBounds();
-      if (!currentBounds.equals(bounds)) {
+      if (!currentBounds.equals(bounds) || invalidateShadow) {
         invalidateShadowImage();
+        invalidateShadow = false;
       }
 
       setBounds(bounds);
@@ -2115,7 +2125,7 @@ public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaCons
   }
 
   @Override
-  public void setTitle(String title) {
+  public void setTitle(@NlsContexts.NotificationTitle String title) {
     myTitle = title;
     myTitleLabel.setText(title);
   }

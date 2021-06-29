@@ -1,23 +1,23 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io.fastCgi
 
+import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.Consumer
-import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.io.addChannelListener
 import com.intellij.util.io.handler
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
+import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.handler.codec.http.*
+import org.jetbrains.builtInWebServer.PathInfo
 import org.jetbrains.builtInWebServer.SingleConnectionNetService
+import org.jetbrains.builtInWebServer.liveReload.WebServerPageConnectionService
 import org.jetbrains.concurrency.Promise
 import org.jetbrains.concurrency.errorIfNotMessage
-import org.jetbrains.io.ChannelExceptionHandler
-import org.jetbrains.io.MessageDecoder
-import org.jetbrains.io.NettyUtil
-import org.jetbrains.io.send
+import org.jetbrains.io.*
 import java.util.concurrent.atomic.AtomicInteger
 
 internal val LOG = logger<FastCgiService>()
@@ -25,7 +25,7 @@ internal val LOG = logger<FastCgiService>()
 // todo send FCGI_ABORT_REQUEST if client channel disconnected
 abstract class FastCgiService(project: Project) : SingleConnectionNetService(project) {
   private val requestIdCounter = AtomicInteger()
-  private val requests = ContainerUtil.createConcurrentIntObjectMap<ClientInfo>()
+  private val requests = ConcurrentCollectionFactory.createConcurrentIntObjectMap<ClientInfo>()
 
   override fun configureBootstrap(bootstrap: Bootstrap, errorOutputConsumer: Consumer<String>) {
     bootstrap.handler {
@@ -103,13 +103,13 @@ abstract class FastCgiService(project: Project) : SingleConnectionNetService(pro
     }
   }
 
-  fun allocateRequestId(channel: Channel, extraHeaders: HttpHeaders): Int {
+  fun allocateRequestId(channel: Channel, pathInfo: PathInfo, request: FullHttpRequest, extraHeaders: HttpHeaders): Int {
     var requestId = requestIdCounter.getAndIncrement()
     if (requestId >= java.lang.Short.MAX_VALUE) {
       requestIdCounter.set(0)
       requestId = requestIdCounter.getAndDecrement()
     }
-    requests.put(requestId, ClientInfo(channel, extraHeaders))
+    requests.put(requestId, ClientInfo(channel, pathInfo, request, extraHeaders))
     return requestId
   }
 
@@ -126,16 +126,23 @@ abstract class FastCgiService(project: Project) : SingleConnectionNetService(pro
       return
     }
 
-    val httpResponse = DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buffer)
+    val extraSuffix = WebServerPageConnectionService.instance.fileRequested(client.request, client.pathInfo::getOrResolveVirtualFile)
+    val bufferWithExtraSuffix =
+      if (extraSuffix == null) buffer
+      else {
+        Unpooled.wrappedBuffer(buffer, Unpooled.copiedBuffer(extraSuffix, Charsets.UTF_8))
+      }
+    val httpResponse = DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, bufferWithExtraSuffix)
     try {
-      parseHeaders(httpResponse, buffer)
+      parseHeaders(httpResponse, bufferWithExtraSuffix)
+      httpResponse.addServer()
       if (!HttpUtil.isContentLengthSet(httpResponse)) {
-        HttpUtil.setContentLength(httpResponse, buffer.readableBytes().toLong())
+        HttpUtil.setContentLength(httpResponse, bufferWithExtraSuffix.readableBytes().toLong())
       }
       httpResponse.headers().add(client.extraHeaders)
     }
     catch (e: Throwable) {
-      buffer.release()
+      bufferWithExtraSuffix.release()
       try {
         LOG.error(e)
       }
@@ -160,6 +167,7 @@ private fun sendBadGateway(channel: Channel, extraHeaders: HttpHeaders) {
   }
 }
 
+@Suppress("HardCodedStringLiteral")
 private fun parseHeaders(response: HttpResponse, buffer: ByteBuf) {
   val builder = StringBuilder()
   while (buffer.isReadable) {
@@ -215,4 +223,4 @@ private fun parseHeaders(response: HttpResponse, buffer: ByteBuf) {
   }
 }
 
-private class ClientInfo(val channel: Channel, val extraHeaders: HttpHeaders)
+private class ClientInfo(val channel: Channel, val pathInfo: PathInfo, var request: FullHttpRequest, val extraHeaders: HttpHeaders)

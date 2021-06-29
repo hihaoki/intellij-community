@@ -2,7 +2,6 @@
 package com.jetbrains.python.debugger.remote.vfs;
 
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.NotNull;
 
@@ -10,6 +9,9 @@ import javax.swing.*;
 
 public class PyRemoteDebugFileType implements FileType {
   public static final PyRemoteDebugFileType INSTANCE = new PyRemoteDebugFileType();
+
+  private PyRemoteDebugFileType() {
+  }
 
   @NotNull
   @Override
@@ -20,7 +22,7 @@ public class PyRemoteDebugFileType implements FileType {
   @NotNull
   @Override
   public String getDescription() {
-    return PyBundle.message("python.debug.remote.description");
+    return PyBundle.message("filetype.python.debug.remote.description");
   }
 
   @NotNull
@@ -42,10 +44,5 @@ public class PyRemoteDebugFileType implements FileType {
   @Override
   public boolean isReadOnly() {
     return true;
-  }
-
-  @Override
-  public String getCharset(@NotNull VirtualFile file, byte @NotNull [] content) {
-    return null;
   }
 }

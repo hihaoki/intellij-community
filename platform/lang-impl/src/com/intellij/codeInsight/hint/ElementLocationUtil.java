@@ -6,10 +6,12 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.roots.*;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.ApiStatus;
 
 import javax.swing.*;
 import java.util.List;
@@ -23,13 +25,14 @@ public final class ElementLocationUtil {
    * @deprecated use {@link #renderElementLocation(PsiElement, Ref)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static void customizeElementLabel(final PsiElement element, final JLabel label) {
     Ref<Icon> ref = new Ref<>();
     label.setText(renderElementLocation(element, ref));
     label.setIcon(ref.get());
   }
 
-  public static String renderElementLocation(final PsiElement element, final Ref<? super Icon> icon) {
+  public static @NlsSafe String renderElementLocation(final PsiElement element, final Ref<? super Icon> icon) {
     if (element != null) {
       PsiFile file = element.getContainingFile();
       VirtualFile vfile = file == null ? null : file.getVirtualFile();
@@ -43,6 +46,11 @@ public final class ElementLocationUtil {
       final Module module = fileIndex.getModuleForFile(vfile);
 
       if (module != null) {
+        if (ModuleType.isInternal(module)) {
+          icon.set(null);
+          return "";
+        }
+
         icon.set(ModuleType.get(module).getIcon());
         return module.getName();
       }

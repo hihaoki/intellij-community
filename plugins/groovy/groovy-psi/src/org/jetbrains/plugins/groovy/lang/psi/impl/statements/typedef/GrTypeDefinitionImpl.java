@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef;
 
 import com.intellij.lang.ASTNode;
@@ -47,6 +47,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameterList;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyCodeStyleSettingsFacade;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyFileImpl;
+import org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers.GrModifierListUtil;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.GrTypeDefinitionStub;
 import org.jetbrains.plugins.groovy.lang.psi.util.GrClassImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyRunnerPsiUtil;
@@ -484,8 +485,8 @@ public abstract class GrTypeDefinitionImpl extends GrStubElementBase<GrTypeDefin
 
   @Override
   public boolean hasModifierProperty(@NonNls @NotNull String name) {
-    PsiModifierList modifierList = getModifierList();
-    return modifierList != null && modifierList.hasModifierProperty(name);
+    GrModifierList modifierList = getModifierList();
+    return modifierList != null && GrModifierListUtil.hasModifierProperty(modifierList, name, false);
   }
 
   @Nullable
@@ -691,6 +692,10 @@ public abstract class GrTypeDefinitionImpl extends GrStubElementBase<GrTypeDefin
                                                                         : settings.innerClassesOrderWeight() + 1;
     }
     return -1;
+  }
+
+  @NotNull public List<String> getSyntheticModifiers(@NotNull GrModifierList modifierList) {
+    return myCache.getSyntheticModifiers(modifierList);
   }
 
   @Nullable

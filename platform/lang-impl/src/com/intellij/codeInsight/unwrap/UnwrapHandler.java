@@ -30,6 +30,7 @@ import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.NotNullList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -135,16 +136,6 @@ public class UnwrapHandler implements CodeInsightActionHandler {
     public String toString() {
       return name;
     }
-  }
-
-  /**
-   * @deprecated operate with
-   * {@link EditorColors#SEARCH_RESULT_ATTRIBUTES} directly
-   */
-  @Deprecated
-  public static TextAttributes getTestAttributesForExtract() {
-    EditorColorsManager manager = EditorColorsManager.getInstance();
-    return manager.getGlobalScheme().getAttributes(EditorColors.SEARCH_RESULT_ATTRIBUTES);
   }
 
   protected static class MyUnwrapAction extends AnAction {

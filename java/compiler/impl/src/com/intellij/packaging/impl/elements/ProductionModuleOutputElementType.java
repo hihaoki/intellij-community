@@ -15,7 +15,7 @@ public final class ProductionModuleOutputElementType extends ModuleOutputElement
   public static final ProductionModuleOutputElementType ELEMENT_TYPE = new ProductionModuleOutputElementType();
 
   private ProductionModuleOutputElementType() {
-    super("module-output", JavaCompilerBundle.message("element.type.name.module.output"));
+    super("module-output", JavaCompilerBundle.messagePointer("element.type.name.module.output"));
   }
 
   @Override
@@ -32,12 +32,6 @@ public final class ProductionModuleOutputElementType extends ModuleOutputElement
   @Override
   public Icon getCreateElementIcon() {
     return AllIcons.Nodes.Module;
-  }
-
-  @NotNull
-  @Override
-  public String getElementText(@NotNull String moduleName) {
-    return JavaCompilerBundle.message("node.text.0.compile.output", moduleName);
   }
 
   @Override

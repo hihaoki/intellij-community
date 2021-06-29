@@ -8,9 +8,6 @@ import org.jetbrains.annotations.NotNull;
 final class EmptyFMap implements KeyFMap {
   private static final Key[] EMPTY_KEYS_ARRAY = {};
 
-  EmptyFMap() {
-  }
-
   @NotNull
   @Override
   public <V> KeyFMap plus(@NotNull Key<V> key, @NotNull V value) {
@@ -34,7 +31,7 @@ final class EmptyFMap implements KeyFMap {
   }
 
   @Override
-  public Key @NotNull [] getKeys() {
+  public @NotNull Key @NotNull [] getKeys() {
     return EMPTY_KEYS_ARRAY;
   }
 
@@ -54,7 +51,7 @@ final class EmptyFMap implements KeyFMap {
   }
 
   @Override
-  public boolean equalsByReference(KeyFMap other) {
+  public boolean equalsByReference(@NotNull KeyFMap other) {
     return other == this;
   }
 

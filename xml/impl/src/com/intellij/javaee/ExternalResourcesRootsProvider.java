@@ -20,15 +20,15 @@ import java.util.Set;
 final class ExternalResourcesRootsProvider extends IndexableSetContributor {
   private final CachedValue<Set<VirtualFile>> myStandardResources = new CachedValueImpl<>(() -> {
     ExternalResourceManagerExImpl manager = (ExternalResourceManagerExImpl)ExternalResourceManager.getInstance();
-    Set<ExternalResourceManagerExImpl.Resource> dirs = new HashSet<>();
+    Set<String> duplicateCheck = new HashSet<>();
     Set<VirtualFile> set = new HashSet<>();
     for (Map<String, ExternalResourceManagerExImpl.Resource> map : manager.getStandardResources()) {
       for (ExternalResourceManagerExImpl.Resource resource : map.values()) {
-        ExternalResourceManagerExImpl.Resource dir = new ExternalResourceManagerExImpl.Resource(resource.directoryName(), resource);
-        if (dirs.add(dir)) {
-          String url = resource.getResourceUrl();
-          if (url != null) {
-            ContainerUtil.addIfNotNull(set, VfsUtilCore.findRelativeFile(url.substring(0, url.lastIndexOf('/') + 1), null));
+        String url = resource.getResourceUrl();
+        if (url != null) {
+          url = url.substring(0, url.lastIndexOf('/') + 1);
+          if (duplicateCheck.add(url)) {
+            ContainerUtil.addIfNotNull(set, VfsUtilCore.findRelativeFile(url, null));
           }
         }
       }
@@ -38,7 +38,9 @@ final class ExternalResourcesRootsProvider extends IndexableSetContributor {
 
   @Override
   public @NotNull Set<VirtualFile> getAdditionalRootsToIndex() {
-    Set<VirtualFile> roots = new HashSet<>(myStandardResources.getValue());
+    Set<VirtualFile> standardResources = myStandardResources.getValue();
+    Set<VirtualFile> roots = new HashSet<>(standardResources.size() + 1);
+    roots.addAll(standardResources);
     String path = FetchExtResourceAction.getExternalResourcesPath();
     VirtualFile extResources = LocalFileSystem.getInstance().findFileByPath(path);
     if (extResources != null) {

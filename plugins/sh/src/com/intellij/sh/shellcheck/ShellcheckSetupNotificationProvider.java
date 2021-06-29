@@ -36,22 +36,22 @@ public class ShellcheckSetupNotificationProvider extends EditorNotifications.Pro
                                                          @NotNull FileEditor fileEditor,
                                                          @NotNull Project project) {
     if (file.getFileType() instanceof ShFileType && !isValidPath(ShSettings.getShellcheckPath())) {
-      EditorNotificationPanel panel = new EditorNotificationPanel();
+      EditorNotificationPanel panel = new EditorNotificationPanel(fileEditor);
       panel.setText(message("sh.shellcheck.install.question"));
       Runnable onSuccess = () -> {
         EditorNotifications.getInstance(project).updateAllNotifications();
         PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
         if (psiFile != null) DaemonCodeAnalyzer.getInstance(project).restart(psiFile);
-        Notifications.Bus.notify(new Notification(message("sh.shell.script"), message("sh.title.case"), message("sh.shellcheck.success.install"),
+        Notifications.Bus.notify(new Notification(message("sh.shell.script"), message("sh.shell.script"), message("sh.shellcheck.success.install"),
                                                   NotificationType.INFORMATION));
       };
-      Runnable onFailure = () -> Notifications.Bus.notify(new Notification(message("sh.shell.script"), message("sh.title.case"),
+      Runnable onFailure = () -> Notifications.Bus.notify(new Notification(message("sh.shell.script"), message("sh.shell.script"),
                                                                            message("sh.shellcheck.cannot.download"),
                                                                            NotificationType.ERROR));
       panel.createActionLabel(message("sh.install"), () -> ShShellcheckUtil.download(null, onSuccess, onFailure));
       //noinspection DialogTitleCapitalization
       panel.createActionLabel(message("sh.no.thanks"), () -> {
-        ShSettings.setShellcheckPath(ShSettings.I_DO_MIND);
+        ShSettings.setShellcheckPath(ShSettings.I_DO_MIND_SUPPLIER.get());
         EditorNotifications.getInstance(project).updateAllNotifications();
       });
       return panel;

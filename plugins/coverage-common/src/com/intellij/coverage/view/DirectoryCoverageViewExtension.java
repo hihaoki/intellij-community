@@ -7,7 +7,6 @@ import com.intellij.coverage.CoverageSuitesBundle;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
@@ -21,7 +20,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class DirectoryCoverageViewExtension extends CoverageViewExtension {
-  private final CoverageAnnotator myAnnotator;
+  protected final CoverageAnnotator myAnnotator;
 
   public DirectoryCoverageViewExtension(Project project,
                                         CoverageAnnotator annotator,
@@ -42,8 +41,11 @@ public class DirectoryCoverageViewExtension extends CoverageViewExtension {
     String statInfo = myAnnotator.getDirCoverageInformationString((PsiDirectory)node.getValue(),
                                                                   mySuitesBundle,
                                                                   myCoverageDataManager);
-    statInfo = StringUtil.notNullize(statInfo, CoverageBundle.message("node.summary.no.coverage"));
-    return statInfo + " in '" + node.toString() + "'";
+    
+    if (statInfo == null) {
+      return CoverageBundle.message("node.summary.no.coverage", node.toString());
+    }
+    return CoverageBundle.message("node.summary.coverage.statistic", statInfo, node.toString());
   }
 
   @Override

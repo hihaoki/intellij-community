@@ -16,6 +16,7 @@ import com.intellij.openapi.diff.impl.patch.formove.PathsVerifier.PatchAndFile;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
@@ -28,10 +29,10 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsImplUtil;
 import com.intellij.vcsUtil.VcsUtil;
-import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,6 +42,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.intellij.openapi.progress.ProgressManager.progress;
+import static com.intellij.openapi.vcs.VcsNotificationIdsHolder.*;
 import static com.intellij.util.ObjectUtils.chooseNotNull;
 
 /**
@@ -58,8 +60,8 @@ public final class PatchApplier {
   private final PathsVerifier myVerifier;
 
   private final boolean myReverseConflict;
-  @Nullable private final String myLeftConflictPanelTitle;
-  @Nullable private final String myRightConflictPanelTitle;
+  @NlsContexts.Label @Nullable private final String myLeftConflictPanelTitle;
+  @NlsContexts.Label @Nullable private final String myRightConflictPanelTitle;
 
   public PatchApplier(@NotNull Project project,
                       @NotNull VirtualFile baseDirectory,
@@ -67,8 +69,8 @@ public final class PatchApplier {
                       @Nullable LocalChangeList targetChangeList,
                       @Nullable CommitContext commitContext,
                       boolean reverseConflict,
-                      @Nullable String leftConflictPanelTitle,
-                      @Nullable String rightConflictPanelTitle) {
+                      @NlsContexts.Label @Nullable String leftConflictPanelTitle,
+                      @NlsContexts.Label @Nullable String rightConflictPanelTitle) {
     myProject = project;
     myBaseDirectory = baseDirectory;
     myPatches = patches;
@@ -100,7 +102,7 @@ public final class PatchApplier {
   }
 
   @NotNull
-  private Collection<FilePatch> getFailedPatches() {
+  public Collection<FilePatch> getFailedPatches() {
     return myFailedPatches;
   }
 
@@ -145,6 +147,13 @@ public final class PatchApplier {
     return executePatchGroup(group, localChangeList, true, false);
   }
 
+  /**
+   * Pass 'null' {@code targetChangeList} if changelist doesn't matter, changes will be applied as-it into default changelist.
+   * If default changelist is changed before refresh, a race is possible that will put some of applied changes into the new default changelist.
+   * <p>
+   * If {@code targetChangeList} is specified, method will need to synchronously await for CLM refresh.
+   * In this case, current thread MUST NOT be EDT or hold ReadLock, to prevent deadlock with VFS refresh.
+   */
   private static ApplyPatchStatus executePatchGroup(@NotNull Collection<PatchApplier> group,
                                                     @Nullable LocalChangeList targetChangeList,
                                                     boolean showSuccessNotification,
@@ -154,7 +163,7 @@ public final class PatchApplier {
     }
 
     Project project = group.iterator().next().myProject;
-    return PartialChangesUtil.computeUnderChangeList(project, targetChangeList, VcsBundle.getString("patch.apply.progress.title"), () -> {
+    return PartialChangesUtil.computeUnderChangeListSync(project, targetChangeList, () -> {
       ApplyPatchStatus result = ApplyPatchStatus.SUCCESS;
       for (PatchApplier patchApplier : group) {
         result = ApplyPatchStatus.and(result, patchApplier.nonWriteActionPreCheck());
@@ -168,11 +177,14 @@ public final class PatchApplier {
         try {
           runWithDefaultConfirmations(project, silentAddDelete, () -> {
             CommandProcessor.getInstance().executeCommand(project, () -> {
+              List<FilePath> toBeAdded = new ArrayList<>();
+              List<FilePath> toBeDeleted = new ArrayList<>();
               for (PatchApplier applier : group) {
                 refStatus.set(ApplyPatchStatus.and(refStatus.get(), applier.createFiles()));
-                applier.addSkippedItems(trigger);
+                toBeAdded.addAll(applier.myVerifier.getToBeAdded());
+                toBeDeleted.addAll(applier.myVerifier.getToBeDeleted());
               }
-              trigger.prepare();
+              trigger.prepare(toBeAdded, toBeDeleted);
               if (refStatus.get() == ApplyPatchStatus.SUCCESS) {
                 // all pre-check results are valuable only if not successful; actual status we can receive after executeWritable
                 refStatus.set(null);
@@ -187,7 +199,7 @@ public final class PatchApplier {
           });
         }
         finally {
-          VcsFileListenerContextHelper.getInstance(project).clearContext();
+          trigger.cleanup();
           LocalHistory.getInstance().putSystemLabel(project, VcsBundle.message("patch.apply.after.patch.label.text"));
         }
       });
@@ -199,7 +211,7 @@ public final class PatchApplier {
       AtomicBoolean doRollback = new AtomicBoolean();
       if (result == ApplyPatchStatus.FAILURE) {
         ApplicationManager.getApplication().invokeAndWait(() -> {
-         doRollback.set(askToRollback(project, group));
+          doRollback.set(askToRollback(project, group));
         });
       }
       if (result == ApplyPatchStatus.ABORT || doRollback.get()) {
@@ -220,10 +232,10 @@ public final class PatchApplier {
       refreshPassedFiles(project, directlyAffected, indirectlyAffected);
 
       return result;
-    }, true);
+    });
   }
 
-  @CalledInAwt
+  @RequiresEdt
   private static boolean askToRollback(@NotNull Project project, @NotNull Collection<PatchApplier> group) {
     Collection<FilePatch> allFailed = ContainerUtil.concat(group, PatchApplier::getFailedPatches);
     boolean shouldInformAboutBinaries = ContainerUtil.exists(group, applier -> !applier.getBinaryPatches().isEmpty());
@@ -239,11 +251,14 @@ public final class PatchApplier {
       try {
         labelToRevert.revert(project, project.getBaseDir());
         VcsNotifier.getInstance(project)
-          .notifyImportantWarning(VcsBundle.message("patch.apply.aborted.title"), VcsBundle.message("patch.apply.aborted.message"));
+          .notifyImportantWarning(PATCH_APPLY_ABORTED,
+                                  VcsBundle.message("patch.apply.aborted.title"),
+                                  VcsBundle.message("patch.apply.aborted.message"));
       }
       catch (LocalHistoryException e) {
         VcsNotifier.getInstance(project)
-          .notifyImportantWarning(VcsBundle.message("patch.apply.rollback.failed.title"),
+          .notifyImportantWarning(PATCH_APPLY_ROLLBACK_FAILED,
+                                  VcsBundle.message("patch.apply.rollback.failed.title"),
                                   VcsBundle.message("patch.apply.rollback.failed.message"));
       }
     };
@@ -256,11 +271,6 @@ public final class PatchApplier {
     }
   }
 
-
-  private void addSkippedItems(final TriggerAdditionOrDeletion trigger) {
-    trigger.addExisting(myVerifier.getToBeAdded());
-    trigger.addDeleted(myVerifier.getToBeDeleted());
-  }
 
   @NotNull
   private ApplyPatchStatus nonWriteActionPreCheck() {
@@ -331,7 +341,6 @@ public final class PatchApplier {
     return myVerifier.getAllAffected();
   }
 
-  @CalledInAwt
   private static void refreshPassedFiles(@NotNull Project project,
                                          @NotNull Collection<? extends FilePath> directlyAffected,
                                          @NotNull Collection<? extends VirtualFile> indirectlyAffected) {
@@ -405,17 +414,18 @@ public final class PatchApplier {
   private static void showApplyStatus(@NotNull Project project, final ApplyPatchStatus status) {
     VcsNotifier vcsNotifier = VcsNotifier.getInstance(project);
     if (status == ApplyPatchStatus.ALREADY_APPLIED) {
-      vcsNotifier.notifyMinorInfo(VcsBundle.message("patch.apply.dialog.title"), VcsBundle.message("patch.apply.already.applied"));
+      vcsNotifier.notifyMinorInfo(PATCH_ALREADY_APPLIED, VcsBundle.message("patch.apply.notification.title"), VcsBundle.message("patch.apply.already.applied"));
     }
     else if (status == ApplyPatchStatus.PARTIAL) {
-      vcsNotifier.notifyMinorInfo(VcsBundle.message("patch.apply.dialog.title"), VcsBundle.message("patch.apply.partially.applied"));
+      vcsNotifier.notifyMinorInfo(PATCH_PARTIALLY_APPLIED, VcsBundle.message("patch.apply.notification.title"), VcsBundle.message("patch.apply.partially.applied"));
     }
     else if (status == ApplyPatchStatus.SUCCESS) {
-      vcsNotifier.notifySuccess(VcsBundle.message("patch.apply.success.applied.text"));
+      vcsNotifier.notifySuccess(PATCH_APPLY_SUCCESS, "",
+                                VcsBundle.message("patch.apply.success.applied.text"));
     }
   }
 
-  public static void showError(final Project project, final String message) {
+  public static void showError(final Project project, final @NlsContexts.DialogMessage String message) {
     if (ApplicationManager.getApplication().isUnitTestMode()) return;
     VcsImplUtil.showErrorMessage(project, message, VcsBundle.message("patch.apply.dialog.title"));
   }

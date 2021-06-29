@@ -2,17 +2,20 @@
 package org.jetbrains.plugins.terminal
 
 import com.intellij.execution.configuration.EnvironmentVariablesData
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import com.intellij.util.xmlb.annotations.Property
+import com.intellij.openapi.components.service
+import com.intellij.openapi.util.SystemInfo
+import com.intellij.terminal.TerminalUiSettingsManager
+import org.jetbrains.annotations.Nls
 
 @State(name = "TerminalOptionsProvider", storages = [(Storage("terminal.xml"))])
 class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider.State> {
   private var myState = State()
 
-  override fun getState(): State? {
+  override fun getState(): State {
     return myState
   }
 
@@ -33,8 +36,9 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
   }
 
   var tabName: String
-    get() = myState.myTabName
-    set(tabName) {
+    @Nls
+    get() : String = myState.myTabName ?: TerminalBundle.message("local.terminal.default.name")
+    set(@Nls tabName) {
       myState.myTabName = tabName
     }
 
@@ -55,17 +59,18 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
   }
 
   class State {
-    var myTabName: String = "Local"
+    var myShellPath: String? = null
+    @Nls
+    var myTabName: String? = null
     var myCloseSessionOnLogout: Boolean = true
     var myReportMouse: Boolean = true
     var mySoundBell: Boolean = true
-    var myCopyOnSelection: Boolean = true
+    var myCopyOnSelection: Boolean = SystemInfo.isLinux
     var myPasteOnMiddleMouseButton: Boolean = true
     var myOverrideIdeShortcuts: Boolean = true
     var myShellIntegration: Boolean = true
     var myHighlightHyperlinks: Boolean = true
-    @get:Property(surroundWithTag = false, flat = true)
-    var envDataOptions = EnvironmentVariablesDataOptions()
+    var useOptionAsMetaKey: Boolean = true
   }
 
   fun setCloseSessionOnLogout(closeSessionOnLogout: Boolean) {
@@ -104,18 +109,33 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
     myState.myHighlightHyperlinks = highlight
   }
 
+  @Deprecated("To be removed", ReplaceWith("org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider.getEnvData"))
   fun getEnvData(): EnvironmentVariablesData {
-    return myState.envDataOptions.get()
+    return EnvironmentVariablesData.DEFAULT
   }
 
+  @Deprecated("To be removed", ReplaceWith("org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider.setEnvData"))
   fun setEnvData(envData: EnvironmentVariablesData) {
-    myState.envDataOptions.set(envData)
   }
 
+  // replace with property delegate when Kotlin 1.4 arrives (KT-8658)
+  var shellPath: String?
+    get() = myState.myShellPath
+    set(value) {
+      myState.myShellPath = value
+    }
+
+  var useOptionAsMetaKey: Boolean by myState::useOptionAsMetaKey
+
+  var cursorShape: TerminalUiSettingsManager.CursorShape
+    get() = service<TerminalUiSettingsManager>().cursorShape
+    set(value) {
+      service<TerminalUiSettingsManager>().cursorShape = value
+    }
 
   companion object {
     val instance: TerminalOptionsProvider
       @JvmStatic
-      get() = ServiceManager.getService(TerminalOptionsProvider::class.java)
+      get() = ApplicationManager.getApplication().getService(TerminalOptionsProvider::class.java)
   }
 }

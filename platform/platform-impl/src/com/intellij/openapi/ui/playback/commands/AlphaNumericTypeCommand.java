@@ -2,6 +2,7 @@
 package com.intellij.openapi.ui.playback.commands;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.TypingTarget;
 import com.intellij.openapi.ui.playback.PlaybackContext;
 import com.intellij.openapi.util.ActionCallback;
@@ -14,7 +15,6 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 
 public class AlphaNumericTypeCommand extends TypeCommand {
-
   public AlphaNumericTypeCommand(String text, int line) {
     super(text, line, true);
   }

@@ -4,6 +4,7 @@
     <exclude-output />
     <content url="file://$MODULE_DIR$/pydevSrc">
       <sourceFolder url="file://$MODULE_DIR$/pydevSrc" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/pydevSrc/resources" type="java-resource" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -15,5 +16,7 @@
     <orderEntry type="library" name="XStream" level="project" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" />
     <orderEntry type="module" module-name="intellij.python.psi" />
+    <orderEntry type="module" module-name="intellij.platform.concurrency" />
+    <orderEntry type="module" module-name="intellij.platform.ide.util.io" />
   </component>
 </module>

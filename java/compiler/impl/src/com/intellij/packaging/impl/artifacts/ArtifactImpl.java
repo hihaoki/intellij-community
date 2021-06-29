@@ -16,6 +16,7 @@
 package com.intellij.packaging.impl.artifacts;
 
 import com.intellij.openapi.roots.ProjectModelExternalSource;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -35,23 +36,27 @@ import java.util.Map;
 
 public class ArtifactImpl extends UserDataHolderBase implements ModifiableArtifact {
   private CompositePackagingElement<?> myRootElement;
-  private String myName;
+  private @NlsSafe String myName;
   private boolean myBuildOnMake;
   private String myOutputPath;
   private final EventDispatcher<? extends ArtifactListener> myDispatcher;
   private ArtifactType myArtifactType;
   private Map<ArtifactPropertiesProvider, ArtifactProperties<?>> myProperties;
   private final ProjectModelExternalSource myExternalSource;
+  private final boolean myKeepExternalSystemAttribute;
 
-  public ArtifactImpl(@NotNull String name, @NotNull ArtifactType artifactType, boolean buildOnMake,
+  public ArtifactImpl(@NotNull @NlsSafe String name,
+                      @NotNull ArtifactType artifactType, boolean buildOnMake,
                       @NotNull CompositePackagingElement<?> rootElement, String outputPath,
                       @Nullable ProjectModelExternalSource externalSource) {
-    this(name, artifactType, buildOnMake, rootElement, outputPath, externalSource, null);
+    this(name, artifactType, buildOnMake, rootElement, outputPath, externalSource, null, externalSource != null);
   }
 
-  public ArtifactImpl(@NotNull String name, @NotNull ArtifactType artifactType, boolean buildOnMake,
+  public ArtifactImpl(@NotNull @NlsSafe String name,
+                      @NotNull ArtifactType artifactType, boolean buildOnMake,
                       @NotNull CompositePackagingElement<?> rootElement, String outputPath,
-                      @Nullable ProjectModelExternalSource externalSource, EventDispatcher<? extends ArtifactListener> dispatcher) {
+                      @Nullable ProjectModelExternalSource externalSource, EventDispatcher<? extends ArtifactListener> dispatcher,
+                      boolean keepExternalSystemAttribute) {
     myName = name;
     myArtifactType = artifactType;
     myBuildOnMake = buildOnMake;
@@ -59,8 +64,13 @@ public class ArtifactImpl extends UserDataHolderBase implements ModifiableArtifa
     myOutputPath = outputPath;
     myDispatcher = dispatcher;
     myExternalSource = externalSource;
+    myKeepExternalSystemAttribute = keepExternalSystemAttribute;
     myProperties = new HashMap<>();
     resetProperties();
+  }
+
+  public boolean shouldKeepExternalSystemAttribute() {
+    return myKeepExternalSystemAttribute;
   }
 
   private void resetProperties() {
@@ -112,7 +122,7 @@ public class ArtifactImpl extends UserDataHolderBase implements ModifiableArtifa
 
   public ArtifactImpl createCopy(EventDispatcher<? extends ArtifactListener> dispatcher) {
     final ArtifactImpl artifact = new ArtifactImpl(myName, myArtifactType, myBuildOnMake, myRootElement, myOutputPath, myExternalSource,
-                                                   dispatcher);
+                                                   dispatcher, myKeepExternalSystemAttribute);
     for (Map.Entry<ArtifactPropertiesProvider, ArtifactProperties<?>> entry : myProperties.entrySet()) {
       final ArtifactProperties newProperties = artifact.myProperties.get(entry.getKey());
       //noinspection unchecked
@@ -136,7 +146,7 @@ public class ArtifactImpl extends UserDataHolderBase implements ModifiableArtifa
   }
 
   @Override
-  public void setRootElement(CompositePackagingElement<?> root) {
+  public void setRootElement(@NotNull CompositePackagingElement<?> root) {
     myRootElement = root;
   }
 

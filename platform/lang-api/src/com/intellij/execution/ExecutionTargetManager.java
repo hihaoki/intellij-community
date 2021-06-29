@@ -1,12 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.runners.ExecutionEnvironment;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,7 +18,7 @@ public abstract class ExecutionTargetManager {
 
   @NotNull
   public static ExecutionTargetManager getInstance(@NotNull Project project) {
-    return ServiceManager.getService(project, ExecutionTargetManager.class);
+    return project.getService(ExecutionTargetManager.class);
   }
 
   @NotNull
@@ -45,6 +45,7 @@ public abstract class ExecutionTargetManager {
    * @deprecated use {@link #canRun(RunConfiguration, ExecutionTarget)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static boolean canRun(@Nullable RunnerAndConfigurationSettings settings, @Nullable ExecutionTarget target) {
     return canRun(settings != null ? settings.getConfiguration() : null, target);
   }
@@ -82,9 +83,18 @@ public abstract class ExecutionTargetManager {
    */
   @NotNull
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public List<ExecutionTarget> getTargetsFor(@Nullable RunnerAndConfigurationSettings settings) {
     return getTargetsFor(settings == null ? null : settings.getConfiguration());
   }
 
   public abstract void update();
+
+  public ExecutionTarget findTarget(RunConfiguration configuration) {
+    ExecutionTarget target = getActiveTarget();
+    if (canRun(configuration, target)) return target;
+
+    List<ExecutionTarget> targets = getTargetsFor(configuration);
+    return ContainerUtil.getFirstItem(targets);
+  }
 }

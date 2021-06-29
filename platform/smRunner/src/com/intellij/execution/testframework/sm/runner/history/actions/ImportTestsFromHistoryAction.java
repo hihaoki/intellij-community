@@ -3,9 +3,9 @@ package com.intellij.execution.testframework.sm.runner.history.actions;
 
 import com.intellij.execution.TestStateStorage;
 import com.intellij.execution.testframework.sm.TestHistoryConfiguration;
-import com.intellij.execution.testframework.sm.runner.SMTRunnerConsoleProperties;
 import com.intellij.execution.testframework.sm.runner.ui.SMTestRunnerResultsForm;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -22,8 +22,8 @@ import java.util.Date;
 public class ImportTestsFromHistoryAction extends AbstractImportTestsAction {
   private final String myFileName;
 
-  public ImportTestsFromHistoryAction(@Nullable SMTRunnerConsoleProperties properties, Project project, String name) {
-    super(properties, StringUtil.escapeMnemonics(getPresentableText(project, name)), getPresentableText(project, name), getIcon(project, name));
+  public ImportTestsFromHistoryAction(Project project, String name) {
+    super(StringUtil.escapeMnemonics(getPresentableText(project, name)), getPresentableText(project, name), getIcon(project, name));
     myFileName = name;
   }
 
@@ -32,7 +32,7 @@ public class ImportTestsFromHistoryAction extends AbstractImportTestsAction {
   }
 
   @NotNull
-  private static String getPresentableText(Project project, String name) {
+  private static @NlsSafe String getPresentableText(Project project, String name) {
     String nameWithoutExtension = FileUtilRt.getNameWithoutExtension(name);
     final int lastIndexOf = nameWithoutExtension.lastIndexOf(" - ");
     if (lastIndexOf > 0) {

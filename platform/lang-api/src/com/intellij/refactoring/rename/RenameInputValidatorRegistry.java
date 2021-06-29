@@ -3,10 +3,12 @@ package com.intellij.refactoring.rename;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.Function;
 import com.intellij.util.ProcessingContext;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -28,11 +30,11 @@ public final class RenameInputValidatorRegistry {
       }
     }
 
-    return validators.isEmpty() ? null : newName -> validators.stream().allMatch(p -> p.first.isInputValid(newName, element, p.second));
+    return validators.isEmpty() ? null : newName -> ContainerUtil.and(validators, p -> p.first.isInputValid(newName, element, p.second));
   }
 
   @Nullable
-  public static Function<String, String> getInputErrorValidator(PsiElement element) {
+  public static Function<String, @DialogMessage String> getInputErrorValidator(PsiElement element) {
     List<RenameInputValidatorEx> validators = new ArrayList<>();
     for (RenameInputValidator validator : RenameInputValidator.EP_NAME.getExtensionList()) {
       if (validator instanceof RenameInputValidatorEx && validator.getPattern().accepts(element, new ProcessingContext())) {

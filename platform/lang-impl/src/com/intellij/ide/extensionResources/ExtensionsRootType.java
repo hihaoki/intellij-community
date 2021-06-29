@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.extensionResources;
 
 import com.intellij.ide.plugins.*;
@@ -17,6 +17,7 @@ import com.intellij.openapi.vfs.*;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DigestUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,8 +44,8 @@ import java.util.function.Predicate;
 public final class ExtensionsRootType extends RootType {
   static final Logger LOG = Logger.getInstance(ExtensionsRootType.class);
 
-  private static final String EXTENSIONS_PATH = "extensions";
-  private static final String BACKUP_FILE_EXTENSION = "old";
+  private static final @NonNls String EXTENSIONS_PATH = "extensions";
+  private static final @NonNls String BACKUP_FILE_EXTENSION = "old";
 
   ExtensionsRootType() {
     super(EXTENSIONS_PATH, LangBundle.message("root.type.extensions"));
@@ -143,7 +144,7 @@ public final class ExtensionsRootType extends RootType {
     PluginId ownerPluginId = getOwner(resourcesDir);
     if (ownerPluginId == null) return null;
 
-    if (PluginManagerCore.CORE_ID == ownerPluginId) {
+    if (PluginManagerCore.CORE_ID.equals(ownerPluginId)) {
       return PlatformUtils.getPlatformPrefix();
     }
 
@@ -179,15 +180,15 @@ public final class ExtensionsRootType extends RootType {
     // search in enabled plugins only
     IdeaPluginDescriptorImpl plugin = (IdeaPluginDescriptorImpl)PluginManager.getInstance().findEnabledPlugin(pluginId);
     if (plugin == null) {
-      return ContainerUtil.emptyList();
+      return Collections.emptyList();
     }
 
     ClassLoader pluginClassLoader = plugin.getPluginClassLoader();
     Enumeration<URL> resources = pluginClassLoader.getResources(EXTENSIONS_PATH + '/' + path);
     if (resources == null) {
-      return ContainerUtil.emptyList();
+      return Collections.emptyList();
     }
-    else if (plugin.isUseIdeaClassLoader()) {
+    else if (plugin.isUseIdeaClassLoader) {
       return ContainerUtil.toList(resources);
     }
 
@@ -196,8 +197,8 @@ public final class ExtensionsRootType extends RootType {
       urls.add(resources.nextElement());
     }
     // exclude parent classloader resources from list
-    for (PluginDependency it : plugin.getPluginDependencies()) {
-      IdeaPluginDescriptor descriptor = PluginManagerCore.getPlugin(it.id);
+    for (PluginDependency it : plugin.pluginDependencies) {
+      IdeaPluginDescriptor descriptor = PluginManagerCore.getPlugin(it.getPluginId());
       if (descriptor == null) {
         continue;
       }

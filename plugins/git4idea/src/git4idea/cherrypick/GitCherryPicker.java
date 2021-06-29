@@ -13,11 +13,12 @@ import com.intellij.vcs.log.VcsFullCommitDetails;
 import git4idea.GitApplyChangesProcess;
 import git4idea.GitUtil;
 import git4idea.GitVcs;
+import git4idea.actions.GitAbortOperationAction;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommandResult;
 import git4idea.commands.GitLineHandlerListener;
-import git4idea.config.GitVcsApplicationSettings;
 import git4idea.config.GitVcsSettings;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
 import kotlin.Unit;
@@ -45,16 +46,17 @@ public class GitCherryPicker extends VcsCherryPicker {
 
   @Override
   public void cherryPick(@NotNull List<? extends VcsFullCommitDetails> commits) {
-    GitApplyChangesProcess applyProcess = new GitApplyChangesProcess(myProject, commits, isAutoCommit(), "cherry-pick", "applied",
-                                                                     (repository, commit, autoCommit, listeners) ->
-      Git.getInstance().cherryPick(repository, commit.asString(), autoCommit, shouldAddSuffix(repository, commit),
-                                   listeners.toArray(new GitLineHandlerListener[0])),
-      result -> isNothingToCommitMessage(result),
-      (repository, commit) -> createCommitMessage(repository, commit),
-      true,
-      repository -> cancelCherryPick(repository)
-    );
-    applyProcess.execute();
+    new GitApplyChangesProcess(myProject, commits, true,
+                               GitBundle.message("cherry.pick.name"), GitBundle.message("cherry.pick.applied"),
+                               (repository, commit, autoCommit, listeners) ->
+                                 Git.getInstance()
+                                   .cherryPick(repository, commit.asString(), autoCommit, shouldAddSuffix(repository, commit),
+                                               listeners.toArray(new GitLineHandlerListener[0])),
+                               new GitAbortOperationAction.CherryPick(),
+                               result -> isNothingToCommitMessage(result),
+                               (repository, commit) -> createCommitMessage(repository, commit),
+                               true,
+                               (repository, autoCommit) -> cancelCherryPick(repository, autoCommit)).execute();
   }
 
   private static boolean isNothingToCommitMessage(@NotNull GitCommandResult result) {
@@ -65,7 +67,9 @@ public class GitCherryPicker extends VcsCherryPicker {
   @NotNull
   private String createCommitMessage(@NotNull GitRepository repository, @NotNull VcsFullCommitDetails commit) {
     String message = commit.getFullMessage();
-    if (shouldAddSuffix(repository, commit.getId())) message += "\n\n(cherry picked from commit " + commit.getId().asString() + ")";
+    if (shouldAddSuffix(repository, commit.getId())) {
+      message += String.format("\n\n(cherry picked from commit %s)", commit.getId().asString()); //NON-NLS Do not i18n commit template
+    }
     return message;
   }
 
@@ -78,8 +82,8 @@ public class GitCherryPicker extends VcsCherryPicker {
    * We control the cherry-pick workflow ourselves + we want to use partial commits ('git commit --only'), which is prohibited during
    * cherry-pick, i.e. until the CHERRY_PICK_HEAD exists.
    */
-  private static Unit cancelCherryPick(@NotNull GitRepository repository) {
-    if (isAutoCommit()) {
+  private static Unit cancelCherryPick(@NotNull GitRepository repository, boolean autoCommit) {
+    if (autoCommit) { // `git cherry-pick -n` doesn't create the CHERRY_PICK_HEAD
       removeCherryPickHead(repository);
     }
     return Unit.INSTANCE;
@@ -110,10 +114,6 @@ public class GitCherryPicker extends VcsCherryPicker {
   @Nls(capitalization = Nls.Capitalization.Title)
   public String getActionTitle() {
     return DvcsBundle.message("cherry.pick.action.text");
-  }
-
-  private static boolean isAutoCommit() {
-    return GitVcsApplicationSettings.getInstance().isAutoCommitOnCherryPick();
   }
 
   @Override

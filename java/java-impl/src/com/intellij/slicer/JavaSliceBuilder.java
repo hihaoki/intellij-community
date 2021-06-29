@@ -1,8 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.slicer;
 
 import com.intellij.analysis.AnalysisScope;
-import com.intellij.codeInspection.dataFlow.types.DfTypes;
+import com.intellij.codeInspection.dataFlow.types.DfType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
@@ -10,13 +10,13 @@ import com.intellij.psi.impl.source.DummyHolder;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Processor;
-import gnu.trove.THashMap;
 import org.intellij.lang.annotations.Flow;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Range;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 
@@ -64,7 +64,7 @@ final class JavaSliceBuilder {
   @Contract(pure = true)
   @NotNull JavaSliceBuilder dropNesting() {
     if (myIndexNesting == 0) return this;
-    return new JavaSliceBuilder(myParent, mySubstitutor, 0, mySyntheticField, myFilter.withType(DfTypes.TOP));
+    return new JavaSliceBuilder(myParent, mySubstitutor, 0, mySyntheticField, myFilter.withType(DfType.TOP));
   }
 
   boolean process(PsiElement element, Processor<? super SliceUsage> processor) {
@@ -136,7 +136,7 @@ final class JavaSliceBuilder {
   @NotNull PsiSubstitutor getSubstitutor() {
     return mySubstitutor;
   }
-  
+
   @Contract(pure = true)
   PsiType substitute(@Nullable PsiType type) {
     return mySubstitutor.substitute(type);
@@ -168,7 +168,7 @@ final class JavaSliceBuilder {
 
   @Nullable JavaSliceBuilder combineSubstitutor(@NotNull PsiSubstitutor substitutor, @NotNull Project project) {
     PsiSubstitutor parentSubstitutor = this.mySubstitutor;
-    Map<PsiTypeParameter, PsiType> newMap = new THashMap<>(substitutor.getSubstitutionMap());
+    Map<PsiTypeParameter, PsiType> newMap = new HashMap<>(substitutor.getSubstitutionMap());
 
     for (Map.Entry<PsiTypeParameter, PsiType> entry : substitutor.getSubstitutionMap().entrySet()) {
       PsiTypeParameter typeParameter = entry.getKey();

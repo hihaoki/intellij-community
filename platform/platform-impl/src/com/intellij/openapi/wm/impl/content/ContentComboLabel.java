@@ -1,10 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
+import com.intellij.openapi.rd.GraphicsExKt;
+import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.ui.Gray;
 import com.intellij.ui.content.Content;
-import com.intellij.ui.content.ContentManager;
-import com.intellij.ui.popup.util.PopupState;
+import com.intellij.ui.popup.PopupState;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.ScreenReader;
@@ -21,13 +23,13 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
-final class ContentComboLabel extends BaseLabel {
-  private final PopupState myPopupState = new PopupState();
+final class ContentComboLabel extends ContentLabel {
+  private final PopupState<JBPopup> myPopupState = PopupState.forPopup();
 
   private final ComboIcon myComboIcon = new ComboIcon() {
     @Override
     public Rectangle getIconRec() {
-      return new Rectangle(getWidth() - getIconWidth() - 3, 0, getIconWidth(), getHeight());
+      return new Rectangle(getWidth() - getIconWidth() - ICONS_GAP, 0, getIconWidth(), getHeight());
     }
 
     @Override
@@ -57,18 +59,31 @@ final class ContentComboLabel extends BaseLabel {
   }
 
   @Override
-  protected void processMouseEvent(MouseEvent e) {
-    super.processMouseEvent(e);
+  protected @Nullable String getOriginalText() {
+    Content content = getContent();
+    //noinspection DialogTitleCapitalization
+    return content != null ? content.getDisplayName() : null;
+  }
 
-    if (UIUtil.isActionClick(e)) {
-      if (myPopupState.isRecentlyHidden()) return; // do not show new popup
-      ToolWindowContentUi.toggleContentPopup(myUi, myUi.getContentManager(), myPopupState);
+  @Override
+  protected void handleMouseClick(@NotNull MouseEvent e) {
+    if (e.getID() == MouseEvent.MOUSE_RELEASED) {
+      handleActionsClick(e);
+    }
+    if (e.getID() == MouseEvent.MOUSE_PRESSED) {
+      if (findHoveredIcon() != null) return;
+
+      if (UIUtil.isActionClick(e)) {
+        if (myPopupState.isRecentlyHidden()) return; // do not show new popup
+        ToolWindowContentUi.toggleContentPopup(myUi, myUi.getContentManager(), myPopupState);
+      }
     }
   }
 
   void update() {
     setBorder(isToDrawCombo() ? JBUI.Borders.empty(0, 8) : JBUI.Borders.empty());
     updateTextAndIcon(getContent(), true);
+    updateAdditionalActions();
   }
 
   @Override
@@ -93,6 +108,7 @@ final class ContentComboLabel extends BaseLabel {
   public Dimension getPreferredSize() {
     Dimension size = super.getPreferredSize();
     if (!isPreferredSizeSet() && isToDrawCombo()) {
+      if (hasActiveIcons()) size.width -= ICONS_GAP;
       size.width += myComboIcon.getIconWidth();
     }
     return size;
@@ -100,6 +116,18 @@ final class ContentComboLabel extends BaseLabel {
 
   private boolean isToDrawCombo() {
     return myLayout.isToDrawCombo();
+  }
+
+  @Override
+  protected void paintComponent(Graphics g) {
+    Color bgColor = getTabColor();
+    if (bgColor != null) {
+      int borderThickness = JBUIScale.scale(1);
+      Dimension size = getSize();
+      Rectangle rect = new Rectangle(0, borderThickness, size.width, size.height - 2 * borderThickness);
+      GraphicsExKt.fill2DRect((Graphics2D)g, rect, bgColor);
+    }
+    super.paintComponent(g);
   }
 
   @Override
@@ -114,8 +142,7 @@ final class ContentComboLabel extends BaseLabel {
   @Nullable
   @Override
   public Content getContent() {
-    ContentManager contentManager = myUi.getContentManager();
-    return contentManager == null ? null : contentManager.getSelectedContent();
+    return myUi.getContentManager().getSelectedContent();
   }
 
   @Override

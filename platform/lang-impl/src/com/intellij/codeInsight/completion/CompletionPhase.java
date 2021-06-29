@@ -2,6 +2,7 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl;
+import com.intellij.codeWithMe.ClientId;
 import com.intellij.lang.Language;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationListener;
@@ -49,6 +50,11 @@ public abstract class CompletionPhase implements Disposable {
     @Override
     public int newCompletionStarted(int time, boolean repeated) {
       return time;
+    }
+
+    @Override
+    public String toString() {
+      return "NoCompletion";
     }
   };
 
@@ -193,13 +199,14 @@ public abstract class CompletionPhase implements Disposable {
   }
   public static class BgCalculation extends CompletionPhase {
     boolean modifiersChanged = false;
+    private final @NotNull ClientId ownerId = ClientId.getCurrent();
 
     public BgCalculation(final CompletionProgressIndicator indicator) {
       super(indicator);
       ApplicationManager.getApplication().addApplicationListener(new ApplicationListener() {
         @Override
         public void beforeWriteActionStart(@NotNull Object action) {
-          if (!indicator.getLookup().isLookupDisposed() && !indicator.isCanceled()) {
+          if (!indicator.getLookup().isLookupDisposed() && !indicator.isCanceled() && ownerId.equals(ClientId.getCurrent())) {
             indicator.scheduleRestart();
           }
         }
@@ -211,13 +218,11 @@ public abstract class CompletionPhase implements Disposable {
           public void focusLost(@NotNull Editor editor, @NotNull FocusEvent event) {
             // When ScreenReader is active the lookup gets focus on show and we should not close it.
             if (ScreenReader.isActive() &&
-                indicator.getLookup() != null &&
                 event.getOppositeComponent() != null &&
                 indicator.getLookup().getComponent() != null &&
                 // Check the opposite is in the lookup ancestor
-                (SwingUtilities.getWindowAncestor(event.getOppositeComponent())) ==
-                 SwingUtilities.getWindowAncestor(indicator.getLookup().getComponent()))
-            {
+                SwingUtilities.getWindowAncestor(event.getOppositeComponent()) ==
+                SwingUtilities.getWindowAncestor(indicator.getLookup().getComponent())) {
               return;
             }
             indicator.closeAndFinish(true);

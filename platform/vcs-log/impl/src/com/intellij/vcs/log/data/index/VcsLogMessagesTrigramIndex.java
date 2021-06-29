@@ -5,6 +5,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.text.TrigramBuilder;
 import com.intellij.util.indexing.DataIndexer;
 import com.intellij.util.indexing.StorageException;
+import com.intellij.util.io.StorageLockContext;
 import com.intellij.util.io.VoidDataExternalizer;
 import com.intellij.vcs.log.VcsCommitMetadata;
 import com.intellij.vcs.log.impl.FatalErrorHandler;
@@ -12,6 +13,7 @@ import com.intellij.vcs.log.util.StorageId;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,13 +21,14 @@ import java.io.IOException;
 import java.util.Map;
 
 public final class VcsLogMessagesTrigramIndex extends VcsLogFullDetailsIndex<Void, VcsCommitMetadata> {
-  private static final String TRIGRAMS = "trigrams"; // NON-NLS
+  @NonNls private static final String TRIGRAMS = "trigrams";
 
   public VcsLogMessagesTrigramIndex(@NotNull StorageId storageId,
+                                    @Nullable StorageLockContext storageLockContext,
                                     @NotNull FatalErrorHandler fatalErrorHandler,
                                     @NotNull Disposable disposableParent) throws IOException {
     super(storageId, TRIGRAMS, new TrigramMessageIndexer(), VoidDataExternalizer.INSTANCE,
-          fatalErrorHandler, disposableParent);
+          storageLockContext, fatalErrorHandler, disposableParent);
   }
 
   @Nullable

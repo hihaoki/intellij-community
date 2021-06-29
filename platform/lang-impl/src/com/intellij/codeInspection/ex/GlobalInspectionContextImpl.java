@@ -1,10 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ex;
 
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.AnalysisUIOptions;
 import com.intellij.analysis.PerformAnalysisInBackgroundOption;
+import com.intellij.analysis.problemsView.toolWindow.ProblemsView;
 import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor;
 import com.intellij.codeInsight.daemon.ProblemHighlightFilter;
 import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoProcessor;
@@ -17,6 +19,7 @@ import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefGraphAnnotator;
 import com.intellij.codeInspection.reference.RefManagerImpl;
 import com.intellij.codeInspection.ui.DefaultInspectionToolPresentation;
+import com.intellij.codeInspection.ui.DelegatedInspectionToolPresentation;
 import com.intellij.codeInspection.ui.InspectionResultsView;
 import com.intellij.codeInspection.ui.InspectionToolPresentation;
 import com.intellij.concurrency.JobLauncher;
@@ -26,13 +29,16 @@ import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.lang.LangBundle;
 import com.intellij.lang.annotation.ProblemGroup;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationAction;
 import com.intellij.notification.NotificationGroup;
+import com.intellij.notification.NotificationGroupManager;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -46,8 +52,11 @@ import com.intellij.openapi.roots.FileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.*;
@@ -58,29 +67,36 @@ import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.LightVirtualFile;
-import com.intellij.ui.GuiUtils;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
+import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
 
+import static com.intellij.codeInspection.ex.InspectListener.InspectionKind.GLOBAL;
+import static com.intellij.codeInspection.ex.InspectListener.InspectionKind.GLOBAL_SIMPLE;
+import static com.intellij.codeInspection.ex.InspectionEventsKt.reportWhenActivityFinished;
+import static com.intellij.codeInspection.ex.InspectionEventsKt.reportWhenInspectionFinished;
+
 public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
-  private static final boolean INSPECT_INJECTED_PSI = SystemProperties.getBooleanProperty("idea.batch.inspections.inspect.injected.psi", true);
   private static final Logger LOG = Logger.getInstance(GlobalInspectionContextImpl.class);
   @SuppressWarnings("StaticNonFinalField")
   @TestOnly
   public static volatile boolean TESTING_VIEW;
-  public static final NotificationGroup NOTIFICATION_GROUP = NotificationGroup.toolWindowGroup("Inspection Results", ToolWindowId.INSPECTION);
+  public static final NotificationGroup NOTIFICATION_GROUP = NotificationGroupManager
+    .getInstance()
+    .getNotificationGroup("Inspection Results");
 
   private final NotNullLazyValue<? extends ContentManager> myContentManager;
   private volatile InspectionResultsView myView;
@@ -88,10 +104,16 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
   private volatile boolean myViewClosed = true;
   private long myInspectionStartedTimestamp;
   private final ConcurrentMap<InspectionToolWrapper<?, ?>, InspectionToolPresentation> myPresentationMap = new ConcurrentHashMap<>();
+  private boolean forceInspectAllScope = false;
 
   public GlobalInspectionContextImpl(@NotNull Project project, @NotNull NotNullLazyValue<? extends ContentManager> contentManager) {
     super(project);
+
     myContentManager = contentManager;
+  }
+
+  private @NotNull InspectListener getEventPublisher() {
+    return getProject().getMessageBus().syncPublisher(GlobalInspectionContextEx.INSPECT_TOPIC);
   }
 
   private @NotNull ContentManager getContentManager() {
@@ -99,7 +121,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
   }
 
   public void addView(@NotNull InspectionResultsView view,
-                      @NotNull String title,
+                      @NotNull @NlsContexts.TabTitle String title,
                       boolean isOffline) {
     LOG.assertTrue(myContent == null, "GlobalInspectionContext is busy under other view now");
     myView = view;
@@ -115,7 +137,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
       }
       myContent = null;
     });
-    RefManagerImpl.EP_NAME.addExtensionPointListener(new ExtensionPointListener<RefGraphAnnotator>() {
+    RefManagerImpl.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionRemoved(@NotNull RefGraphAnnotator graphAnnotator, @NotNull PluginDescriptor pluginDescriptor) {
         ((RefManagerImpl)getRefManager()).unregisterAnnotator(graphAnnotator);
@@ -126,7 +148,14 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     contentManager.addContent(myContent);
     contentManager.setSelectedContent(myContent);
 
-    ToolWindowManager.getInstance(getProject()).getToolWindow(ToolWindowId.INSPECTION).activate(null);
+    ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(getProject());
+    ToolWindow toolWindow = toolWindowManager.getToolWindow(ProblemsView.ID);
+    if (toolWindow == null) { // TODO: compatibility mode for Rider where there's no problems view; remove in 2021.2
+      //noinspection deprecation
+      toolWindow = toolWindowManager.getToolWindow(ToolWindowId.INSPECTION);
+    }
+    if (toolWindow != null)
+      toolWindow.activate(null);
   }
 
   public void addView(@NotNull InspectionResultsView view) {
@@ -138,7 +167,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
   }
 
   @Override
-  public void doInspections(final @NotNull AnalysisScope scope) {
+  public void doInspections(@NotNull AnalysisScope scope) {
     if (myContent != null) {
       getContentManager().removeContent(myContent, true);
     }
@@ -162,6 +191,14 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
 
   public InspectionResultsView getView() {
     return myView;
+  }
+
+  public boolean isForceInspectAllScope() {
+    return forceInspectAllScope;
+  }
+
+  public void setForceInspectAllScope(boolean forceInspectAllScope) {
+    this.forceInspectAllScope = forceInspectAllScope;
   }
 
   private static void resolveElementRecursively(@NotNull InspectionToolResultExporter presentation, @NotNull RefEntity refElement) {
@@ -201,16 +238,29 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     if (ApplicationManager.getApplication().isUnitTestMode() && !TESTING_VIEW) return;
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
     long elapsed = System.currentTimeMillis() - myInspectionStartedTimestamp;
-    LOG.info("Code inspection finished. Took " + elapsed + "ms");
+    LOG.info("Code inspection finished. Took " + elapsed + " ms");
+    if (SystemProperties.getBooleanProperty("idea.is.integration.test", false)) {
+      String logPath = PathManager.getLogPath();
+      Path perfMetrics = Paths.get(logPath).resolve("performance-metrics").resolve("inspectionMetrics.json");
+      try {
+        FileUtil.writeToFile(perfMetrics.toFile(), "{\n\t\"inspection_execution_time\" : " + elapsed + "\n}");
+      }
+      catch (IOException ex) {
+        LOG.info("Could not create json file " + perfMetrics + " with the performance metrics.");
+      }
+    }
     if (getProject().isDisposed()) return;
 
     InspectionResultsView newView = myView == null ? new InspectionResultsView(this, new InspectionRVContentProviderImpl()) : null;
     if (!(myView == null ? newView : myView).hasProblems()) {
       int totalFiles = getStdJobDescriptors().BUILD_GRAPH.getTotalAmount(); // do not use invalidated scope
-      NOTIFICATION_GROUP.createNotification(InspectionsBundle.message("inspection.no.problems.message",
-                                                                      totalFiles,
-                                                                      scope.getShortenName()),
-                                            MessageType.INFO).notify(getProject());
+
+      final var notification = NOTIFICATION_GROUP.createNotification(InspectionsBundle.message("inspection.no.problems.message",
+                                                                                 totalFiles,
+                                                                                 scope.getShortenName()), MessageType.INFO);
+      if (!scope.isIncludeTestSource()) addRepeatWithTestsAction(scope, notification, () -> doInspections(scope));
+      notification.notify(getProject());
+
       close(true);
       if (newView != null) {
         Disposer.dispose(newView);
@@ -254,7 +304,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     if (runGlobalToolsOnly || localTools.isEmpty() && globalSimpleTools.isEmpty()) return;
 
     SearchScope searchScope = ReadAction.compute(scope::toSearchScope);
-    final Set<VirtualFile> localScopeFiles = searchScope instanceof LocalSearchScope ? new THashSet<>() : null;
+    final Set<VirtualFile> localScopeFiles = searchScope instanceof LocalSearchScope ? new HashSet<>() : null;
     for (Tools tools : globalSimpleTools) {
       GlobalInspectionToolWrapper toolWrapper = (GlobalInspectionToolWrapper)tools.getTool();
       GlobalSimpleInspectionTool tool = (GlobalSimpleInspectionTool)toolWrapper.getTool();
@@ -262,6 +312,8 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     }
 
     final boolean headlessEnvironment = ApplicationManager.getApplication().isHeadlessEnvironment();
+    final boolean inspectInjectedPsi = Registry.is("idea.batch.inspections.inspect.injected.psi", true);
+
     final Map<String, InspectionToolWrapper<?, ?>> map = getInspectionWrappersMap(localTools);
 
     final BlockingQueue<VirtualFile> filesToInspect = new ArrayBlockingQueue<>(1000);
@@ -287,12 +339,13 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
                     getWrappersFromTools(globalSimpleTools, file, includeDoNotShow,
                                          wrapper -> !(wrapper.getTool() instanceof ExternalAnnotatorBatchInspection)),
                     getWrappersFromTools(localTools, file, includeDoNotShow,
-                                         wrapper -> !(wrapper.getTool() instanceof ExternalAnnotatorBatchInspection)));
+                                         wrapper -> !(wrapper.getTool() instanceof ExternalAnnotatorBatchInspection)),
+                    inspectInjectedPsi && scope.isAnalyzeInjectedCode());
         if (start != 0) {
           updateProfile(virtualFile, System.currentTimeMillis() - start);
         }
         return true;
-      }, "Inspect code is not available until indices are ready");
+      }, LangBundle.message("popup.content.inspect.code.not.available.until.indices.are.ready"));
       if (readActionSuccess == null || !readActionSuccess) {
         throw new ProcessCanceledException();
       }
@@ -408,7 +461,8 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
                            final @NotNull InspectionManager inspectionManager,
                            final @NotNull Map<String, InspectionToolWrapper<?, ?>> wrappersMap,
                            @NotNull List<? extends GlobalInspectionToolWrapper> globalSimpleTools,
-                           @NotNull List<? extends LocalInspectionToolWrapper> localTools) {
+                           @NotNull List<? extends LocalInspectionToolWrapper> localTools,
+                           boolean inspectInjectedPsi) {
     Document document = PsiDocumentManager.getInstance(getProject()).getDocument(file);
     if (document == null) return;
 
@@ -416,7 +470,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
       file.putUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY, p -> new InspectionProfileWrapper(getCurrentProfile()));
       LocalInspectionsPass pass = new LocalInspectionsPass(file, document, range.getStartOffset(),
                                                            range.getEndOffset(), LocalInspectionsPass.EMPTY_PRIORITY_RANGE, true,
-                                                           HighlightInfoProcessor.getEmpty(), INSPECT_INJECTED_PSI);
+                                                           HighlightInfoProcessor.getEmpty(), inspectInjectedPsi);
       pass.doInspectInBatch(this, inspectionManager, localTools);
 
       assertUnderDaemonProgress();
@@ -426,7 +480,13 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
           GlobalSimpleInspectionTool tool = (GlobalSimpleInspectionTool)toolWrapper.getTool();
           ProblemsHolder holder = new ProblemsHolder(inspectionManager, file, false);
           ProblemDescriptionsProcessor problemDescriptionProcessor = getProblemDescriptionProcessor(toolWrapper, wrappersMap);
-          tool.checkFile(file, inspectionManager, holder, this, problemDescriptionProcessor);
+          reportWhenInspectionFinished(
+            getEventPublisher(),
+            toolWrapper,
+            GLOBAL_SIMPLE,
+            () -> {
+              tool.checkFile(file, inspectionManager, holder, this, problemDescriptionProcessor);
+            });
           InspectionToolResultExporter toolPresentation = getPresentation(toolWrapper);
           BatchModeDescriptorsUtil.addProblemDescriptors(holder.getResults(), false, this, null, CONVERT, toolPresentation);
           return true;
@@ -465,7 +525,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
           final FileIndex fileIndex = ProjectRootManager.getInstance(getProject()).getFileIndex();
           scope.accept(file -> {
             ProgressManager.checkCanceled();
-            if (ProjectUtil.isProjectOrWorkspaceFile(file) || !fileIndex.isInContent(file)) return true;
+            if (!forceInspectAllScope && (ProjectUtil.isProjectOrWorkspaceFile(file) || !fileIndex.isInContent(file))) return true;
 
             PsiFile psiFile = ReadAction.compute(() -> {
               if (getProject().isDisposed()) throw new ProcessCanceledException();
@@ -537,6 +597,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
 
     SearchScope initialSearchScope = ReadAction.compute(scope::toSearchScope);
     final boolean canBeExternalUsages = !(scope.getScopeType() == AnalysisScope.PROJECT && scope.isIncludeTestSource());
+    InspectListener eventPublisher = getEventPublisher();
     for (Tools tools : globalTools) {
       for (ScopeToolState state : tools.getTools()) {
         if (!state.isEnabled()) continue;
@@ -551,7 +612,12 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
         try {
           if (tool.isGraphNeeded()) {
             try {
-              ((RefManagerImpl)getRefManager()).findAllDeclarations();
+              reportWhenActivityFinished(
+                eventPublisher,
+                InspectListener.ActivityKind.REFERENCE_SEARCH,
+                () -> {
+                  ((RefManagerImpl)getRefManager()).findAllDeclarations();
+                });
             }
             catch (Throwable e) {
               getStdJobDescriptors().BUILD_GRAPH.setDoneAmount(0);
@@ -559,7 +625,14 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
             }
           }
           ThrowableRunnable<RuntimeException> runnable = () -> {
-            tool.runInspection(scopeForState, inspectionManager, this, toolPresentation);
+            reportWhenInspectionFinished(
+              eventPublisher,
+              toolWrapper,
+              GLOBAL,
+              () -> {
+                tool.runInspection(scopeForState, inspectionManager, this, toolPresentation);
+              });
+
             //skip phase when we are sure that scope already contains everything, unused declaration though needs to proceed with its suspicious code
             if ((canBeExternalUsages || tool.getAdditionalJobs(this) != null) &&
                 tool.queryExternalUsagesRequests(inspectionManager, this, toolPresentation)) {
@@ -581,7 +654,16 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
         }
       }
     }
+    reportWhenActivityFinished(
+      eventPublisher,
+      InspectListener.ActivityKind.GLOBAL_POST_RUN_ACTIVITIES,
+      () -> {
+        processPostRunActivities(needRepeatSearchRequest);
+      });
+    addProblemsToView(globalTools);
+  }
 
+  private void processPostRunActivities(List<InspectionToolWrapper<?, ?>> needRepeatSearchRequest) {
     for (GlobalInspectionContextExtension<?> extension : myExtensions.values()) {
       try {
         extension.performPostRunActivities(needRepeatSearchRequest, this);
@@ -593,8 +675,6 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
         LOG.error(e);
       }
     }
-
-    addProblemsToView(globalTools);
   }
 
   public ActionCallback initializeViewIfNeeded() {
@@ -758,25 +838,37 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
                           @NotNull Predicate<? super ProblemDescriptor> shouldApplyFix) {
     String title = LangBundle.message("progress.title.inspect.code");
     Task task = modal ? new Task.Modal(getProject(), title, true) {
+      private CleanupProblems problems;
+
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        cleanup(scope, profile, postRunnable, commandName, indicator, shouldApplyFix);
+        problems = findProblems(scope, profile, indicator, shouldApplyFix);
+      }
+
+      @Override
+      public void onSuccess() {
+        applyFixes(scope, problems, commandName, postRunnable, profile, true, shouldApplyFix);
       }
     } : new Task.Backgroundable(getProject(), title, true) {
+      private CleanupProblems problems;
+
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        cleanup(scope, profile, postRunnable, commandName, indicator, shouldApplyFix);
+        problems = findProblems(scope, profile, indicator, shouldApplyFix);
+      }
+
+      @Override
+      public void onSuccess() {
+        applyFixes(scope, problems, commandName, postRunnable, profile, false, shouldApplyFix);
       }
     };
     ProgressManager.getInstance().run(task);
   }
 
-  private void cleanup(@NotNull AnalysisScope scope,
-                       @NotNull InspectionProfile profile,
-                       @Nullable Runnable postRunnable,
-                       @Nullable String commandName,
-                       @NotNull ProgressIndicator progressIndicator,
-                       @NotNull Predicate<? super ProblemDescriptor> shouldApplyFix) {
+  public @NotNull CleanupProblems findProblems(@NotNull AnalysisScope scope,
+                                               @NotNull InspectionProfile profile,
+                                               @NotNull ProgressIndicator progressIndicator,
+                                               @NotNull Predicate<? super ProblemDescriptor> shouldApplyFix) {
     setCurrentScope(scope);
     final int fileCount = scope.getFileCount();
     progressIndicator.setIndeterminate(false);
@@ -803,7 +895,9 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
         private int myCount;
         @Override
         public void visitFile(@NotNull PsiFile file) {
+          progressIndicator.setText(AbstractLayoutCodeProcessor.getPresentablePath(getProject(), file));
           progressIndicator.setFraction((double)++myCount / fileCount);
+
           if (isBinary(file)) return;
           final List<LocalInspectionToolWrapper> lTools = new ArrayList<>();
           for (final Tools tools : inspectionTools) {
@@ -866,26 +960,48 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
       refManager.inspectionReadActionFinished();
     }
 
-    if (files.isEmpty()) {
-      GuiUtils.invokeLaterIfNeeded(() -> {
-        if (commandName != null) {
-          NOTIFICATION_GROUP.createNotification(InspectionsBundle.message("inspection.no.problems.message", scope.getFileCount(), scope.getDisplayName()), MessageType.INFO).notify(getProject());
-        }
-        if (postRunnable != null) {
-          postRunnable.run();
-        }
-      }, ModalityState.defaultModalityState());
-      return;
-    }
+    return new CleanupProblems(files, descriptors, searchScope instanceof GlobalSearchScope);
+  }
 
-    Runnable runnable = () -> {
-      if (!FileModificationService.getInstance().preparePsiElementsForWrite(files)) return;
-      CleanupInspectionUtil.getInstance().applyFixesNoSort(getProject(), "Code Cleanup", descriptors, null, false, searchScope instanceof GlobalSearchScope);
+  private void applyFixes(@NotNull AnalysisScope scope,
+                          @NotNull CleanupProblems problems,
+                          @Nullable String commandName,
+                          @Nullable Runnable postRunnable,
+                          final @NotNull InspectionProfile profile,
+                          final boolean modal,
+                          @NotNull Predicate<? super ProblemDescriptor> shouldApplyFix) {
+    if (problems.getFiles().isEmpty()) {
+      if (commandName != null) {
+        var notification = NOTIFICATION_GROUP.createNotification(InspectionsBundle.message("inspection.no.problems.message",
+                                                                        scope.getFileCount(),
+                                                                        scope.getDisplayName()), MessageType.INFO);
+        if (!scope.isIncludeTestSource()) addRepeatWithTestsAction(scope, notification, () -> codeCleanup(scope, profile, commandName, postRunnable, modal, shouldApplyFix));
+        notification.notify(getProject());
+      }
       if (postRunnable != null) {
         postRunnable.run();
       }
-    };
-    TransactionGuard.submitTransaction(getProject(), runnable);
+      return;
+    }
+
+    if (!FileModificationService.getInstance().preparePsiElementsForWrite(problems.getFiles())) return;
+    CleanupInspectionUtil.getInstance().applyFixesNoSort(
+      getProject(), LangBundle.message("code.cleanup"), problems.getProblemDescriptors(), null, false, problems.isGlobalScope());
+    if (postRunnable != null) {
+      postRunnable.run();
+    }
+  }
+
+  private static void addRepeatWithTestsAction(@NotNull AnalysisScope scope, @NotNull Notification notification, @NotNull Runnable analysisRepeater) {
+    notification.addAction(new NotificationAction(InspectionsBundle.message("inspection.no.problems.repeat.with.tests")) {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
+        notification.expire();
+        scope.setIncludeTestSource(true);
+        scope.invalidate();
+        analysisRepeater.run();
+      }
+    });
   }
 
   private static boolean isBinary(@NotNull PsiFile file) {
@@ -901,7 +1017,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     if (ApplicationManager.getApplication().isHeadlessEnvironment() && !TESTING_VIEW) {
       return;
     }
-    if (myView == null && !ReadAction.compute(() -> InspectionResultsView.hasProblems(tools, this, new InspectionRVContentProviderImpl()))) {
+    if (myView == null && !InspectionResultsView.hasProblems(tools, this, new InspectionRVContentProviderImpl())) {
       return;
     }
     initializeViewIfNeeded().doWhenDone(() -> myView.addTools(tools));
@@ -912,6 +1028,9 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     return myPresentationMap.computeIfAbsent(toolWrapper, __ -> {
       String presentationClass = toolWrapper.myEP == null ? null : toolWrapper.myEP.presentation;
       if (StringUtil.isEmpty(presentationClass)) {
+        if (myProblemConsumer !=  null) {
+          return new DelegatedInspectionToolPresentation(toolWrapper, this, myProblemConsumer);
+        }
         presentationClass = DefaultInspectionToolPresentation.class.getName();
       }
       try {

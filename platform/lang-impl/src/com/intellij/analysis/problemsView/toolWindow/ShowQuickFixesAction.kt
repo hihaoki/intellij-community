@@ -1,57 +1,69 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.analysis.problemsView.toolWindow
 
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
 import com.intellij.codeInsight.intention.impl.CachedIntentions
+import com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching
 import com.intellij.codeInsight.intention.impl.IntentionListStep
-import com.intellij.openapi.actionSystem.ActionPlaces.isMainMenuOrShortcut
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys.PSI_FILE
-import com.intellij.openapi.actionSystem.PlatformDataKeys.CONTEXT_COMPONENT
+import com.intellij.openapi.actionSystem.PlatformDataKeys.SELECTED_ITEM
+import com.intellij.openapi.actionSystem.UpdateInBackground
 import com.intellij.openapi.actionSystem.impl.ActionButton
+import com.intellij.openapi.application.ApplicationManager.getApplication
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.util.ui.tree.TreeUtil.getLastUserObject
+import com.intellij.util.ui.UIUtil.isAncestor
 import java.awt.event.MouseEvent
-import javax.swing.JTree
 
-internal class ShowQuickFixesAction : AnAction() {
+internal class ShowQuickFixesAction : AnAction(), UpdateInBackground {
 
   override fun update(event: AnActionEvent) {
-    val problem = getProblem(getTree(event))
-    event.presentation.isEnabled = when (problem) {
-      is HighlightingProblem -> isEnabled(event, problem)
-      else -> false
+    val node = event.getData(SELECTED_ITEM) as? ProblemNode
+    val problem = node?.problem
+    with(event.presentation) {
+      isVisible = getApplication().isInternal || event.getData(ProblemsViewPanel.SELECTED) is HighlightingPanel
+      isEnabled = isVisible && when (problem) {
+        is HighlightingProblem -> isEnabled(event, problem)
+        else -> false
+      }
     }
   }
 
   override fun actionPerformed(event: AnActionEvent) {
-    when (val problem = getProblem(getTree(event))) {
+    val node = event.getData(SELECTED_ITEM) as? ProblemNode
+    when (val problem = node?.problem) {
       is HighlightingProblem -> actionPerformed(event, problem)
     }
   }
 
 
-  private fun getTree(event: AnActionEvent) = when {
-    isMainMenuOrShortcut(event.place) -> event.getData(CONTEXT_COMPONENT) as? JTree
-    else -> ProblemsView.getSelectedPanel(event.project)?.tree
+  private fun getEditor(psi: PsiFile, showEditor: Boolean): Editor? {
+    val file = psi.virtualFile ?: return null
+    val document = PsiDocumentManager.getInstance(psi.project).getDocument(psi) ?: return null
+    val editors = EditorFactory.getInstance().editors(document, psi.project).filter { !it.isViewer }
+    val editor = editors.findFirst().orElse(null) ?: return null
+    if (!showEditor || editor.component.isShowing) return editor
+    val manager = FileEditorManager.getInstance(psi.project) ?: return null
+    if (manager.allEditors.none { isAncestor(it.component, editor.component) }) return null
+    manager.openFile(file, false, true)
+    return if (editor.component.isShowing) editor else null
   }
-
-  private fun getProblem(tree: JTree?) = tree?.let {
-    getLastUserObject(ProblemNode::class.java, it.selectionPath)?.problem
-  }
-
-  private fun getPsiFile(event: AnActionEvent) = event.getData(PSI_FILE)
-
-  private fun getEditor(psi: PsiFile) = ProblemsView.getSelectedPanel(psi.project)?.preview?.findEditor(psi)
 
   private fun show(event: AnActionEvent, popup: JBPopup) {
     val mouse = event.inputEvent as? MouseEvent ?: return popup.showInBestPositionFor(event.dataContext)
     val point = mouse.locationOnScreen
-    val panel = ProblemsView.getSelectedPanel(event.project)
+    val panel = event.getData(ProblemsViewPanel.SELECTED)
     val button = mouse.source as? ActionButton
     if (panel != null && button != null) {
       point.translate(-mouse.x, -mouse.y)
@@ -65,26 +77,39 @@ internal class ShowQuickFixesAction : AnAction() {
 
 
   private fun isEnabled(event: AnActionEvent, problem: HighlightingProblem): Boolean {
-    return getCachedIntentions(event, problem) != null
+    return getCachedIntentions(event, problem, false) != null
   }
 
   private fun actionPerformed(event: AnActionEvent, problem: HighlightingProblem) {
-    val intentions = getCachedIntentions(event, problem) ?: return
+    val intentions = getCachedIntentions(event, problem, true) ?: return
     val editor = intentions.editor ?: return
-    editor.caretModel.moveToOffset(intentions.offset)
+    if (intentions.offset >= 0) editor.caretModel.moveToOffset(intentions.offset.coerceAtMost(editor.document.textLength))
     show(event, JBPopupFactory.getInstance().createListPopup(
-      IntentionListStep(null, editor, intentions.file, intentions.file.project, intentions)
+      object : IntentionListStep(null, editor, intentions.file, intentions.file.project, intentions) {
+        override fun chooseActionAndInvoke(cachedAction: IntentionActionWithTextCaching, file: PsiFile, project: Project, editor: Editor?) {
+          editor?.contentComponent?.requestFocus()
+          // hack until doWhenFocusSettlesDown will work as expected
+          getApplication().invokeLater(
+            {
+              IdeFocusManager.getInstance(project).doWhenFocusSettlesDown {
+                super.chooseActionAndInvoke(cachedAction, file, project, editor)
+              }
+            }, ModalityState.NON_MODAL, project.disposed)
+        }
+      }
     ))
   }
 
-  private fun getCachedIntentions(event: AnActionEvent, problem: HighlightingProblem): CachedIntentions? {
-    val psi = getPsiFile(event) ?: return null
-    val editor = getEditor(psi) ?: return null
+  private fun getCachedIntentions(event: AnActionEvent, problem: HighlightingProblem, showEditor: Boolean): CachedIntentions? {
+    val psi = event.getData(PSI_FILE) ?: return null
+    val panel = event.getData(ProblemsViewPanel.SELECTED) ?: return null
+    if (!panel.isShowing) return null
+    val editor = panel.preview.preview ?: getEditor(psi, showEditor) ?: return null
     val markers = problem.info?.quickFixActionMarkers ?: return null
 
     val info = ShowIntentionsPass.IntentionsInfo()
     markers.filter { it.second.isValid }.forEach { info.intentionsToShow.add(it.first) }
-    info.offset = problem.offset
+    info.offset = problem.info?.actualStartOffset ?: -1
 
     val intentions = CachedIntentions.createAndUpdateActions(psi.project, psi, editor, info)
     if (intentions.intentions.isNotEmpty()) return intentions

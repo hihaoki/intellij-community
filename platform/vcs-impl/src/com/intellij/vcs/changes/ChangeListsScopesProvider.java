@@ -6,6 +6,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.changes.ChangeList;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.psi.search.scope.packageSet.CustomScopesProviderEx;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
@@ -35,12 +36,15 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
 
     final List<NamedScope> result = new ArrayList<>();
     result.add(new ChangeListScope(changeListManager));
-    List<LocalChangeList> changeLists = changeListManager.getChangeListsCopy();
-    boolean skipSingleDefaultCL = Registry.is("vcs.skip.single.default.changelist") &&
-                                  changeLists.size() == 1 && changeLists.get(0).isBlank();
-    if (!skipSingleDefaultCL) {
-      for (ChangeList list : changeLists) {
-        result.add(new ChangeListScope(changeListManager, list.getName()));
+
+    if (ChangesUtil.hasMeaningfulChangelists(myProject)) {
+      List<LocalChangeList> changeLists = changeListManager.getChangeListsCopy();
+      boolean skipSingleDefaultCL = Registry.is("vcs.skip.single.default.changelist") &&
+                                    changeLists.size() == 1 && changeLists.get(0).isBlank();
+      if (!skipSingleDefaultCL) {
+        for (ChangeList list : changeLists) {
+          result.add(new ChangeListScope(changeListManager, list.getName()));
+        }
       }
     }
     return result;
@@ -53,9 +57,11 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
     if (ChangeListScope.ALL_CHANGED_FILES_SCOPE_NAME.equals(name)) {
       return new ChangeListScope(changeListManager);
     }
-    final LocalChangeList changeList = changeListManager.findChangeList(name);
-    if (changeList != null) {
-      return new ChangeListScope(changeListManager, changeList.getName());
+    if (ChangesUtil.hasMeaningfulChangelists(myProject)) {
+      final LocalChangeList changeList = changeListManager.findChangeList(name);
+      if (changeList != null) {
+        return new ChangeListScope(changeListManager, changeList.getName());
+      }
     }
     return null;
   }
@@ -65,7 +71,7 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
     if (place == ScopePlace.SETTING) {
       if (myProject.isDefault()) return false;
       final ChangeListManager changeListManager = ChangeListManager.getInstance(myProject);
-      return changeListManager.findChangeList(scope.getName()) != null;
+      return changeListManager.findChangeList(scope.getScopeId()) != null;
     }
     return false;
   }

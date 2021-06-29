@@ -1,10 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.actions
 
-import com.intellij.internal.statistic.eventLog.getEventLogProviders
-import com.intellij.internal.statistic.eventLog.validator.persistence.BaseEventLogWhitelistPersistence.getDefaultMetadataFile
-import com.intellij.internal.statistic.eventLog.validator.persistence.EventLogWhitelistPersistence.EVENTS_SCHEME_FILE
-import com.intellij.internal.statistic.eventLog.validator.persistence.EventLogWhitelistSettingsPersistence
+import com.intellij.internal.statistic.StatisticsDevKitUtil.getLogProvidersInTestMode
+import com.intellij.internal.statistic.eventLog.validator.storage.persistence.BaseEventLogMetadataPersistence.getDefaultMetadataFile
+import com.intellij.internal.statistic.eventLog.validator.storage.persistence.EventLogMetadataPersistence.EVENTS_SCHEME_FILE
+import com.intellij.internal.statistic.eventLog.validator.storage.persistence.EventLogMetadataSettingsPersistence
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogPanel
@@ -18,14 +18,14 @@ import javax.swing.event.DocumentEvent
 
 class EventsSchemeConfigurationModel {
   val panel: DialogPanel
-  val recorderToSettings: MutableMap<String, WhitelistPathSettings> = mutableMapOf()
+  val recorderToSettings: MutableMap<String, EventsSchemePathSettings> = mutableMapOf()
   private val recorderComboBox = ComboBox<String>()
   private val pathField = TextFieldWithBrowseButton()
   private val useCustomPathCheckBox: JCheckBox = JCheckBox("Use custom path:")
-  private var currentSettings: WhitelistPathSettings? = null
+  private var currentSettings: EventsSchemePathSettings? = null
 
   init {
-    getEventLogProviders().forEach { provider ->
+    getLogProvidersInTestMode().forEach { provider ->
       val recorderId = provider.recorderId
       recorderComboBox.addItem(recorderId)
     }
@@ -71,11 +71,16 @@ class EventsSchemeConfigurationModel {
 
   private fun updatePanel() {
     val recorderId = recorderComboBox.selectedItem as String
-    val settings = recorderToSettings.computeIfAbsent(recorderId) { WhitelistPathSettings(recorderId) }
+    val settings = recorderToSettings.computeIfAbsent(recorderId) { EventsSchemePathSettings(recorderId) }
 
     currentSettings = settings
     useCustomPathCheckBox.isSelected = settings.useCustomPath
     updatePathField()
+  }
+
+  fun reset(recorderId: String): EventsSchemeConfigurationModel {
+    recorderComboBox.selectedItem = recorderId
+    return this
   }
 
   fun validate(): ValidationInfo? {
@@ -98,7 +103,7 @@ class EventsSchemeConfigurationModel {
     return null
   }
 
-  private fun validatePath(settings: WhitelistPathSettings): ValidationInfo? {
+  private fun validatePath(settings: EventsSchemePathSettings): ValidationInfo? {
     if (!settings.useCustomPath) return null
 
     val customPath = settings.customPath
@@ -111,13 +116,13 @@ class EventsSchemeConfigurationModel {
     return null
   }
 
-  class WhitelistPathSettings(recorderId: String) {
-    private val defaultPath: String = getDefaultMetadataFile(recorderId, EVENTS_SCHEME_FILE, null).absolutePath
+  class EventsSchemePathSettings(recorderId: String) {
+    private val defaultPath = getDefaultMetadataFile(recorderId, EVENTS_SCHEME_FILE, null).toString()
     var customPath: String? = null
     var useCustomPath = false
 
     init {
-      val pathSettings = EventLogWhitelistSettingsPersistence.getInstance().getPathSettings(recorderId)
+      val pathSettings = EventLogMetadataSettingsPersistence.getInstance().getPathSettings(recorderId)
       if (pathSettings != null) {
         customPath = pathSettings.customPath
         useCustomPath = pathSettings.isUseCustomPath
@@ -135,5 +140,4 @@ class EventsSchemeConfigurationModel {
         }
       }
   }
-
 }

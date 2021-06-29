@@ -9,6 +9,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComponentValidator
@@ -20,6 +21,7 @@ import com.intellij.refactoring.suggested.SuggestedRefactoringExecution.NewParam
 import com.intellij.ui.LanguageTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UI
+import org.jetbrains.annotations.Nls
 import java.awt.*
 import java.awt.font.FontRenderContext
 import java.awt.geom.AffineTransform
@@ -41,10 +43,12 @@ internal class ChangeSignaturePopup(
     override fun isDefaultButton() = true
   }
 
+  @Nls
   private val updateButtonText = RefactoringBundle.message("suggested.refactoring.update.button.text")
+  @Nls
   private val nextButtonText = RefactoringBundle.message("suggested.refactoring.next.button.text")
 
-  private val editorFont = Font(colorsScheme.editorFontName, Font.PLAIN, colorsScheme.editorFontSize)
+  private val editorFont = colorsScheme.getFont(EditorFontType.PLAIN)
 
   private val signatureChangePage = SignatureChangesPage(signatureChangeModel, editorFont, screenSize, nameOfStuffToUpdate)
 
@@ -306,7 +310,7 @@ private class ParameterValuesPage(
     }
   }
 
-  private class MyTextField(language: Language, project: Project, document: Document, private val placeholderText: String?)
+  private class MyTextField(language: Language, project: Project, document: Document, @Nls private val placeholderText: String?)
     : LanguageTextField(language, project, "", { _, _, _ -> document }, true)
   {
     override fun createEditor(): EditorEx {

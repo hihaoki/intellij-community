@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
 import groovy.transform.CompileStatic
@@ -21,15 +21,14 @@ abstract class WindowsDistributionCustomizer {
   boolean includeBatchLaunchers = true
 
   /**
-   * When {@code false}, only 64-bit *64.exe launcher and *64.exe.vmoptions files will be created,
-   * and no 32-bit JRE will be uploaded for the installer to suggest.
-   */
-  boolean include32BitLauncher = true
-
-  /**
-   * If {@code true} a Zip archive containing the installation with bundled JetBrains RE will be produced
+   * If {@code true} a Zip archive containing the installation will be produced
    */
   boolean buildZipArchive = true
+
+  /**
+   * If {@code true} JetBrains RE jre will be added to a zip archive
+   */
+  boolean zipArchiveWithBundledJre = true
 
   /**
    * If {@code true} Windows Installer will associate *.ipr files with the IDE in Registry
@@ -60,7 +59,11 @@ abstract class WindowsDistributionCustomizer {
   /**
    * Name of the root directory in Windows .zip archive
    */
-  String getRootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) { "" }
+  @SuppressWarnings('GrMethodMayBeStatic')
+  // method is used by AndroidStudioProperties.groovy (https://bit.ly/3heXKlQ)
+  String getRootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
+    return ""
+  }
 
   /**
    * Name of the root product windows installation directory and Desktop ShortCut

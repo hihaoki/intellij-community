@@ -68,9 +68,7 @@
   <action id="SearchEverywhere">
     <keyboard-shortcut first-keystroke="meta T"/>
   </action>
-  <action id="GotoChangedFile">
-    <keyboard-shortcut first-keystroke="meta T"/>
-  </action>
+  <action id="GotoChangedFile"/>
   <action id="GotoFile">
     <keyboard-shortcut first-keystroke="meta shift T"/>
   </action>
@@ -84,7 +82,7 @@
   </action>
   <action id="ExpressionTypeInfo"/>
   <action id="RunClass">
-    <keyboard-shortcut first-keystroke="meta F5"/>
+    <keyboard-shortcut first-keystroke="control alt F5"/>
   </action>
   <action id="FindNext">
     <keyboard-shortcut first-keystroke="F3"/>
@@ -154,6 +152,8 @@
   </action>
   <action id="ShowBookmarks">
     <keyboard-shortcut first-keystroke="control BACK_QUOTE"/>
+    <keyboard-shortcut first-keystroke="meta K" second-keystroke="W"/>
+    <keyboard-shortcut first-keystroke="meta K" second-keystroke="meta W"/>
   </action>
   <action id="ViewBreakpoints">
     <keyboard-shortcut first-keystroke="meta alt B"/>
@@ -166,7 +166,7 @@
     <keyboard-shortcut first-keystroke="meta E" second-keystroke="meta H"/>
   </action>
   <action id="Run">
-    <keyboard-shortcut first-keystroke="alt F5"/>
+    <keyboard-shortcut first-keystroke="control F5"/>
   </action>
   <action id="Replace">
     <keyboard-shortcut first-keystroke="control H"/>
@@ -269,7 +269,7 @@
     <keyboard-shortcut first-keystroke="meta E" second-keystroke="meta U"/>
   </action>
   <action id="Vcs.ShowMessageHistory">
-    <keyboard-shortcut first-keystroke="meta M"/>
+    <keyboard-shortcut first-keystroke="control H"/>
   </action>
   <action id="XDebugger.AttachToProcess">
     <keyboard-shortcut first-keystroke="meta alt P"/>
@@ -395,9 +395,22 @@
   </action>
   <action id="ActivateCommitToolWindow"/>
   <action id="tasks.goto"/>
-  <action id="ExpandRegion"/>
-  <action id="CollapseRegion"/>
-  <action id="CollapseAllRegions"/>
+  <action id="ExpandRegion">
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="E"/>
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="control E"/>
+  </action>
+  <action id="CollapseRegion">
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="S"/>
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="control S"/>
+  </action>
+  <action id="CollapseAllRegions">
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="A"/>
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="control A"/>
+  </action>
+  <action id="ExpandAllRegions">
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="X"/>
+    <keyboard-shortcut first-keystroke="control M" second-keystroke="control X"/>
+  </action>
   <action id="OpenFile">
     <keyboard-shortcut first-keystroke="meta O"/>
   </action>
@@ -428,6 +441,7 @@
   <action id="ToggleFullScreen">
     <keyboard-shortcut first-keystroke="alt shift ENTER"/>
   </action>
+  <action id="SplitChooser"/>
   <action id="SurroundWith"/>
   <action id="MethodHierarchy"/>
   <action id="ContextHelp">
@@ -472,6 +486,14 @@
   </action>
   <action id="IncrementalSearch">
     <keyboard-shortcut first-keystroke="meta I"/>
+  </action>
+  <action id="SwitchHeaderSource">
+    <keyboard-shortcut first-keystroke="control meta O"/>
+    <keyboard-shortcut first-keystroke="meta K" second-keystroke="O"/>
+    <keyboard-shortcut first-keystroke="meta K" second-keystroke="meta O"/>
+  </action>
+  <action id="BuildProject">
+    <keyboard-shortcut first-keystroke="meta shift B"/>
   </action>
 
   <!--  Rider-specific actions-->

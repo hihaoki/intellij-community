@@ -18,11 +18,8 @@ import com.intellij.execution.testframework.sm.runner.history.ImportedTestConsol
 import com.intellij.execution.testframework.sm.runner.history.actions.AbstractImportTestsAction;
 import com.intellij.execution.testframework.ui.TestResultsPanel;
 import com.intellij.execution.ui.ConsoleView;
-import com.intellij.ide.DataManager;
 import com.intellij.ide.util.treeView.IndexComparator;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
@@ -51,6 +48,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Update;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -65,8 +63,10 @@ import javax.xml.transform.sax.SAXTransformerFactory;
 import javax.xml.transform.sax.TransformerHandler;
 import javax.xml.transform.stream.StreamResult;
 import java.awt.*;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.*;
@@ -94,6 +94,7 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
   private final List<EventsListener> myEventListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
   private final Project myProject;
+  private final ConsoleView myConsoleView;
 
   private int myTotalTestCount = 0;
   private int myStartedTestCount = 0;
@@ -113,21 +114,19 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
   private final Set<Update> myRequests = Collections.synchronizedSet(new HashSet<>());
   private final Alarm myUpdateTreeRequests = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
 
-  public SMTestRunnerResultsForm(@NotNull final JComponent console,
-                                 final TestConsoleProperties consoleProperties) {
-    this(console, AnAction.EMPTY_ARRAY, consoleProperties, null);
-  }
+  private final String myHistoryFileName;
 
-  public SMTestRunnerResultsForm(@NotNull final JComponent console,
-                                 AnAction[] consoleActions,
-                                 final TestConsoleProperties consoleProperties,
+  public SMTestRunnerResultsForm(@NotNull ConsoleView consoleView,
+                                 @NotNull TestConsoleProperties consoleProperties,
                                  @Nullable String splitterPropertyName) {
-    super(console, consoleActions, consoleProperties,
+    super(consoleView.getComponent(), consoleView.createConsoleActions(), consoleProperties,
           StringUtil.notNullize(splitterPropertyName, DEFAULT_SM_RUNNER_SPLITTER_PROPERTY), 0.2f);
     myProject = consoleProperties.getProject();
+    myConsoleView = consoleView;
 
     //Create tests common suite root
-    myTestsRootNode = new SMTestProxy.SMRootTestProxy(consoleProperties.isPreservePresentableName());
+    myTestsRootNode = new SMTestProxy.SMRootTestProxy(consoleProperties.isPreservePresentableName(), consoleView.getComponent());
+    myTestsRootNode.setTestConsoleProperties(consoleProperties);
     //todo myTestsRootNode.setOutputFilePath(runConfiguration.getOutputFilePath());
 
     // Fire selection changed and move focus on SHIFT+ENTER
@@ -139,6 +138,8 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
     myContentPane.setFocusTraversalPolicy(new MyFocusTraversalPolicy(components));
     myContentPane.setFocusCycleRoot(true);
     */
+    myHistoryFileName = PathUtil.suggestFileName(consoleProperties.getConfiguration().getName()) + " - " +
+                        new SimpleDateFormat(HISTORY_DATE_FORMAT).format(new Date());
   }
 
   @Override
@@ -233,10 +234,7 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
 
   private void resetTreeAndConsoleOnSubsequentTestingStarted() {
     myTestsRootNode.testingRestarted();
-    ConsoleView consoleView = DataManager.getInstance().getDataContext(myConsole).getData(LangDataKeys.CONSOLE_VIEW);
-    if (consoleView != null) {
-      consoleView.clear();
-    }
+    myConsoleView.clear();
     ProcessHandler handler = myTestsRootNode.getHandler();
     if (handler instanceof BaseOSProcessHandler) {
       handler.notifyTextAvailable(((BaseOSProcessHandler)handler).getCommandLine() + "\n", ProcessOutputTypes.SYSTEM);
@@ -301,7 +299,7 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
     if (configuration instanceof RunConfiguration &&
         !(consoleProperties instanceof ImportedTestConsoleProperties) &&
         !myDisposed) {
-      final MySaveHistoryTask backgroundable = new MySaveHistoryTask(consoleProperties, root, (RunConfiguration)configuration);
+      final MySaveHistoryTask backgroundable = new MySaveHistoryTask(consoleProperties, root, (RunConfiguration)configuration, myHistoryFileName);
       Disposer.register(parentDisposable, new Disposable() {
         @Override
         public void dispose() {
@@ -334,7 +332,9 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
 
   @Override
   public void onSuiteTreeNodeAdded(SMTestProxy testProxy) {
-    myTotalTestCount++;
+    if (!testProxy.isSuite()) {
+      myTotalTestCount++;
+    }
   }
 
   @Override
@@ -366,7 +366,7 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
 
   @Override
   public void onTestIgnored(@NotNull final SMTestProxy test) {
-    updateOnTestIgnored();
+    updateOnTestIgnored(test);
   }
 
   /**
@@ -526,7 +526,7 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
     return myFailedTestCount;
   }
 
-  protected int getIgnoredTestCount() {
+  public int getIgnoredTestCount() {
     return myIgnoredTestCount;
   }
 
@@ -732,8 +732,10 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
     updateStatusLabel(false);
   }
 
-  private void updateOnTestIgnored() {
-    myIgnoredTestCount++;
+  private void updateOnTestIgnored(@NotNull final SMTestProxy test) {
+    if (!test.isSuite()) {
+      myIgnoredTestCount++;
+    }
     updateProgressOnTestDone();
     updateStatusLabel(false);
   }
@@ -743,18 +745,30 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
     return isCustomMessage != (myCurrentCustomProgressCategory == null);
   }
 
+  @ApiStatus.Internal
+  public void setIncompleteIndexUsed() {
+    myStatusLine.setWarning(SmRunnerBundle.message("suffix.incomplete.index.was.used"));
+  }
+
+  public String getHistoryFileName() {
+    return myHistoryFileName;
+  }
+
   private static class MySaveHistoryTask extends Task.Backgroundable {
 
     private final TestConsoleProperties myConsoleProperties;
     private SMTestProxy.SMRootTestProxy myRoot;
     private RunConfiguration myConfiguration;
     private File myOutputFile;
-
-    MySaveHistoryTask(TestConsoleProperties consoleProperties, SMTestProxy.SMRootTestProxy root, RunConfiguration configuration) {
+    MySaveHistoryTask(TestConsoleProperties consoleProperties,
+                      SMTestProxy.SMRootTestProxy root,
+                      RunConfiguration configuration, 
+                      String outputFile) {
       super(consoleProperties.getProject(), SmRunnerBundle.message("sm.test.runner.results.form.save.test.results.title"), true);
       myConsoleProperties = consoleProperties;
       myRoot = root;
       myConfiguration = configuration;
+      myOutputFile = new File(TestStateStorage.getTestHistoryRoot(myProject), outputFile + ".xml");
     }
 
     @Override
@@ -765,18 +779,16 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
         SAXTransformerFactory transformerFactory = (SAXTransformerFactory)TransformerFactory.newInstance();
         TransformerHandler handler = transformerFactory.newTransformerHandler();
         handler.getTransformer().setOutputProperty(OutputKeys.INDENT, "yes");
+        handler.getTransformer().setOutputProperty(OutputKeys.VERSION, "1.1");
         handler.getTransformer().setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
-
-        final String configurationNameIncludedDate = PathUtil.suggestFileName(myConfiguration.getName()) + " - " +
-                                                     new SimpleDateFormat(HISTORY_DATE_FORMAT).format(new Date());
-
-        myOutputFile = new File(TestStateStorage.getTestHistoryRoot(myProject), configurationNameIncludedDate + ".xml");
         FileUtilRt.createParentDirs(myOutputFile);
-        handler.setResult(new StreamResult(new FileWriter(myOutputFile)));
-        final SMTestProxy.SMRootTestProxy root = myRoot;
-        final RunConfiguration configuration = myConfiguration;
-        if (root != null && configuration != null) {
-          TestResultsXmlFormatter.execute(root, configuration, myConsoleProperties, handler);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(myOutputFile, StandardCharsets.UTF_8))) {
+          handler.setResult(new StreamResult(writer));
+          final SMTestProxy.SMRootTestProxy root = myRoot;
+          final RunConfiguration configuration = myConfiguration;
+          if (root != null && configuration != null) {
+            TestResultsXmlFormatter.execute(root, configuration, myConsoleProperties, handler);
+          }
         }
       }
       catch (ProcessCanceledException e) {
@@ -792,9 +804,9 @@ public class SMTestRunnerResultsForm extends TestResultsPanel
       List<SMTestProxy> tests = myRoot.getAllTests();
       for (SMTestProxy proxy : tests) {
         String url = proxy.getLocationUrl();
-        if (url != null) {
+        if (url != null && proxy.getLocator() != null) {
           String configurationName = myConfiguration != null ? myConfiguration.getName() : null;
-          DumbService.getInstance(getProject()).runWhenSmart(() -> {
+          DumbService.getInstance(getProject()).runReadActionInSmartMode(() -> {
             Project project = getProject();
             TestStackTraceParser info =
               new TestStackTraceParser(url, proxy.getStacktrace(), proxy.getErrorMessage(), proxy.getLocator(), project);

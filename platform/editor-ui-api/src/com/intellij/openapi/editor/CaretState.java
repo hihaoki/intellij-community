@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.editor;
 
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
 public class CaretState {
@@ -24,15 +25,18 @@ public class CaretState {
   private final LogicalPosition selectionEnd;
 
   public CaretState(@Nullable LogicalPosition caretPosition, 
-                    @Nullable LogicalPosition selectionStart, @Nullable LogicalPosition selectionEnd) {
+                    @Nullable LogicalPosition selectionStart,
+                    @Nullable LogicalPosition selectionEnd) {
     this(caretPosition, 0, selectionStart, selectionEnd);
   }
 
   /**
    * @param visualColumnAdjustment see {@link #getVisualColumnAdjustment()}
    */
-  public CaretState(@Nullable LogicalPosition caretPosition, int visualColumnAdjustment, 
-                    @Nullable LogicalPosition selectionStart, @Nullable LogicalPosition selectionEnd) {
+  public CaretState(@Nullable LogicalPosition caretPosition,
+                    int visualColumnAdjustment,
+                    @Nullable LogicalPosition selectionStart,
+                    @Nullable LogicalPosition selectionEnd) {
     this.caretPosition = caretPosition;
     this.visualColumnAdjustment = visualColumnAdjustment;
     this.selectionStart = selectionStart;
@@ -64,6 +68,7 @@ public class CaretState {
   }
 
   @Override
+  @NonNls
   public String toString() {
     return "CaretState{" +
            "caretPosition=" + caretPosition +

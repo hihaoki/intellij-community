@@ -42,7 +42,7 @@ public class HwFacadeHelper {
   private ComponentAdapter myTargetListener;
   private VolatileImage myBackBuffer;
 
-  @NotNull Consumer<JBCefBrowser> myOnBrowserMoveResizeCallback =
+  @NotNull Consumer<? super JBCefBrowser> myOnBrowserMoveResizeCallback =
     browser -> {
       if (!isActive()) activateIfNeeded(Collections.singletonList(browser.getCefBrowser()));
     };
@@ -64,16 +64,18 @@ public class HwFacadeHelper {
     }
 
     @NotNull
-    public static List<CefBrowser> getBrowsers() {
+    public static List<CefBrowser> getHwBrowsers() {
       List<CefBrowser> list = new LinkedList<>();
-      if (getCefApp() != null && clientsField.isAvailable() && browsersField.isAvailable()) {
-        Set<CefClient> clients = clientsField.get(ourCefApp);
-        if (clients != null) {
-          for (CefClient client : clients) {
-            HashMap<?, CefBrowser> browsers = browsersField.get(client);
-            if (browsers != null) {
-              list.addAll(browsers.values());
-            }
+      if (getCefApp() == null || !clientsField.isAvailable() || !browsersField.isAvailable()) return list;
+      Set<CefClient> clients = clientsField.get(ourCefApp);
+      if (clients == null) return list;
+      for (CefClient client : clients) {
+        HashMap<?, CefBrowser> browsers = browsersField.get(client);
+        if (browsers == null) return list;
+        for (CefBrowser browser : browsers.values()) {
+          JBCefBrowserBase jbCefBrowser = JBCefBrowserBase.getJBCefBrowser(browser);
+          if (jbCefBrowser != null && !jbCefBrowser.isOffScreenRendering()) {
+            list.add(browser);
           }
         }
       }
@@ -106,7 +108,7 @@ public class HwFacadeHelper {
           myHwFacade.setSize(myTarget.getSize());
         }
         else {
-          activateIfNeeded(JCEFAccessor.getBrowsers());
+          activateIfNeeded(JCEFAccessor.getHwBrowsers());
         }
       }
       @Override
@@ -115,12 +117,12 @@ public class HwFacadeHelper {
           if (myHwFacade.isVisible()) myHwFacade.setLocation(myTarget.getLocationOnScreen());
         }
         else {
-          activateIfNeeded(JCEFAccessor.getBrowsers());
+          activateIfNeeded(JCEFAccessor.getHwBrowsers());
         }
       }
     });
 
-    activateIfNeeded(JCEFAccessor.getBrowsers());
+    activateIfNeeded(JCEFAccessor.getHwBrowsers());
   }
 
   private void activateIfNeeded(@NotNull List<CefBrowser> browsers) {
@@ -209,7 +211,7 @@ public class HwFacadeHelper {
     }
   }
 
-  public void paint(Graphics g, Consumer<Graphics> targetPaint) {
+  public void paint(Graphics g, Consumer<? super Graphics> targetPaint) {
     if (isActive()) {
       Dimension size = myTarget.getSize();
       if (myBackBuffer == null || myBackBuffer.getWidth() != size.width || myBackBuffer.getHeight() != size.height) {

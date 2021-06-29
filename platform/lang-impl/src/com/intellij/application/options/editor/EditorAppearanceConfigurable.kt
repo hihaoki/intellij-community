@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.editor
 
+import com.intellij.codeInsight.actions.ReaderModeSettingsListener.Companion.createReaderModeComment
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings
 import com.intellij.codeInsight.documentation.render.DocRenderManager
 import com.intellij.ide.IdeBundle
@@ -17,6 +18,7 @@ import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.layout.*
+import com.intellij.util.PlatformUtils
 
 // @formatter:off
 private val model = EditorSettingsExternalizable.getInstance()
@@ -27,7 +29,7 @@ private val myCbBlinkCaret                            get() = CheckboxDescriptor
 private val myCbBlockCursor                           get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.use.block.caret"), PropertyBinding(model::isBlockCursor, model::setBlockCursor))
 private val myCbRightMargin                           get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.right.margin"), PropertyBinding(model::isRightMarginShown, model::setRightMarginShown))
 private val myCbShowLineNumbers                       get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.show.line.numbers"), PropertyBinding(model::isLineNumbersShown, model::setLineNumbersShown))
-private val myCbShowMethodSeparators                  get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.show.method.separators"), daemonCodeAnalyzerSettings::SHOW_METHOD_SEPARATORS.toBinding())
+private val myCbShowMethodSeparators                  get() = CheckboxDescriptor(if (PlatformUtils.isDataGrip()) ApplicationBundle.message("checkbox.show.method.separators.DataGrip") else  ApplicationBundle.message("checkbox.show.method.separators"), daemonCodeAnalyzerSettings::SHOW_METHOD_SEPARATORS.toBinding())
 private val myWhitespacesCheckbox                     get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.show.whitespaces"), PropertyBinding(model::isWhitespacesShown, model::setWhitespacesShown))
 private val myLeadingWhitespacesCheckBox              get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.show.leading.whitespaces"), PropertyBinding(model::isLeadingWhitespacesShown, model::setLeadingWhitespacesShown))
 private val myInnerWhitespacesCheckBox                get() = CheckboxDescriptor(ApplicationBundle.message("checkbox.show.inner.whitespaces"), PropertyBinding(model::isInnerWhitespacesShown, model::setInnerWhitespacesShown))
@@ -93,6 +95,7 @@ class EditorAppearanceConfigurable : BoundCompositeSearchableConfigurable<Unname
       }
       row {
         checkBox(myRenderedDocCheckBox)
+        component(createReaderModeComment()).withLargeLeftGap()
       }
 
       for (configurable in configurables) {

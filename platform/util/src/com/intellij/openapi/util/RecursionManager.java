@@ -1,14 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,7 +70,7 @@ public final class RecursionManager {
 
   /**
    * @param id just some string to separate different recursion prevention policies from each other
-   * @return a helper object which allow you to perform reentrancy-safe computations and check whether caching will be safe.
+   * @return a helper object which allows you to perform reentrancy-safe computations and check whether caching will be safe.
    * Don't use it unless you need to call it from several places in the code, inspect the computation stack and/or prohibit result caching.
    */
   @NotNull
@@ -153,6 +150,18 @@ public final class RecursionManager {
       }
 
     };
+  }
+
+  /**
+   * Clears the memoization cache for the current thread. This can be invoked when a side effect happens
+   * inside a {@link #doPreventingRecursion} call that may affect results of nested memoizing {@code doPreventingRecursion} calls,
+   * whose memoized results should not be reused on that point.<p></p>
+   *
+   * Please avoid this method at all cost and try to restructure your code to avoid side effects inside {@code doPreventingRecursion}.
+   */
+  @ApiStatus.Internal
+  public static void dropCurrentMemoizationCache() {
+    ourStack.get().intermediateCache.clear();
   }
 
   /**
@@ -272,7 +281,7 @@ public final class RecursionManager {
       intermediateCache.put(key, new MemoizedValue(result, preventionsInside.toArray(new MyKey[0])));
     }
 
-    final void afterComputation(MyKey realKey, int sizeBefore, int sizeAfter) {
+    void afterComputation(MyKey realKey, int sizeBefore, int sizeAfter) {
       exits++;
       if (sizeAfter != progressMap.size()) {
         LOG.error("Map size changed: " + progressMap.size() + " " + sizeAfter + " " + realKey.userObject);
@@ -337,7 +346,7 @@ public final class RecursionManager {
      * The ultimate goal is to get rid of all of them.
      * So, each rule should be accompanied by a reference to a tracker issue.
      * Don't add rules here without discussing them with someone else.
-     * Don't add rules for situation where caching prevention is expected, use {@link #disableMissedCacheAssertions} instead.
+     * Don't add rules for situations where caching prevention is expected, use {@link #disableMissedCacheAssertions} instead.
      */
     boolean isCurrentNonCachingStillTolerated() {
       return isCurrentNonCachingStillTolerated(new Throwable()) ||
@@ -350,7 +359,7 @@ public final class RecursionManager {
     }
   }
 
-  private static final String[] toleratedFrames = {
+  private static final @NonNls String[] toleratedFrames = {
     "com.intellij.psi.impl.source.xml.XmlAttributeImpl.getDescriptor(", // IDEA-228451
     "org.jetbrains.plugins.ruby.ruby.codeInsight.symbols.structure.util.SymbolHierarchy.getAncestorsCaching(", // RUBY-25487
     "com.intellij.lang.aspectj.psi.impl.PsiInterTypeReferenceImpl.", // IDEA-228779
@@ -359,12 +368,11 @@ public final class RecursionManager {
     // WEB-42912
     "com.intellij.lang.javascript.psi.resolve.JSEvaluatorComplexityTracker.doRunTask(",
     "com.intellij.lang.javascript.ecmascript6.types.JSTypeSignatureChooser.chooseOverload(",
-    "com.intellij.lang.javascript.psi.resolve.JSTypeEvaluator.getElementType(",
+    "com.intellij.lang.javascript.psi.resolve.JSEvaluationCache.getElementType(",
     "com.intellij.lang.ecmascript6.psi.impl.ES6ImportSpecifierImpl.multiResolve(",
     "com.intellij.lang.javascript.psi.types.JSTypeBaseImpl.substitute(",
 
     // IDEA-228814
-    "com.intellij.psi.infos.MethodCandidateInfo.getPertinentApplicabilityLevel(",
     "com.intellij.psi.ThreadLocalTypes.performWithTypes(",
 
     // IDEA-212671
@@ -431,7 +439,7 @@ public final class RecursionManager {
 
   /**
    * Disables the effect of {@link #assertOnMissedCache}. Should be used as rarely as possible, ideally only in tests that check
-   * that stack isn't overflown on invalid code.
+   * that the stack isn't overflown on invalid code.
    */
   @TestOnly
   public static void disableMissedCacheAssertions(@NotNull Disposable parentDisposable) {

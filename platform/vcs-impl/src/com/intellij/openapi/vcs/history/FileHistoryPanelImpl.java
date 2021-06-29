@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.history;
 
 import com.intellij.CommonBundle;
@@ -17,7 +17,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Getter;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.ByteBackedContentRevision;
@@ -43,6 +43,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.TreeItem;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.ColumnInfo;
@@ -50,7 +51,7 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.vcsUtil.VcsUtil;
-import org.jetbrains.annotations.CalledInAwt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -66,6 +67,7 @@ import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.util.List;
 import java.util.*;
+import java.util.function.Supplier;
 
 import static com.intellij.util.ObjectUtils.notNull;
 import static java.util.Comparator.comparing;
@@ -200,10 +202,11 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     }
   }
 
+  @Nls
   @NotNull
   public static String getPresentableText(@NotNull VcsFileRevision revision, boolean withMessage) {
     // implementation reflected by com.intellij.vcs.log.ui.frame.VcsLogGraphTable.getPresentableText()
-    StringBuilder sb = new StringBuilder();
+    @Nls StringBuilder sb = new StringBuilder();
     long time = revision.getRevisionDate().getTime();
     sb.append(VcsBundle.message("file.history.details.hash.author.on.date.at.time",
                                 VcsUtil.getShortRevisionString(revision.getRevisionNumber()),
@@ -255,7 +258,7 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     return columns.toArray(new DualViewColumnInfo[0]);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void setHistorySession(@NotNull VcsHistorySession session) {
     if (myTargetSelection == null) {
       myTargetSelection = myDualView.getFlatView().getSelectedObjects();
@@ -285,7 +288,7 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     myDualView.repaint();
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void finishRefresh() {
     if (myHistorySession.getHistoryAsTreeProvider() != null) {
       // scroll tree view to most recent change
@@ -304,7 +307,7 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
   private void adjustEmptyText() {
     VirtualFile virtualFile = myFilePath.getVirtualFile();
     if ((virtualFile == null || !virtualFile.isValid()) && !myFilePath.getIOFile().exists()) {
-      myDualView.setEmptyText("File " + myFilePath.getName() + " not found");
+      myDualView.setEmptyText(VcsBundle.message("history.file.not.found", myFilePath.getName()));
     }
     else if (VcsCachingHistory.getHistoryLock(myVcs, VcsBackgroundableActions.CREATE_HISTORY_SESSION, myFilePath, myStartingRevision)
       .isLocked()) {
@@ -317,8 +320,8 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
 
   private void setupDualView(@NotNull DefaultActionGroup group) {
     myDualView.setShowGrid(true);
-    PopupHandler.installPopupHandler(myDualView.getTreeView(), group, ActionPlaces.UPDATE_POPUP, ActionManager.getInstance());
-    PopupHandler.installPopupHandler(myDualView.getFlatView(), group, ActionPlaces.UPDATE_POPUP, ActionManager.getInstance());
+    PopupHandler.installPopupMenu(myDualView.getTreeView(), group, ActionPlaces.UPDATE_POPUP);
+    PopupHandler.installPopupMenu(myDualView.getFlatView(), group, ActionPlaces.UPDATE_POPUP);
     IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myDualView, true));
 
     myDualView.addListSelectionListener(e -> updateMessage());
@@ -350,7 +353,7 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
   }
 
   @NotNull
-  protected JComponent createCenterPanel() {
+  private JComponent createCenterPanel() {
     mySplitter = new OnePixelSplitter(true, "vcs.history.splitter.proportion", 0.6f);
     mySplitter.setFirstComponent(myDualView);
 
@@ -460,9 +463,6 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     else if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       VirtualFile virtualFile = myFilePath.getVirtualFile();
       return virtualFile == null || !virtualFile.isValid() ? null : virtualFile;
-    }
-    else if (VcsDataKeys.FILE_HISTORY_PANEL.is(dataId)) {
-      return this;
     }
     else if (VcsDataKeys.HISTORY_SESSION.is(dataId)) {
       return myHistorySession;
@@ -716,27 +716,22 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
   }
 
   private static class AuthorCellRenderer extends BaseHistoryCellRenderer {
-    private String myTooltipText;
+    private @NlsContexts.Tooltip String myTooltipText;
 
     /**
      * @noinspection MethodNamesDifferingOnlyByCase
      */
-    public void setTooltipText(final String text) {
+    public void setTooltipText(@NlsContexts.Tooltip String text) {
       myTooltipText = text;
     }
 
     @Override
     protected void customizeCellRenderer(@NotNull JTable table, @Nullable Object value, boolean selected, boolean hasFocus, int row, int column) {
       setToolTipText(myTooltipText);
-      if (selected || hasFocus) {
-        setBackground(table.getSelectionBackground());
-        setForeground(table.getSelectionForeground());
+      if (value != null)  {
+        //noinspection HardCodedStringLiteral
+        append(value.toString(), getDefaultAttributes());
       }
-      else {
-        setBackground(table.getBackground());
-        setForeground(table.getForeground());
-      }
-      if (value != null) append(value.toString(), getDefaultAttributes());
       SpeedSearchUtil.applySpeedSearchHighlighting(table, this, false, selected);
     }
   }
@@ -759,11 +754,11 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
       if (renderer instanceof AuthorCellRenderer) {
         if (revision instanceof VcsFileRevisionEx) {
           VcsFileRevisionEx ex = (VcsFileRevisionEx)revision;
-          StringBuilder sb = new StringBuilder(StringUtil.notNullize(ex.getAuthor()));
-          if (ex.getAuthorEmail() != null) sb.append(" &lt;").append(ex.getAuthorEmail()).append("&gt;");
+          @Nls StringBuilder sb = new StringBuilder(StringUtil.notNullize(ex.getAuthor()));
+          if (ex.getAuthorEmail() != null) sb.append(" &lt;").append(ex.getAuthorEmail()).append("&gt;"); // NON-NLS
           if (ex.getCommitterName() != null && !Objects.equals(ex.getAuthor(), ex.getCommitterName())) {
             sb.append(", ").append(VcsBundle.message("file.history.details.committer.tooltip.info", ex.getCommitterName()));
-            if (ex.getCommitterEmail() != null) sb.append(" &lt;").append(ex.getCommitterEmail()).append("&gt;");
+            if (ex.getCommitterEmail() != null) sb.append(" &lt;").append(ex.getCommitterEmail()).append("&gt;"); // NON-NLS
           }
           ((AuthorCellRenderer)renderer).setTooltipText(sb.toString());
         }
@@ -893,11 +888,11 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     }
   }
 
-  private static class MyTreeCellRenderer implements TreeCellRenderer {
+  private static final class MyTreeCellRenderer implements TreeCellRenderer {
     private final TreeCellRenderer myDefaultCellRenderer;
-    private final Getter<? extends VcsHistorySession> myHistorySession;
+    private final Supplier<? extends VcsHistorySession> myHistorySession;
 
-    MyTreeCellRenderer(final TreeCellRenderer defaultCellRenderer, final Getter<? extends VcsHistorySession> historySession) {
+    MyTreeCellRenderer(final TreeCellRenderer defaultCellRenderer, final Supplier<? extends VcsHistorySession> historySession) {
       myDefaultCellRenderer = defaultCellRenderer;
       myHistorySession = historySession;
     }
@@ -936,10 +931,10 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     }
   }
 
-  private static class MyCellWrapper implements CellWrapper {
-    private final Getter<? extends VcsHistorySession> myHistorySession;
+  private static final class MyCellWrapper implements CellWrapper {
+    private final Supplier<? extends VcsHistorySession> myHistorySession;
 
-    MyCellWrapper(final Getter<? extends VcsHistorySession> historySession) {
+    MyCellWrapper(final Supplier<? extends VcsHistorySession> historySession) {
       myHistorySession = historySession;
     }
 
@@ -995,6 +990,7 @@ public final class FileHistoryPanelImpl extends JPanel implements DataProvider, 
     }
   }
 
+  @NlsContexts.ColumnName
   private static String getCommitMessageTitle() {
     return VcsBundle.message("label.selected.revision.commit.message");
   }

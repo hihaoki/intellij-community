@@ -9,13 +9,13 @@ import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.ProblemDescriptorUtil;
-import com.intellij.codeInspection.unused.UnusedPropertyInspection;
 import com.intellij.codeInspection.unused.UnusedPropertyUtil;
 import com.intellij.ide.structureView.StructureViewModel;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.properties.IProperty;
 import com.intellij.lang.properties.ResourceBundle;
+import com.intellij.lang.properties.codeInspection.unused.UnusedPropertyInspection;
 import com.intellij.lang.properties.editor.inspections.InspectedPropertyProblems;
 import com.intellij.lang.properties.editor.inspections.ResourceBundleEditorProblemDescriptor;
 import com.intellij.lang.properties.editor.inspections.incomplete.IncompletePropertyInspection;
@@ -27,7 +27,6 @@ import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
-import com.intellij.util.containers.Queue;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -80,10 +79,10 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
       final Project project = rb.getProject();
 
       final StructureViewModel model = myEditor.getStructureViewComponent().getTreeModel();
-      final Queue<TreeElement> queue = new Queue<>(1);
+      final Deque<TreeElement> queue = new ArrayDeque<>(1);
       queue.addLast(model.getRoot());
       while (!queue.isEmpty()) {
-        final TreeElement treeElement = queue.pullFirst();
+        final TreeElement treeElement = queue.removeFirst();
         if (treeElement instanceof PropertyBundleEditorStructureViewElement) {
           IProperty property = ((PropertyBundleEditorStructureViewElement)treeElement).getProperty();
           if (property == null) continue;
@@ -128,11 +127,11 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
   }
 
   private static final class InspectionVisitorWrapper {
-    private final Function<IProperty[], ResourceBundleEditorProblemDescriptor[]> myProblemVisitor;
+    private final Function<? super IProperty[], ? extends ResourceBundleEditorProblemDescriptor[]> myProblemVisitor;
     private final HighlightSeverity mySeverity;
     private final HighlightDisplayKey myKey;
 
-    private InspectionVisitorWrapper(@NotNull Function<IProperty[], ResourceBundleEditorProblemDescriptor[]> visitor,
+    private InspectionVisitorWrapper(@NotNull Function<? super IProperty[], ? extends ResourceBundleEditorProblemDescriptor[]> visitor,
                                      @NotNull HighlightSeverity severity,
                                      @NotNull HighlightDisplayKey key) {
       myProblemVisitor = visitor;
@@ -140,7 +139,7 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
       myKey = key;
     }
 
-    public Function<IProperty[], ResourceBundleEditorProblemDescriptor[]> getProblemVisitor() {
+    public Function<? super IProperty[], ? extends ResourceBundleEditorProblemDescriptor[]> getProblemVisitor() {
       return myProblemVisitor;
     }
 

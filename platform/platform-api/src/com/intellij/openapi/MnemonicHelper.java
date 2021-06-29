@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi;
 
 import com.intellij.openapi.actionSystem.ActionButtonComponent;
@@ -8,10 +8,10 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.ComponentTreeWatcher;
-import com.intellij.ui.components.JBOptionButton;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.DialogUtil;
 import com.intellij.util.ui.UIUtil;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
@@ -59,7 +59,7 @@ public final class MnemonicHelper extends ComponentTreeWatcher {
     }
   };
 
-  private Int2ObjectOpenHashMap<String> myMnemonics;
+  private Int2ObjectMap<String> myMnemonics;
 
   /**
    * @see #init(Component)
@@ -171,14 +171,7 @@ public final class MnemonicHelper extends ComponentTreeWatcher {
 
   public static boolean hasMnemonic(@Nullable Component component, int keyCode) {
     if (component instanceof AbstractButton) {
-      AbstractButton button = (AbstractButton)component;
-      if (button instanceof JBOptionButton) {
-        return ((JBOptionButton)button).isOkToProcessDefaultMnemonics() ||
-               button.getMnemonic() == keyCode;
-      }
-      else {
-        return button.getMnemonic() == keyCode;
-      }
+      return ((AbstractButton)component).getMnemonic() == keyCode;
     }
     if (component instanceof JLabel) {
       return ((JLabel)component).getDisplayedMnemonic() == keyCode;

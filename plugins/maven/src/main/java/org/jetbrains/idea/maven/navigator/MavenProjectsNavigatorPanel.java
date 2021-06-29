@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.navigator;
 
 import com.intellij.execution.Location;
@@ -19,8 +19,6 @@ import com.intellij.ui.mac.TouchbarDataKeys;
 import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.ui.treeStructure.SimpleTree;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,11 +39,11 @@ import java.util.*;
 
 import static org.jetbrains.idea.maven.navigator.MavenProjectsNavigator.TOOL_WINDOW_PLACE_ID;
 
-public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implements DataProvider {
+public final class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implements DataProvider {
   private final Project myProject;
   private final SimpleTree myTree;
 
-  private final Comparator<String> myGoalOrderComparator = new Comparator<String>() {
+  private final Comparator<String> myGoalOrderComparator = new Comparator<>() {
 
     private Map<String, Integer> standardGoalOrder;
 
@@ -56,7 +54,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
 
     private int getStandardGoalOrder(String goal) {
       if (standardGoalOrder == null) {
-        standardGoalOrder = new THashMap<>();
+        standardGoalOrder = new HashMap<>();
         int i = 0;
         for (String aGoal : MavenConstants.PHASES) {
           standardGoalOrder.put(aGoal, i++);
@@ -66,6 +64,10 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
       return order != null ? order.intValue() : standardGoalOrder.size();
     }
   };
+
+  SimpleTree getTree() {
+    return myTree;
+  }
 
   public MavenProjectsNavigatorPanel(Project project, SimpleTree tree) {
     super(true, true);
@@ -174,7 +176,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
       Navigatable navigatable = each.getNavigatable();
       if (navigatable != null) navigatables.add(navigatable);
     }
-    return navigatables.isEmpty() ? null : navigatables.toArray(new Navigatable[0]);
+    return navigatables.isEmpty() ? null : navigatables.toArray(Navigatable.EMPTY_NAVIGATABLE_ARRAY);
   }
 
   private Object extractLocation() {
@@ -223,7 +225,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
 
   private Object extractProfiles() {
     final List<MavenProjectsStructure.ProfileNode> nodes = getSelectedNodes(MavenProjectsStructure.ProfileNode.class);
-    final Map<String, MavenProfileKind> profiles = new THashMap<>();
+    final Map<String, MavenProfileKind> profiles = new HashMap<>();
     for (MavenProjectsStructure.ProfileNode node : nodes) {
       profiles.put(node.getProfileName(), node.getState());
     }
@@ -231,7 +233,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
   }
 
   private Set<MavenArtifact> extractDependencies() {
-    Set<MavenArtifact> result = new THashSet<>();
+    Set<MavenArtifact> result = new HashSet<>();
 
     List<MavenProjectsStructure.ProjectNode> projectNodes = getSelectedProjectNodes();
     if (!projectNodes.isEmpty()) {

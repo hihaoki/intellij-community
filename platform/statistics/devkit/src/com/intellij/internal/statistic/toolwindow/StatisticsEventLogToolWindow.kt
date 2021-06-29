@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.toolwindow
 
 import com.intellij.diagnostic.logging.LogConsoleBase
@@ -6,12 +6,15 @@ import com.intellij.internal.statistic.StatisticsBundle
 import com.intellij.internal.statistic.actions.*
 import com.intellij.internal.statistic.actions.scheme.AddGroupToTestSchemeAction
 import com.intellij.internal.statistic.actions.scheme.EditEventsTestSchemeAction
-import com.intellij.internal.statistic.eventLog.EventLogNotificationService
+import com.intellij.internal.statistic.eventLog.EventLogListenersManager
+import com.intellij.internal.statistic.eventLog.EventLogSystemEvents
 import com.intellij.internal.statistic.eventLog.LogEvent
+import com.intellij.internal.statistic.eventLog.StatisticsEventLogListener
 import com.intellij.internal.statistic.eventLog.validator.ValidationResultType.*
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -31,12 +34,16 @@ const val eventLogToolWindowsId = "Statistics Event Log"
 internal class StatisticsEventLogToolWindow(project: Project, private val recorderId: String) : SimpleToolWindowPanel(false, true), Disposable {
   private val consoleLog: StatisticsEventLogConsole
   private val messageBuilder = StatisticsEventLogMessageBuilder()
-  private val eventLogListener: (LogEvent) -> Unit
+  private val eventLogListener: StatisticsEventLogListener
 
   init {
     val model = StatisticsLogFilterModel()
-    consoleLog = StatisticsEventLogConsole(project, model)
-    eventLogListener = { logEvent -> consoleLog.addLogLine(messageBuilder.buildLogMessage(logEvent)) }
+    consoleLog = StatisticsEventLogConsole(project, model, recorderId)
+    eventLogListener = object : StatisticsEventLogListener {
+      override fun onLogEvent(validatedEvent: LogEvent, rawEventId: String?, rawData: Map<String, Any>?) {
+        consoleLog.addLogLine(messageBuilder.buildLogMessage(validatedEvent, rawEventId, rawData))
+      }
+    }
 
     val topPanel = JPanel(FlowLayout(FlowLayout.LEFT))
     topPanel.add(createFilter(project, model))
@@ -46,10 +53,12 @@ internal class StatisticsEventLogToolWindow(project: Project, private val record
 
     setContent(consoleLog.component)
 
-    toolbar = ActionManager.getInstance().createActionToolbar("FusEventLogToolWindow", consoleLog.orCreateActions, false).component
+    val verticalToolbar = ActionManager.getInstance().createActionToolbar("FusEventLogToolWindow", consoleLog.orCreateActions, false)
+    verticalToolbar.setTargetComponent(this)
+    toolbar = verticalToolbar.component
 
     Disposer.register(this, consoleLog)
-    EventLogNotificationService.subscribe(eventLogListener, recorderId)
+    service<EventLogListenersManager>().subscribe(eventLogListener, recorderId)
   }
 
   private fun createActionToolbar(): JComponent {
@@ -63,17 +72,18 @@ internal class StatisticsEventLogToolWindow(project: Project, private val record
     topToolbarActions.add(OpenEventsSchemeFileAction(recorderId))
     topToolbarActions.addSeparator(StatisticsBundle.message("stats.events.test.scheme"))
     topToolbarActions.add(AddGroupToTestSchemeAction(recorderId))
-    topToolbarActions.add(CleanupEventsTestSchemeAction())
+    topToolbarActions.add(CleanupEventsTestSchemeAction(recorderId))
     topToolbarActions.add(EditEventsTestSchemeAction(recorderId))
     val toolbar = ActionManager.getInstance().createActionToolbar("FusEventLogToolWindow", topToolbarActions, true)
     toolbar.setShowSeparatorTitles(true)
+    toolbar.setTargetComponent(this)
     return toolbar.component
   }
 
   private fun createFilter(project: Project, model: StatisticsLogFilterModel): FilterComponent {
     return object : FilterComponent("STATISTICS_EVENT_LOG_FILTER_HISTORY", 5) {
       override fun filter() {
-        val task = object : Task.Backgroundable(project, LogConsoleBase.APPLYING_FILTER_TITLE) {
+        val task = object : Task.Backgroundable(project, LogConsoleBase.getApplyingFilterTitle()) {
           override fun run(indicator: ProgressIndicator) {
             model.updateCustomFilter(filter)
           }
@@ -84,11 +94,12 @@ internal class StatisticsEventLogToolWindow(project: Project, private val record
   }
 
   override fun dispose() {
-    EventLogNotificationService.unsubscribe(eventLogListener, recorderId)
+    service<EventLogListenersManager>().unsubscribe(eventLogListener, recorderId)
   }
 
   companion object {
     val rejectedValidationTypes = setOf(REJECTED, INCORRECT_RULE, UNDEFINED_RULE, UNREACHABLE_METADATA, PERFORMANCE_ISSUE)
+    val alertEvents = setOf(EventLogSystemEvents.TOO_MANY_EVENTS_ALERT, EventLogSystemEvents.TOO_MANY_EVENTS)
   }
 }
 

@@ -1,7 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project;
 
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -51,18 +51,16 @@ public final class DumbServiceSyncTaskQueue {
 
   private static void doRunTaskSynchronously(@NotNull QueuedDumbModeTask task) {
     ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
-    if (indicator == null) {
-      indicator = new EmptyProgressIndicator();
-    }
+    ProgressIndicator finalIndicator = indicator == null ? new EmptyProgressIndicator() : indicator;
 
-    indicator.pushState();
+    finalIndicator.pushState();
     ((CoreProgressManager)ProgressManager.getInstance()).suppressPrioritizing();
-    try (AccessToken ignored = HeavyProcessLatch.INSTANCE.processStarted("Performing indexing task", HeavyProcessLatch.Type.Indexing)) {
-      task.executeTask(indicator);
+    try {
+      HeavyProcessLatch.INSTANCE.performOperation(HeavyProcessLatch.Type.Indexing, IdeBundle.message("progress.performing.indexing.tasks"), ()-> task.executeTask(finalIndicator));
     }
     finally {
       ((CoreProgressManager)ProgressManager.getInstance()).restorePrioritizing();
-      indicator.popState();
+      finalIndicator.popState();
     }
   }
 }

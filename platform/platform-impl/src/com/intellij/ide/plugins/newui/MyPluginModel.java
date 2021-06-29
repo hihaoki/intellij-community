@@ -1,10 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins.newui;
 
+import com.intellij.externalDependencies.DependencyOnPlugin;
+import com.intellij.externalDependencies.ExternalDependenciesManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.ide.plugins.*;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
+import com.intellij.ide.ui.PluginBooleanOptionDescriptor;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
@@ -14,11 +17,17 @@ import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.newEditor.SettingsDialog;
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
@@ -26,6 +35,7 @@ import com.intellij.openapi.wm.ex.StatusBarEx;
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,29 +43,29 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.*;
-import java.util.Map.Entry;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * @author Alexander Lobas
  */
-public class MyPluginModel extends InstalledPluginsTableModel implements PluginManagerMain.PluginEnabler {
+public class MyPluginModel extends InstalledPluginsTableModel implements PluginEnabler {
   private static final Logger LOG = Logger.getInstance(MyPluginModel.class);
 
   private final List<ListPluginComponent> myInstalledPluginComponents = new ArrayList<>();
   private final Map<PluginId, List<ListPluginComponent>> myInstalledPluginComponentMap = new HashMap<>();
   private final Map<PluginId, List<ListPluginComponent>> myMarketplacePluginComponentMap = new HashMap<>();
   private final List<PluginsGroup> myEnabledGroups = new ArrayList<>();
+
   private PluginsGroupComponent myInstalledPanel;
   private PluginsGroup myDownloaded;
   private PluginsGroup myInstalling;
-  private PluginsGroup myUpdates;
   private Configurable.TopComponentController myTopController;
-  private List<String> myVendorsSorted;
-  private List<String> myTagsSorted;
+  private SortedSet<String> myVendors;
+  private SortedSet<String> myTags;
 
   private static final Set<IdeaPluginDescriptor> myInstallingPlugins = new HashSet<>();
   private static final Set<IdeaPluginDescriptor> myInstallingWithUpdatesPlugins = new HashSet<>();
@@ -71,14 +81,22 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
   private PluginUpdatesService myPluginUpdatesService;
 
   private Runnable myInvalidFixCallback;
+  private Consumer<? super IdeaPluginDescriptor> myCancelInstallCallback;
 
   private final Map<PluginId, PendingDynamicPluginInstall> myDynamicPluginsToInstall = new LinkedHashMap<>();
-  private final Set<IdeaPluginDescriptor> myDynamicPluginsToUninstall = new HashSet<>();
-  private final Set<IdeaPluginDescriptor> myPluginsToRemoveOnCancel = new HashSet<>();
+  private final Set<IdeaPluginDescriptorImpl> myDynamicPluginsToUninstall = new HashSet<>();
+  private final Set<IdeaPluginDescriptorImpl> myPluginsToRemoveOnCancel = new HashSet<>();
+
+  private final Map<IdeaPluginDescriptor, Pair<PluginEnableDisableAction, PluginEnabledState>> myDiff = new HashMap<>();
+  private final Map<PluginId, Boolean> myRequiredPluginsForProject = new HashMap<>();
+  private final Map<IdeaPluginDescriptorImpl, Boolean> myRequiresRestart = new HashMap<>();
+  private final Set<IdeaPluginDescriptor> myUninstalled = new HashSet<>();
 
   private final Set<PluginId> myErrorPluginsToDisable = new HashSet<>();
 
-  public MyPluginModel() {
+  public MyPluginModel(@Nullable Project project) {
+    super(project);
+
     Window window = ProjectUtil.getActiveFrameOrWelcomeScreen();
     myStatusBar = getStatusBar(window);
     if (myStatusBar == null && window != null) {
@@ -95,74 +113,42 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
   }
 
   public boolean isModified() {
-    if (needRestart ||
-        !myDynamicPluginsToInstall.isEmpty() ||
-        !myDynamicPluginsToUninstall.isEmpty() ||
-        !myPluginsToRemoveOnCancel.isEmpty()) {
-      return true;
-    }
-
-    for (IdeaPluginDescriptor descriptor : view) {
-      boolean enabledInTable = isEnabled(descriptor);
-
-      if (descriptor.isEnabled() != enabledInTable) {
-        if (enabledInTable && !PluginManagerCore.isDisabled(descriptor.getPluginId())) {
-          continue; // was disabled automatically on startup
-        }
-        return true;
-      }
-    }
-
-    for (Map.Entry<PluginId, Boolean> entry : getEnabledMap().entrySet()) {
-      Boolean enabled = entry.getValue();
-      if (enabled != null && !enabled && !PluginManagerCore.isDisabled(entry.getKey())) {
-        return true;
-      }
-    }
-
-    return false;
+    return needRestart ||
+           !myDynamicPluginsToInstall.isEmpty() ||
+           !myDynamicPluginsToUninstall.isEmpty() ||
+           !myPluginsToRemoveOnCancel.isEmpty() ||
+           !myDiff.isEmpty();
   }
 
   /**
    * @return true if changes were applied without restart
    */
   public boolean apply(JComponent parent) throws ConfigurationException {
-    Map<PluginId, Boolean> enabledMap = getEnabledMap();
-    List<String> dependencies = new ArrayList<>();
-
     updatePluginDependencies();
-    for (Map.Entry<PluginId, Set<PluginId>> entry : getDependentToRequiredListMap().entrySet()) {
-      PluginId id = entry.getKey();
 
-      if (enabledMap.get(id) == null) {
-        continue;
-      }
-
-      for (PluginId dependId : entry.getValue()) {
-        if (!PluginManagerCore.isModuleDependency(dependId)) {
-          IdeaPluginDescriptor descriptor = PluginManagerCore.getPlugin(id);
-          if (!(descriptor instanceof IdeaPluginDescriptorImpl) ||
-              !((IdeaPluginDescriptorImpl)descriptor).isDeleted() && !descriptor.isImplementationDetail()) {
-            dependencies.add("\"" + (descriptor == null ? id.getIdString() : descriptor.getName()) + "\"");
-          }
-          break;
-        }
-      }
-    }
-
+    Map<PluginId, ? extends IdeaPluginDescriptor> dependencies = getDependentToRequiredListMap();
     if (!dependencies.isEmpty()) {
-      throw new ConfigurationException(XmlStringUtil.wrapInHtml(
-        IdeBundle.message("dialog.message.unable.to.apply.changes", dependencies.size(), StringUtil.join(dependencies, ", "))));
+      String message = IdeBundle.message("dialog.message.unable.to.apply.changes",
+                                         dependencies.size(),
+                                         joinDoublyQuotedPluginNames(dependencies));
+      throw new ConfigurationException(XmlStringUtil.wrapInHtml(message));
     }
 
     Set<PluginId> uninstallsRequiringRestart = new HashSet<>();
-    for (IdeaPluginDescriptor pluginDescriptor : myDynamicPluginsToUninstall) {
+    for (IdeaPluginDescriptorImpl pluginDescriptor : myDynamicPluginsToUninstall) {
+      myDiff.remove(pluginDescriptor);
+      PluginId pluginId = pluginDescriptor.getPluginId();
+
       if (!PluginInstaller.uninstallDynamicPlugin(parent, pluginDescriptor, false)) {
-        uninstallsRequiringRestart.add(pluginDescriptor.getPluginId());
+        uninstallsRequiringRestart.add(pluginId);
       }
       else {
-        enabledMap.remove(pluginDescriptor.getPluginId());
+        getEnabledMap().remove(pluginId);
       }
+
+      ProjectPluginTrackerManager.getInstance()
+        .getState()
+        .stopTracking(List.of(pluginId));
     }
 
     boolean installsRequiringRestart = myInstallsRequiringRestart;
@@ -172,7 +158,8 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       PluginId pluginId = pendingPluginInstall.getPluginDescriptor().getPluginId();
       if (!uninstallsRequiringRestart.contains(pluginId)) {
         InstalledPluginsState.getInstance().trackPluginInstallation(() -> {
-          if (!PluginInstaller.installAndLoadDynamicPlugin(pendingPluginInstall.getFile(), parent,
+          if (!PluginInstaller.installAndLoadDynamicPlugin(pendingPluginInstall.getFile(),
+                                                           parent,
                                                            pendingPluginInstall.getPluginDescriptor())) {
             dynamicPluginsRequiringRestart.add(pluginId);
           }
@@ -180,7 +167,8 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       }
       else {
         try {
-          PluginInstaller.installAfterRestart(pendingPluginInstall.getFile(), true, (Path)null, pendingPluginInstall.getPluginDescriptor());
+          PluginInstaller.installAfterRestart(pendingPluginInstall.getFile(), !Registry.is("ide.plugins.keep.archive", true),
+                                              null, pendingPluginInstall.getPluginDescriptor());
           installsRequiringRestart = true;
         }
         catch (IOException e) {
@@ -192,8 +180,10 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     myDynamicPluginsToInstall.clear();
     myPluginsToRemoveOnCancel.clear();
 
-    boolean enableDisableAppliedWithoutRestart = applyEnableDisablePlugins(parent, enabledMap);
+    boolean enableDisableAppliedWithoutRestart = applyEnableDisablePlugins(parent);
     myDynamicPluginsToUninstall.clear();
+    myDiff.clear();
+
     boolean changesAppliedWithoutRestart = enableDisableAppliedWithoutRestart &&
                                            uninstallsRequiringRestart.isEmpty() &&
                                            !installsRequiringRestart &&
@@ -204,44 +194,55 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     return changesAppliedWithoutRestart;
   }
 
-  public void removePluginsOnCancel(@Nullable JComponent parentComponent) {
+  public void clear(@Nullable JComponent parentComponent) {
+    cancel(parentComponent);
+
+    updateAfterEnableDisable();
+  }
+
+  public void cancel(@Nullable JComponent parentComponent) {
+    myDiff.forEach((key, value) -> setEnabled(key.getPluginId(), value.getSecond()));
+    myDiff.clear();
+
     myPluginsToRemoveOnCancel.forEach(pluginDescriptor -> PluginInstaller.uninstallDynamicPlugin(parentComponent, pluginDescriptor, false));
     myPluginsToRemoveOnCancel.clear();
   }
 
-  private boolean applyEnableDisablePlugins(JComponent parentComponent, Map<PluginId, Boolean> enabledMap) {
-    List<IdeaPluginDescriptor> pluginDescriptorsToDisable = new ArrayList<>();
-    List<IdeaPluginDescriptor> pluginDescriptorsToEnable = new ArrayList<>();
+  private boolean applyEnableDisablePlugins(@Nullable JComponent parentComponent) {
+    EnumMap<PluginEnableDisableAction, List<IdeaPluginDescriptor>> descriptorsByAction = new EnumMap<>(PluginEnableDisableAction.class);
 
-    for (IdeaPluginDescriptor descriptor : view) {
-      if (myDynamicPluginsToUninstall.contains(descriptor)) {
-        continue;
-      }
-      if (descriptor.isImplementationDetail()) {
-        // implementation detail plugins are never explicitly disabled
-        continue;
-      }
-
+    for (Map.Entry<IdeaPluginDescriptor, Pair<PluginEnableDisableAction, PluginEnabledState>> entry : myDiff.entrySet()) {
+      IdeaPluginDescriptor descriptor = entry.getKey();
       PluginId pluginId = descriptor.getPluginId();
-      if (enabledMap.get(pluginId) == null) { // if enableMap contains null for id => enable/disable checkbox don't touch
+
+      if (isHidden(descriptor) ||
+          !isLoaded(pluginId) /* if enableMap contains null for id => enable/disable checkbox don't touch */) {
         continue;
       }
-      boolean shouldEnable = isEnabled(pluginId);
-      boolean isEnabled = !PluginManagerCore.isDisabled(pluginId);
-      if (shouldEnable != isEnabled) {
-        if (shouldEnable) {
-          pluginDescriptorsToEnable.add(descriptor);
-        }
-        else {
-          pluginDescriptorsToDisable.add(descriptor);
-        }
-      }
-      else if (!shouldEnable && myErrorPluginsToDisable.contains(pluginId)) {
-        pluginDescriptorsToDisable.add(descriptor);
+
+      Pair<PluginEnableDisableAction, PluginEnabledState> pair = entry.getValue();
+      PluginEnabledState oldState = pair.getSecond();
+      PluginEnabledState newState = getState(pluginId);
+
+      if (oldState != newState ||
+          newState.isDisabled() && myErrorPluginsToDisable.contains(pluginId)) {
+        descriptorsByAction
+          .computeIfAbsent(pair.getFirst(), __ -> new ArrayList<>())
+          .add(descriptor);
       }
     }
 
-    return PluginEnabler.updatePluginEnabledState(null, pluginDescriptorsToEnable, pluginDescriptorsToDisable, parentComponent);
+    boolean result = true;
+    ProjectPluginTrackerManager pluginTrackerManager = ProjectPluginTrackerManager.getInstance();
+    for (Map.Entry<PluginEnableDisableAction, List<IdeaPluginDescriptor>> entry : descriptorsByAction.entrySet()) {
+      if (!pluginTrackerManager.updatePluginsState(entry.getValue(),
+                                                   entry.getKey(),
+                                                   getProject(),
+                                                   parentComponent)) {
+        result = false;
+      }
+    }
+    return result;
   }
 
   public void pluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData) {
@@ -253,42 +254,46 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
   }
 
   public void addComponent(@NotNull ListPluginComponent component) {
+    IdeaPluginDescriptor descriptor = component.getPluginDescriptor();
+    PluginId pluginId = descriptor.getPluginId();
     if (!component.isMarketplace()) {
-      if (myInstallingPlugins.contains(component.myPlugin)) {
+      if (myInstallingPlugins.contains(descriptor) &&
+          (myInstalling == null || myInstalling.ui == null || myInstalling.ui.findComponent(pluginId) == null)) {
         return;
       }
 
       myInstalledPluginComponents.add(component);
 
       List<ListPluginComponent> components =
-        myInstalledPluginComponentMap.computeIfAbsent(component.myPlugin.getPluginId(), __ -> new ArrayList<>());
+        myInstalledPluginComponentMap.computeIfAbsent(pluginId, __ -> new ArrayList<>());
       components.add(component);
     }
     else {
       List<ListPluginComponent> components =
-        myMarketplacePluginComponentMap.computeIfAbsent(component.myPlugin.getPluginId(), __ -> new ArrayList<>());
+        myMarketplacePluginComponentMap.computeIfAbsent(pluginId, __ -> new ArrayList<>());
       components.add(component);
     }
   }
 
   public void removeComponent(@NotNull ListPluginComponent component) {
+    PluginId pluginId = component.getPluginDescriptor().getPluginId();
     if (!component.isMarketplace()) {
       myInstalledPluginComponents.remove(component);
 
-      List<ListPluginComponent> components = myInstalledPluginComponentMap.get(component.myPlugin.getPluginId());
+      List<ListPluginComponent> components = myInstalledPluginComponentMap.get(pluginId);
       if (components != null) {
         components.remove(component);
         if (components.isEmpty()) {
-          myInstalledPluginComponentMap.remove(component.myPlugin.getPluginId());
+          myInstalledPluginComponentMap.remove(pluginId);
         }
       }
     }
     else {
-      List<ListPluginComponent> components = myMarketplacePluginComponentMap.get(component.myPlugin.getPluginId());
+      List<ListPluginComponent> components = myMarketplacePluginComponentMap.get(pluginId);
       if (components != null) {
         components.remove(component);
         if (components.isEmpty()) {
-          myMarketplacePluginComponentMap.remove(component.myPlugin.getPluginId());
+          myMarketplacePluginComponentMap.remove(pluginId);
         }
       }
     }
@@ -296,6 +301,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
 
   public void setTopController(@NotNull Configurable.TopComponentController topController) {
     myTopController = topController;
+    myTopController.showProject(false);
 
     for (InstallPluginInfo info : myInstallingInfos.values()) {
       info.fromBackground(this);
@@ -327,140 +333,173 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
                              @NotNull IdeaPluginDescriptor descriptor,
                              @Nullable IdeaPluginDescriptor updateDescriptor,
                              @NotNull ModalityState modalityState) {
-    final IdeaPluginDescriptor actionDescriptor = updateDescriptor == null ? descriptor : updateDescriptor;
-
-    if (!PluginManagerMain.checkThirdPartyPluginsAllowed(Collections.singletonList(actionDescriptor))) {
+    boolean isUpdate = updateDescriptor != null;
+    IdeaPluginDescriptor actionDescriptor = isUpdate ? updateDescriptor : descriptor;
+    if (!PluginManagerMain.checkThirdPartyPluginsAllowed(List.of(actionDescriptor))) {
       return;
     }
 
-    boolean allowUninstallWithoutRestart = true;
-    if (updateDescriptor != null) {
-      IdeaPluginDescriptorImpl installedPluginDescriptor = PluginDescriptorLoader.tryLoadFullDescriptor((IdeaPluginDescriptorImpl) descriptor);
-      if (installedPluginDescriptor == null || !DynamicPlugins.allowLoadUnloadWithoutRestart(installedPluginDescriptor)) {
-        allowUninstallWithoutRestart = false;
+    Ref<Boolean> allowInstallWithoutRestart = Ref.create(true);
+    if (isUpdate) {
+      IdeaPluginDescriptorImpl installedPluginDescriptor = (IdeaPluginDescriptorImpl)descriptor;
+      if (!DynamicPlugins.allowLoadUnloadWithoutRestart(installedPluginDescriptor)) {
+        allowInstallWithoutRestart.set(false);
       }
       else if (!installedPluginDescriptor.isEnabled()) {
-        FileUtil.delete(installedPluginDescriptor.getPath());
+        try {
+          FileUtil.delete(installedPluginDescriptor.getPluginPath());
+        }
+        catch (IOException e) {
+          LOG.debug(e);
+        }
       }
       else if (DynamicPlugins.allowLoadUnloadSynchronously(installedPluginDescriptor)) {
-        if (!PluginInstaller.uninstallDynamicPlugin(parentComponent, installedPluginDescriptor, true)) {
-          allowUninstallWithoutRestart = false;
-        }
+        allowInstallWithoutRestart.set(PluginInstaller.uninstallDynamicPlugin(parentComponent,
+                                                                              installedPluginDescriptor,
+                                                                              true));
       }
       else {
         performUninstall(installedPluginDescriptor);
       }
     }
 
-    PluginNode pluginNode;
-    if (actionDescriptor instanceof PluginNode) {
-      pluginNode = (PluginNode)actionDescriptor;
-      if (!pluginNode.detailsLoaded()) {
-        Ref<PluginNode> fullNode = new Ref<>();
-        if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(
-            () -> fullNode.set(MarketplaceRequests.getInstance().loadPluginDetails(((PluginNode) actionDescriptor))),
-            IdeBundle.message("progress.title.loading.plugin.details"), true, null, parentComponent)
-        ) {
-          return;
+    ProgressManager.getInstance()
+      .runProcessWithProgressAsynchronously(new Task.Backgroundable(getProject(),
+                                                                    parentComponent,
+                                                                    IdeBundle.message("progress.title.loading.plugin.details"),
+                                                                    true,
+                                                                    null) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          PluginNode pluginNode = toPluginNode(actionDescriptor, indicator);
+          if (pluginNode == null) {
+            return;
+          }
+
+          List<PluginNode> pluginsToInstall = List.of(pluginNode);
+          ApplicationManager.getApplication().invokeAndWait(() -> {
+            PluginManagerMain.suggestToEnableInstalledDependantPlugins(MyPluginModel.this,
+                                                                       pluginsToInstall);
+          }, modalityState);
+
+
+          InstallPluginInfo info = new InstallPluginInfo((BgProgressIndicator)indicator,
+                                                         descriptor,
+                                                         MyPluginModel.this,
+                                                         !isUpdate);
+          prepareToInstall(info);
+
+          PluginInstallOperation operation = new PluginInstallOperation(pluginsToInstall,
+                                                                        getCustomRepoPlugins(),
+                                                                        MyPluginModel.this,
+                                                                        indicator);
+          operation.setAllowInstallWithoutRestart(allowInstallWithoutRestart.get());
+
+          runInstallOperation(operation, info, modalityState);
         }
-        pluginNode = fullNode.get();
-      }
-    }
-    else {
-      pluginNode = new PluginNode(actionDescriptor.getPluginId(), actionDescriptor.getName(), "-1");
-      pluginNode.setDependencies(actionDescriptor.getDependencies());
-      pluginNode.setRepositoryName(PluginInstaller.UNKNOWN_HOST_MARKER);
-    }
-    List<PluginNode> pluginsToInstall = ContainerUtil.newArrayList(pluginNode);
 
-    PluginManagerMain.suggestToEnableInstalledDependantPlugins(this, pluginsToInstall);
-
-    installPlugin(pluginsToInstall, getCustomRepoPlugins(), prepareToInstall(descriptor, updateDescriptor), allowUninstallWithoutRestart,
-                  modalityState);
-  }
-
-  private void installPlugin(@NotNull List<PluginNode> pluginsToInstall,
-                             @NotNull Collection<? extends IdeaPluginDescriptor> customPlugins,
-                             @NotNull InstallPluginInfo info, boolean allowInstallWithoutRestart,
-                             @NotNull ModalityState modalityState) {
-    ApplicationManager.getApplication().executeOnPooledThread(() -> {
-      boolean cancel = false;
-      boolean error = false;
-      boolean showErrors = true;
-      boolean restartRequired = true;
-      List<PendingDynamicPluginInstall> pluginsToInstallSynchronously = new ArrayList<>();
-      try {
-        PluginInstallOperation operation = new PluginInstallOperation(pluginsToInstall, customPlugins, this, info.indicator);
-        operation.setAllowInstallWithoutRestart(allowInstallWithoutRestart);
-        operation.run();
-        for (PendingDynamicPluginInstall install : operation.getPendingDynamicPluginInstalls()) {
-          if (DynamicPlugins.allowLoadUnloadSynchronously(install.getPluginDescriptor())) {
-            pluginsToInstallSynchronously.add(install);
-            myPluginsToRemoveOnCancel.add(install.getPluginDescriptor());
+        private @Nullable PluginNode toPluginNode(@NotNull IdeaPluginDescriptor descriptor,
+                                                  @NotNull ProgressIndicator indicator) {
+          if (descriptor instanceof PluginNode) {
+            PluginNode pluginNode = (PluginNode)descriptor;
+            return pluginNode.detailsLoaded() ?
+                   pluginNode :
+                   MarketplaceRequests.getInstance().loadPluginDetails(pluginNode, indicator);
           }
           else {
-            myDynamicPluginsToInstall.put(install.getPluginDescriptor().getPluginId(), install);
+            PluginNode pluginNode = new PluginNode(descriptor.getPluginId(),
+                                                   descriptor.getName(),
+                                                   "-1");
+            pluginNode.setDependencies(descriptor.getDependencies());
+            pluginNode.setRepositoryName(PluginInstaller.UNKNOWN_HOST_MARKER);
+            return pluginNode;
           }
         }
+      }, new BgProgressIndicator());
+  }
 
-        error = !operation.isSuccess();
-        showErrors = !operation.isShownErrors();
-        restartRequired = operation.isRestartRequired();
-      }
-      catch (ProcessCanceledException e) {
-        cancel = true;
-      }
-      catch (Throwable e) {
-        LOG.error(e);
-        error = true;
+  private void runInstallOperation(@NotNull PluginInstallOperation operation,
+                                   @NotNull InstallPluginInfo info,
+                                   @NotNull ModalityState modalityState) {
+    boolean cancel = false;
+    boolean success = true;
+    boolean showErrors = true;
+    boolean restartRequired = true;
+    List<PendingDynamicPluginInstall> pluginsToInstallSynchronously = new ArrayList<>();
+    try {
+      operation.run();
+      for (PendingDynamicPluginInstall install : operation.getPendingDynamicPluginInstalls()) {
+        if (DynamicPlugins.allowLoadUnloadSynchronously(install.getPluginDescriptor())) {
+          pluginsToInstallSynchronously.add(install);
+          myPluginsToRemoveOnCancel.add(install.getPluginDescriptor());
+        }
+        else {
+          myDynamicPluginsToInstall.put(install.getPluginDescriptor().getPluginId(), install);
+        }
       }
 
-      boolean success = !error;
-      boolean _cancel = cancel;
-      boolean _showErrors = showErrors;
-      boolean finalRestartRequired = restartRequired;
-      ApplicationManager.getApplication()
-        .invokeLater(() -> {
-          boolean dynamicRestartRequired = false;
-          for (PendingDynamicPluginInstall install : pluginsToInstallSynchronously) {
-            boolean installedWithoutRestart = PluginInstaller.installAndLoadDynamicPlugin(install.getFile(), myInstalledPanel, install.getPluginDescriptor());
-            if (installedWithoutRestart) {
-              IdeaPluginDescriptor installedDescriptor = PluginManagerCore.getPlugin(info.getDescriptor().getPluginId());
-              if (installedDescriptor != null) {
-                info.setInstalledDescriptor((IdeaPluginDescriptorImpl)installedDescriptor);
-              }
-            }
-            else {
-              dynamicRestartRequired = true;
-            }
+      success = operation.isSuccess();
+      showErrors = !operation.isShownErrors();
+      restartRequired = operation.isRestartRequired();
+    }
+    catch (ProcessCanceledException e) {
+      cancel = true;
+    }
+    catch (Throwable e) {
+      LOG.error(e);
+      success = false;
+    }
+
+    boolean _success = success;
+    boolean _cancel = cancel;
+    boolean _showErrors = showErrors;
+    boolean _restartRequired = restartRequired;
+    ApplicationManager.getApplication().invokeLater(() -> {
+      boolean dynamicRestartRequired = false;
+      for (PendingDynamicPluginInstall install : pluginsToInstallSynchronously) {
+        boolean installedWithoutRestart = PluginInstaller.installAndLoadDynamicPlugin(install.getFile(),
+                                                                                      myInstalledPanel,
+                                                                                      install.getPluginDescriptor());
+        if (installedWithoutRestart) {
+          IdeaPluginDescriptor installedDescriptor = PluginManagerCore.getPlugin(info.getDescriptor().getPluginId());
+          if (installedDescriptor != null) {
+            info.setInstalledDescriptor((IdeaPluginDescriptorImpl)installedDescriptor);
           }
-          info.finish(success, _cancel, _showErrors, finalRestartRequired || dynamicRestartRequired);
-        }, modalityState);
-    });
+        }
+        else {
+          dynamicRestartRequired = true;
+        }
+      }
+      info.finish(_success, _cancel, _showErrors, _restartRequired || dynamicRestartRequired);
+    }, modalityState);
   }
 
   public boolean toBackground() {
     for (InstallPluginInfo info : myInstallingInfos.values()) {
       info.toBackground(myStatusBar);
     }
-    return !myInstallingInfos.isEmpty();
+
+    boolean result = !myInstallingInfos.isEmpty();
+    if (result) {
+      InstallPluginInfo.showRestart();
+    }
+    return result;
   }
 
-  @NotNull
-  private InstallPluginInfo prepareToInstall(@NotNull IdeaPluginDescriptor descriptor, @Nullable IdeaPluginDescriptor updateDescriptor) {
-    boolean install = updateDescriptor == null;
-    InstallPluginInfo info = new InstallPluginInfo(descriptor, updateDescriptor, this, install);
-    myInstallingInfos.put(descriptor.getPluginId(), info);
+  private void prepareToInstall(@NotNull InstallPluginInfo info) {
+    IdeaPluginDescriptor descriptor = info.getDescriptor();
+    PluginId pluginId = descriptor.getPluginId();
+    myInstallingInfos.put(pluginId, info);
 
     if (myInstallingWithUpdatesPlugins.isEmpty()) {
       myTopController.showProgress(true);
     }
     myInstallingWithUpdatesPlugins.add(descriptor);
-    if (install) {
+    if (info.install) {
       myInstallingPlugins.add(descriptor);
     }
 
-    if (install && myInstalling != null) {
+    if (info.install && myInstalling != null) {
       if (myInstalling.ui == null) {
         myInstalling.descriptors.add(descriptor);
         myInstalledPanel.addGroup(myInstalling, 0);
@@ -473,25 +512,23 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       myInstalledPanel.doLayout();
     }
 
-    List<ListPluginComponent> gridComponents = myMarketplacePluginComponentMap.get(descriptor.getPluginId());
+    List<ListPluginComponent> gridComponents = myMarketplacePluginComponentMap.get(pluginId);
     if (gridComponents != null) {
       for (ListPluginComponent gridComponent : gridComponents) {
         gridComponent.showProgress();
       }
     }
-    List<ListPluginComponent> listComponents = myInstalledPluginComponentMap.get(descriptor.getPluginId());
+    List<ListPluginComponent> listComponents = myInstalledPluginComponentMap.get(pluginId);
     if (listComponents != null) {
       for (ListPluginComponent listComponent : listComponents) {
         listComponent.showProgress();
       }
     }
     for (PluginDetailsPageComponent panel : myDetailPanels) {
-      if (panel.myPlugin == descriptor) {
+      if (panel.getPlugin() == descriptor) {
         panel.showProgress();
       }
     }
-
-    return info;
   }
 
   /**
@@ -509,20 +546,21 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       myTopController.showProgress(false);
     }
 
-    List<ListPluginComponent> marketplaceComponents = myMarketplacePluginComponentMap.get(descriptor.getPluginId());
+    PluginId pluginId = descriptor.getPluginId();
+    List<ListPluginComponent> marketplaceComponents = myMarketplacePluginComponentMap.get(pluginId);
     if (marketplaceComponents != null) {
       for (ListPluginComponent gridComponent : marketplaceComponents) {
         if (installedDescriptor != null) {
-          gridComponent.myPlugin = installedDescriptor;
+          gridComponent.setPluginDescriptor(installedDescriptor);
         }
         gridComponent.hideProgress(success, restartRequired);
       }
     }
-    List<ListPluginComponent> installedComponents = myInstalledPluginComponentMap.get(descriptor.getPluginId());
+    List<ListPluginComponent> installedComponents = myInstalledPluginComponentMap.get(pluginId);
     if (installedComponents != null) {
       for (ListPluginComponent listComponent : installedComponents) {
         if (installedDescriptor != null) {
-          listComponent.myPlugin = installedDescriptor;
+          listComponent.setPluginDescriptor(installedDescriptor);
         }
         listComponent.hideProgress(success, restartRequired);
         listComponent.updateErrors();
@@ -530,9 +568,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     }
     for (PluginDetailsPageComponent panel : myDetailPanels) {
       if (panel.isShowingPlugin(descriptor)) {
-        if (installedDescriptor != null) {
-          panel.myPlugin = installedDescriptor;
-        }
+        panel.setPlugin(installedDescriptor);
         panel.hideProgress(success);
       }
     }
@@ -553,18 +589,17 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
         appendOrUpdateDescriptor(installedDescriptor != null ? installedDescriptor : descriptor, restartRequired);
         appendDependsAfterInstall();
       }
+      else if (myCancelInstallCallback != null) {
+        myCancelInstallCallback.accept(descriptor);
+      }
     }
     else if (success) {
       if (myDownloaded != null && myDownloaded.ui != null && restartRequired) {
-        ListPluginComponent component = myDownloaded.ui.findComponent(descriptor);
+        ListPluginComponent component = myDownloaded.ui.findComponent(pluginId);
         if (component != null) {
           component.enableRestart();
         }
       }
-      if (myUpdates != null) {
-        myUpdates.titleWithCount();
-      }
-      myPluginUpdatesService.finishUpdate(info.updateDescriptor);
     }
     else {
       myPluginUpdatesService.finishUpdate();
@@ -577,7 +612,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       myInstallsRequiringRestart |= restartRequired;
     }
     if (!success && showErrors) {
-      Messages.showErrorDialog(IdeBundle.message("plugins.configurable.plugin.installing.failed", descriptor.getName()),
+      Messages.showErrorDialog(getProject(), IdeBundle.message("plugins.configurable.plugin.installing.failed", descriptor.getName()),
                                IdeBundle.message("action.download.and.install.plugin"));
     }
   }
@@ -590,7 +625,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     }
     else {
       for (ListPluginComponent listComponent : myInstalling.ui.plugins) {
-        if (listComponent.myPlugin == descriptor) {
+        if (listComponent.getPluginDescriptor() == descriptor) {
           listComponent.clearProgress();
           return;
         }
@@ -629,25 +664,22 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     myInstalling = installing;
   }
 
-  public void setUpdateGroup(@NotNull PluginsGroup group) {
-    myUpdates = group;
-  }
-
   private void appendDependsAfterInstall() {
     if (myDownloaded == null || myDownloaded.ui == null) {
       return;
     }
 
     for (IdeaPluginDescriptor descriptor : InstalledPluginsState.getInstance().getInstalledPlugins()) {
-      if (myDownloaded.ui.findComponent(descriptor) != null) {
+      PluginId pluginId = descriptor.getPluginId();
+      if (myDownloaded.ui.findComponent(pluginId) != null) {
         continue;
       }
 
       appendOrUpdateDescriptor(descriptor, true);
 
-      String id = descriptor.getPluginId().getIdString();
+      String id = pluginId.getIdString();
 
-      for (Entry<PluginId, List<ListPluginComponent>> entry : myMarketplacePluginComponentMap.entrySet()) {
+      for (Map.Entry<PluginId, List<ListPluginComponent>> entry : myMarketplacePluginComponentMap.entrySet()) {
         if (id.equals(entry.getKey().getIdString())) {
           for (ListPluginComponent component : entry.getValue()) {
             component.hideProgress(true, true);
@@ -662,18 +694,22 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     myDetailPanels.add(detailPanel);
   }
 
-  public void appendOrUpdateDescriptor(@NotNull IdeaPluginDescriptor descriptor, boolean restartNeeded) {
+  private void appendOrUpdateDescriptor(@NotNull IdeaPluginDescriptor descriptor) {
+    int index = view.indexOf(descriptor);
+    if (index < 0) {
+      view.add(descriptor);
+    }
+    else {
+      view.set(index, descriptor);
+    }
+  }
+
+  void appendOrUpdateDescriptor(@NotNull IdeaPluginDescriptor descriptor,
+                                boolean restartNeeded) {
     PluginId id = descriptor.getPluginId();
     if (!PluginManagerCore.isPluginInstalled(id)) {
-      int i = view.indexOf(descriptor);
-      if (i < 0) {
-        view.add(descriptor);
-      }
-      else {
-        view.set(i, descriptor);
-      }
-
-      setEnabled(descriptor, true);
+      appendOrUpdateDescriptor(descriptor);
+      setEnabled(id, PluginEnabledState.ENABLED);
     }
 
     if (restartNeeded) {
@@ -683,8 +719,8 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       return;
     }
 
-    myVendorsSorted = null;
-    myTagsSorted = null;
+    myVendors = null;
+    myTags = null;
 
     if (myDownloaded.ui == null) {
       myDownloaded.descriptors.add(descriptor);
@@ -697,7 +733,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
       addEnabledGroup(myDownloaded);
     }
     else {
-      ListPluginComponent component = myDownloaded.ui.findComponent(descriptor);
+      ListPluginComponent component = myDownloaded.ui.findComponent(id);
       if (component != null) {
         myInstalledPanel.setSelection(component);
         component.enableRestart();
@@ -711,57 +747,51 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     }
   }
 
-  @NotNull
-  public List<String> getVendors() {
-    if (ContainerUtil.isEmpty(myVendorsSorted)) {
-      myVendorsSorted = getVendors(getInstalledDescriptors());
+  public @NotNull SortedSet<String> getVendors() {
+    if (ContainerUtil.isEmpty(myVendors)) {
+      Map<String, Integer> vendorsCount = getVendorsCount(getInstalledDescriptors());
+      myVendors = new TreeSet<>((v1, v2) -> {
+        int result = vendorsCount.get(v2) - vendorsCount.get(v1);
+        return result == 0 ? v2.compareToIgnoreCase(v1) : result;
+      });
+      myVendors.addAll(vendorsCount.keySet());
     }
-    return myVendorsSorted;
+    return Collections.unmodifiableSortedSet(myVendors);
   }
 
-  @NotNull
-  public List<String> getTags() {
-    if (ContainerUtil.isEmpty(myTagsSorted)) {
-      Set<String> allTags = new HashSet<>();
+  public @NotNull SortedSet<String> getTags() {
+    if (ContainerUtil.isEmpty(myTags)) {
+      myTags = new TreeSet<>(String::compareToIgnoreCase);
 
       for (IdeaPluginDescriptor descriptor : getInstalledDescriptors()) {
-        allTags.addAll(PluginManagerConfigurable.getTags(descriptor));
+        myTags.addAll(PluginManagerConfigurable.getTags(descriptor));
       }
-
-      myTagsSorted = ContainerUtil.sorted(allTags, String::compareToIgnoreCase);
     }
-    return myTagsSorted;
+    return Collections.unmodifiableSortedSet(myTags);
   }
 
-  @NotNull
-  public List<IdeaPluginDescriptor> getInstalledDescriptors() {
+  public @NotNull List<IdeaPluginDescriptor> getInstalledDescriptors() {
     assert myInstalledPanel != null;
 
-    return myInstalledPanel.getGroups().stream().flatMap(group -> group.plugins.stream()).map(plugin -> plugin.myPlugin)
+    return myInstalledPanel
+      .getGroups()
+      .stream()
+      .flatMap(group -> group.plugins.stream())
+      .map(ListPluginComponent::getPluginDescriptor)
       .collect(Collectors.toList());
   }
 
-  @NotNull
-  public static List<String> getVendors(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors) {
+  private static @NotNull Map<String, Integer> getVendorsCount(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors) {
     Map<String, Integer> vendors = new HashMap<>();
 
     for (IdeaPluginDescriptor descriptor : descriptors) {
       String vendor = StringUtil.trim(descriptor.getVendor());
       if (!StringUtil.isEmptyOrSpaces(vendor)) {
-        Integer count = vendors.get(vendor);
-        if (count == null) {
-          vendors.put(vendor, 1);
-        }
-        else {
-          vendors.put(vendor, count + 1);
-        }
+        vendors.compute(vendor, (__, old) -> (old != null ? old : 0) + 1);
       }
     }
 
-    return ContainerUtil.sorted(vendors.keySet(), (v1, v2) -> {
-      int result = vendors.get(v2) - vendors.get(v1);
-      return result == 0 ? v2.compareToIgnoreCase(v1) : result;
-    });
+    return vendors;
   }
 
   public static boolean isVendor(@NotNull IdeaPluginDescriptor descriptor, @NotNull Set<String> vendors) {
@@ -779,41 +809,63 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     return false;
   }
 
-  public boolean isEnabled(@NotNull IdeaPluginDescriptor plugin) {
-    Boolean enabled = getEnabledMap().get(plugin.getPluginId());
-    return enabled == null || enabled;
+  public boolean isEnabled(@NotNull IdeaPluginDescriptor descriptor) {
+    return !isDisabled(descriptor.getPluginId());
   }
 
-  @NotNull
-  String getEnabledTitle(@NotNull IdeaPluginDescriptor plugin) {
-    return isEnabled(plugin)
-           ? IdeBundle.message("plugins.configurable.disable.button")
-           : IdeBundle.message("plugins.configurable.enable.button");
+  public @NotNull PluginEnabledState getState(@NotNull IdeaPluginDescriptor descriptor) {
+    return getState(descriptor.getPluginId());
   }
 
-  void changeEnableDisable(@NotNull IdeaPluginDescriptor plugin) {
-    changeEnableDisable(new IdeaPluginDescriptor[]{plugin}, !isEnabled(plugin));
+  @NotNull ProjectDependentPluginEnabledState getProjectDependentState(@NotNull IdeaPluginDescriptor descriptor) {
+    PluginId pluginId = descriptor.getPluginId();
+    return new ProjectDependentPluginEnabledState(pluginId,
+                                                  getState(pluginId),
+                                                  getProject());
   }
 
-  public void changeEnableDisable(IdeaPluginDescriptor @NotNull [] plugins, boolean state) {
-    enableRows(plugins, state);
+  /**
+   * @see #isEnabled(PluginId, Map)
+   */
+  @NotNull PluginEnabledState getState(@NotNull PluginId pluginId) {
+    PluginEnabledState state = getEnabledMap().get(pluginId);
+    return state != null ? state : PluginEnabledState.ENABLED;
+  }
+
+  boolean isRequiredPluginForProject(@NotNull PluginId pluginId) {
+    Project project = getProject();
+    return project != null &&
+           myRequiredPluginsForProject
+             .computeIfAbsent(pluginId,
+                              id -> ContainerUtil.exists(getDependenciesOnPlugins(project),
+                                                         id.getIdString()::equals));
+  }
+
+  boolean requiresRestart(@NotNull IdeaPluginDescriptor descriptor) {
+    return myRequiresRestart
+      .computeIfAbsent(descriptor instanceof IdeaPluginDescriptorImpl ? (IdeaPluginDescriptorImpl)descriptor : null,
+                       it -> it == null || DynamicPlugins.checkCanUnloadWithoutRestart(it) != null);
+  }
+
+  boolean isUninstalled(@NotNull IdeaPluginDescriptor descriptor) {
+    return myUninstalled.contains(descriptor);
+  }
+
+  void addUninstalled(@NotNull IdeaPluginDescriptor descriptor) {
+    myUninstalled.add(descriptor);
+  }
+
+  @Override
+  public void setEnabledState(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors,
+                              @NotNull PluginEnableDisableAction action) {
+    enableRows(descriptors, action);
     updateAfterEnableDisable();
     runInvalidFixCallback();
   }
 
-  @Override
-  public void enablePlugins(Set<? extends IdeaPluginDescriptor> disabled) {
-    changeEnableDisable(disabled.toArray(new IdeaPluginDescriptor[0]), true);
-  }
-
-  @Override
-  public void disablePlugins(Set<? extends IdeaPluginDescriptor> disabled) {
-    changeEnableDisable(disabled.toArray(new IdeaPluginDescriptor[0]), false);
-  }
-
   void enableRequiredPlugins(@NotNull IdeaPluginDescriptor descriptor) {
-    Set<PluginId> requiredPluginIds = getRequiredPlugins(descriptor.getPluginId());
-    if (ContainerUtil.isEmpty(requiredPluginIds)) {
+    Set<PluginId> requiredPluginIds = getRequiredPluginIds(descriptor.getPluginId());
+    if (requiredPluginIds.isEmpty()) {
       return;
     }
 
@@ -823,14 +875,12 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     for (PluginId pluginId : requiredPluginIds) {
       IdeaPluginDescriptor result = ContainerUtil.find(allPlugins, d -> pluginId.equals(d.getPluginId()));
       if (result == null && PluginManagerCore.isModuleDependency(pluginId)) {
-        result = ContainerUtil.find(allPlugins, d -> {
-          if (d instanceof IdeaPluginDescriptorImpl) {
-            return ((IdeaPluginDescriptorImpl)d).getModules().contains(pluginId);
-          }
-          return false;
-        });
+        result = ContainerUtil.find(
+          allPlugins,
+          d -> d instanceof IdeaPluginDescriptorImpl && ((IdeaPluginDescriptorImpl)d).modules.contains(pluginId)
+        );
         if (result != null) {
-          getEnabledMap().put(pluginId, Boolean.TRUE);
+          setEnabled(pluginId, PluginEnabledState.ENABLED); // todo
         }
       }
       if (result != null) {
@@ -844,11 +894,26 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
   }
 
   @Override
-  protected void handleBeforeChangeEnableState(@NotNull IdeaPluginDescriptor descriptor, boolean value) {
+  protected void handleBeforeChangeEnableState(@NotNull IdeaPluginDescriptor descriptor,
+                                               @NotNull Pair<PluginEnableDisableAction, PluginEnabledState> pair) {
     PluginId pluginId = descriptor.getPluginId();
+    Pair<PluginEnableDisableAction, PluginEnabledState> oldPair = myDiff.get(descriptor);
+
+    PluginEnabledState oldState = oldPair != null ? oldPair.getSecond() : null;
+    PluginEnabledState newState = pair.getSecond();
+    if (oldState != newState) {
+      PluginEnabledState state = oldState != null ? oldState : getState(pluginId);
+      myDiff.put(descriptor,
+                 Pair.create(pair.getFirst(), state));
+    }
+    else {
+      myDiff.remove(descriptor);
+    }
+
     myErrorPluginsToDisable.remove(pluginId);
 
-    if (value || descriptor.isEnabled()) {
+    if (newState.isEnabled() ||
+        descriptor.isEnabled()) {
       return;
     }
 
@@ -867,6 +932,10 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
 
   public void setInvalidFixCallback(@Nullable Runnable invalidFixCallback) {
     myInvalidFixCallback = invalidFixCallback;
+  }
+
+  public void setCancelInstallCallback(@NotNull Consumer<? super IdeaPluginDescriptor> callback) {
+    myCancelInstallCallback = callback;
   }
 
   private void updateAfterEnableDisable() {
@@ -902,38 +971,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     }
   }
 
-  static boolean showUninstallDialog(@NotNull Component uiParent, @NotNull List<? extends ListPluginComponent> selection) {
-    int size = selection.size();
-    return showUninstallDialog(uiParent, size == 1 ? selection.get(0).myPlugin.getName() : null, size);
-  }
-
-  static boolean showUninstallDialog(@NotNull Component uiParent, @Nullable String singleName, int count) {
-    String message;
-    if (singleName == null) {
-      message = IdeBundle.message("prompt.uninstall.several.plugins", count);
-    }
-    else {
-      message = IdeBundle.message("prompt.uninstall.plugin", singleName);
-    }
-
-    return Messages.showYesNoDialog(uiParent, message, IdeBundle.message("title.plugin.uninstall"), Messages.getQuestionIcon()) ==
-           Messages.YES;
-  }
-
-  void uninstallAndUpdateUi(@NotNull Component uiParent, @NotNull IdeaPluginDescriptor descriptor) {
-    List<IdeaPluginDescriptor> deps = dependent(descriptor);
-    if (!deps.isEmpty()) {
-      String listOfDeps = StringUtil.join(deps, plugin -> {
-        return "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + plugin.getName();
-      }, "<br>");
-      String message = XmlStringUtil
-        .wrapInHtml(IdeBundle.message("dialog.message.following.plugin.depend.on", deps.size(), descriptor.getName(), listOfDeps));
-      String title = IdeBundle.message("title.plugin.uninstall");
-      if (Messages.showYesNoDialog(uiParent, message, title, Messages.getQuestionIcon()) != Messages.YES) {
-        return;
-      }
-    }
-
+  void uninstallAndUpdateUi(@NotNull IdeaPluginDescriptor descriptor) {
     boolean needRestartForUninstall = performUninstall((IdeaPluginDescriptorImpl)descriptor);
     needRestart |= descriptor.isEnabled() && needRestartForUninstall;
     myInstallsRequiringRestart |= needRestartForUninstall;
@@ -950,23 +988,20 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     }
 
     for (PluginDetailsPageComponent panel : myDetailPanels) {
-      if (panel.myPlugin == descriptor) {
+      if (panel.getPlugin() == descriptor) {
         panel.updateButtons();
       }
     }
   }
 
-  private boolean performUninstall(IdeaPluginDescriptorImpl descriptorImpl) {
+  private boolean performUninstall(@NotNull IdeaPluginDescriptorImpl descriptorImpl) {
     boolean needRestartForUninstall = true;
     try {
       descriptorImpl.setDeleted(true);
-      // Load descriptor to make sure we get back all the data cleared after the descriptor has been loaded
-      IdeaPluginDescriptorImpl fullDescriptor = PluginDescriptorLoader.tryLoadFullDescriptor(descriptorImpl);
-      LOG.assertTrue(fullDescriptor != null);
-      needRestartForUninstall = PluginInstaller.prepareToUninstall(fullDescriptor);
+      needRestartForUninstall = PluginInstaller.prepareToUninstall(descriptorImpl);
       InstalledPluginsState.getInstance().onPluginUninstall(descriptorImpl, needRestartForUninstall);
       if (!needRestartForUninstall) {
-        myDynamicPluginsToUninstall.add(fullDescriptor);
+        myDynamicPluginsToUninstall.add(descriptorImpl);
       }
     }
     catch (IOException e) {
@@ -975,126 +1010,139 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginM
     return needRestartForUninstall;
   }
 
-  @Nullable
-  public static IdeaPluginDescriptor findPlugin(@NotNull PluginId id) {
-    IdeaPluginDescriptor plugin = PluginManagerCore.getPlugin(id);
-    if (plugin == null && PluginManagerCore.isModuleDependency(id)) {
-      IdeaPluginDescriptor descriptor = PluginManagerCore.findPluginByModuleDependency(id);
-      if (descriptor != null) return descriptor;
-    }
-    return plugin;
+  private boolean hasProblematicDependencies(@NotNull PluginId pluginId) {
+    return getRequiredPluginsById(pluginId).anyMatch(pair -> {
+      IdeaPluginDescriptor descriptor = pair.getSecond();
+      return descriptor != null && !isEnabled(descriptor);
+    });
   }
 
-  public boolean hasProblematicDependencies(PluginId pluginId) {
-    Set<PluginId> ids = getDependentToRequiredListMap().get(pluginId);
-    if (ContainerUtil.isEmpty(ids)) {
-      return false;
-    }
-
-    for (PluginId id : ids) {
-      IdeaPluginDescriptor plugin = findPlugin(id);
-      if (plugin != null && !isEnabled(plugin)) {
-        return true;
-      }
-    }
-
-    return false;
+  public boolean hasErrors(@NotNull IdeaPluginDescriptor descriptor) {
+    return !getErrors(descriptor).isEmpty();
   }
 
-  public boolean hasErrors(@NotNull IdeaPluginDescriptor plugin) {
-    return getErrorMessage(plugin, null) != null;
-  }
-
-  @Nullable
-  public String getErrorMessage(@NotNull IdeaPluginDescriptor pluginDescriptor, @Nullable Ref<? super String> enableAction) {
-    if (InstalledPluginsState.getInstance().wasInstalledWithoutRestart(pluginDescriptor.getPluginId())) {
-      // we'll actually install the plugin when the configurable is closed; at this time we don't know if there's any error
-      return null;
+  public @NotNull List<? extends HtmlChunk> getErrors(@NotNull IdeaPluginDescriptor descriptor) {
+    PluginId pluginId = descriptor.getPluginId();
+    if (descriptor instanceof IdeaPluginDescriptorImpl && ((IdeaPluginDescriptorImpl)descriptor).isDeleted() ||
+        InstalledPluginsState.getInstance().wasUninstalledWithoutRestart(pluginId) ||
+        InstalledPluginsState.getInstance().wasInstalledWithoutRestart(pluginId)) {
+      // we'll actually install the plugin when the configurable is closed; at this time we don't know if there's any loadingError
+      return List.of();
     }
 
-    String message = PluginManagerCore.getLoadingError(pluginDescriptor);
-
-    PluginId disabledDependency = PluginManagerCore.getFirstDisabledDependency(pluginDescriptor);
-    if (disabledDependency != null) {
-      Set<PluginId> requiredPlugins = filterRequiredPlugins(getRequiredPlugins(pluginDescriptor.getPluginId()));
-      if (!ContainerUtil.isEmpty(requiredPlugins)) {
-        boolean[] enable = {true};
-        String deps = StringUtil.join(requiredPlugins, id -> {
-          IdeaPluginDescriptor plugin = findPlugin(id);
-          if (enable[0] && (plugin == null || PluginManagerCore.isIncompatible(plugin))) {
-            enable[0] = false;
-          }
-          return StringUtil.wrapWithDoubleQuote(plugin != null ? plugin.getName() : id.getIdString());
-        }, ", ");
-
-        int size = requiredPlugins.size();
-        message = IdeBundle.message("new.plugin.manager.incompatible.deps.tooltip", size, deps);
-        if (enable[0] && enableAction != null) {
-          enableAction.set(IdeBundle.message("new.plugin.manager.incompatible.deps.action", size));
-        }
-      }
-      else {
-        message = null;
-      }
+    PluginLoadingError loadingError = PluginManagerCore.getLoadingError(pluginId);
+    PluginId disabledDependency = loadingError != null ? loadingError.disabledDependency : null;
+    if (disabledDependency == null) {
+      return loadingError != null ?
+             List.of(createTextChunk(loadingError.getShortMessage())) :
+             List.of();
     }
 
-    return message;
-  }
-
-  @Nullable
-  private static Set<PluginId> filterRequiredPlugins(@Nullable Set<PluginId> requiredPlugins) {
-    if (ContainerUtil.isEmpty(requiredPlugins)) {
-      return requiredPlugins;
+    Map<PluginId, IdeaPluginDescriptor> requiredPlugins = new HashMap<>();
+    getRequiredPluginsById(pluginId).filter(pair -> {
+      IdeaPluginDescriptor requiredDescriptor = pair.getSecond();
+      return requiredDescriptor == null || !requiredDescriptor.isEnabled();
+    }).forEach(pair -> requiredPlugins.put(pair.getFirst(), pair.getSecond()));
+    if (requiredPlugins.isEmpty()) {
+      return List.of();
     }
-    return requiredPlugins.stream().filter(id -> {
-      IdeaPluginDescriptor plugin = findPlugin(id);
-      return plugin == null || !plugin.isEnabled() ;
-    }).collect(Collectors.toSet());
+
+    ArrayList<HtmlChunk> errors = new ArrayList<>();
+
+    String message = IdeBundle.message("new.plugin.manager.incompatible.deps.tooltip",
+                                       requiredPlugins.size(),
+                                       joinDoublyQuotedPluginNames(requiredPlugins));
+    errors.add(createTextChunk(message));
+
+    //noinspection SSBasedInspection
+    if (requiredPlugins.entrySet().stream().noneMatch(entry -> {
+      IdeaPluginDescriptor requiredDescriptor = entry.getValue();
+      return requiredDescriptor == null || PluginManagerCore.isIncompatible(requiredDescriptor);
+    })) {
+      String action = IdeBundle.message("new.plugin.manager.incompatible.deps.action", errors.size());
+      errors.add(HtmlChunk.link("link", action));
+    }
+
+    return Collections.unmodifiableList(errors);
   }
 
-  @NotNull
-  protected Collection<IdeaPluginDescriptor> getCustomRepoPlugins() {
+  private @NotNull Stream<Pair<@NotNull PluginId, @Nullable IdeaPluginDescriptor>> getRequiredPluginsById(@NotNull PluginId pluginId) {
+    return getRequiredPluginIds(pluginId)
+      .stream()
+      .map(requiredPluginId -> {
+        IdeaPluginDescriptor requiredDescriptor = PluginManagerCore.getPlugin(requiredPluginId);
+        return Pair.create(requiredPluginId, requiredDescriptor == null && PluginManagerCore.isModuleDependency(requiredPluginId) ?
+                                             PluginManagerCore.findPluginByModuleDependency(requiredPluginId) :
+                                             requiredDescriptor);
+      });
+  }
+
+  protected @NotNull Collection<PluginNode> getCustomRepoPlugins() {
     return CustomPluginRepositoryService.getInstance().getCustomRepositoryPlugins();
   }
 
-  @NotNull
-  private List<IdeaPluginDescriptor> dependent(@NotNull IdeaPluginDescriptor rootDescriptor) {
+  /**
+   * TODO unify
+   *
+   * @see {@link PluginBooleanOptionDescriptor#getPluginsIdsToDisable(IdeaPluginDescriptor)}
+   */
+  @NotNull List<IdeaPluginDescriptorImpl> getDependents(@NotNull IdeaPluginDescriptor rootDescriptor) {
     ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
     PluginId rootId = rootDescriptor.getPluginId();
 
-    List<IdeaPluginDescriptor> result = new ArrayList<>();
-    for (IdeaPluginDescriptor plugin : getAllPlugins()) {
-      PluginId pluginId = plugin.getPluginId();
-      if (pluginId == rootId || appInfo.isEssentialPlugin(pluginId) || !plugin.isEnabled() || plugin.isImplementationDetail()) {
-        continue;
-      }
-      if (!(plugin instanceof IdeaPluginDescriptorImpl) || ((IdeaPluginDescriptorImpl)plugin).isDeleted()) {
+    List<IdeaPluginDescriptorImpl> result = new ArrayList<>();
+    for (IdeaPluginDescriptor descriptor : getAllPlugins()) {
+      PluginId pluginId = descriptor.getPluginId();
+      if (Objects.equals(pluginId, rootId) ||
+          appInfo.isEssentialPlugin(pluginId) ||
+          !(descriptor instanceof IdeaPluginDescriptorImpl) ||
+          !descriptor.isEnabled() ||
+          isHidden(descriptor)) {
         continue;
       }
 
-      PluginManagerCore.processAllDependencies((IdeaPluginDescriptorImpl)plugin, false, PluginManagerCore.buildPluginIdMap(), (id, descriptor) -> {
-        if (id == rootId) {
-          result.add(plugin);
+      IdeaPluginDescriptorImpl descriptorImpl = (IdeaPluginDescriptorImpl)descriptor;
+      PluginManagerCore.processAllDependencies(descriptorImpl, false, dependency -> {
+        if (Objects.equals(dependency.getPluginId(), rootId)) {
+          result.add(descriptorImpl);
           return FileVisitResult.TERMINATE;
         }
         return FileVisitResult.CONTINUE;
       });
     }
-    return result;
+    return Collections.unmodifiableList(result);
   }
 
   private final Map<String, Icon> myIcons = new HashMap<>(); // local cache for PluginLogo WeakValueMap
 
   @NotNull
-  public Icon getIcon(@NotNull IdeaPluginDescriptor descriptor, boolean big, boolean jb, boolean error, boolean disabled) {
-    String key = descriptor.getPluginId().getIdString() + big + jb + error + disabled;
+  public Icon getIcon(@NotNull IdeaPluginDescriptor descriptor, boolean big, boolean error, boolean disabled) {
+    String key = descriptor.getPluginId().getIdString() + big + error + disabled;
     Icon icon = myIcons.get(key);
     if (icon == null) {
-      icon = PluginLogo.getIcon(descriptor, big, jb, error, disabled);
-      if (icon != PluginLogo.getDefault().getIcon(big, jb, error, disabled)) {
+      icon = PluginLogo.getIcon(descriptor, big, error, disabled);
+      if (icon != PluginLogo.getDefault().getIcon(big, error, disabled)) {
         myIcons.put(key, icon);
       }
     }
     return icon;
+  }
+
+  private static @NotNull List<String> getDependenciesOnPlugins(@NotNull Project project) {
+    return ContainerUtil.map(ExternalDependenciesManager.getInstance(project).getDependencies(DependencyOnPlugin.class),
+                             DependencyOnPlugin::getPluginId);
+  }
+
+  private static @NotNull HtmlChunk.Element createTextChunk(@NotNull @Nls String message) {
+    return HtmlChunk.span().addText(message);
+  }
+
+  private static @NotNull String joinDoublyQuotedPluginNames(@NotNull Map<PluginId, ? extends IdeaPluginDescriptor> descriptorsByPluginId) {
+    return descriptorsByPluginId.entrySet()
+      .stream()
+      .map(entry -> {
+        IdeaPluginDescriptor descriptor = entry.getValue();
+        return StringUtil.wrapWithDoubleQuote(descriptor != null ? descriptor.getName() : entry.getKey().getIdString());
+      }).collect(Collectors.joining(", "));
   }
 }

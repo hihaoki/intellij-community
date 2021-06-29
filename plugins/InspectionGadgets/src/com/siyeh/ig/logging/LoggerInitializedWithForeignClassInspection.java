@@ -1,8 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.logging;
 
 import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ui.InspectionOptionsPanel;
 import com.intellij.codeInspection.ui.ListTable;
 import com.intellij.codeInspection.ui.ListWrappingTableModel;
 import com.intellij.openapi.project.Project;
@@ -62,7 +63,7 @@ public class LoggerInitializedWithForeignClassInspection extends BaseInspection 
   @SuppressWarnings("PublicField")
   public String loggerClassName = DEFAULT_FACTORY_CLASS_NAMES;
   @SuppressWarnings("PublicField")
-  public String loggerFactoryMethodName = DEFAULT_FACTORY_METHOD_NAMES;
+  public @NonNls String loggerFactoryMethodName = DEFAULT_FACTORY_METHOD_NAMES;
 
 
   {
@@ -75,7 +76,10 @@ public class LoggerInitializedWithForeignClassInspection extends BaseInspection 
       new ListWrappingTableModel(Arrays.asList(loggerFactoryClassNames, loggerFactoryMethodNames),
                                  InspectionGadgetsBundle.message("logger.factory.class.name"),
                                  InspectionGadgetsBundle.message("logger.factory.method.name")));
-    return UiUtils.createAddRemoveTreeClassChooserPanel(table, "Choose logger factory class");
+    final String title = InspectionGadgetsBundle.message("logger.initialized.with.foreign.options.title");
+    final var panel = new InspectionOptionsPanel();
+    panel.addGrowing(UiUtils.createAddRemoveTreeClassChooserPanel(table, title));
+    return panel;
   }
 
   @Override
@@ -121,10 +125,11 @@ public class LoggerInitializedWithForeignClassInspection extends BaseInspection 
     XmlSerializer.serializeInto(this, element, new SerializationFilterBase() {
       @Override
       protected boolean accepts(@NotNull Accessor accessor, @NotNull Object bean, @Nullable Object beanValue) {
-        if ("loggerClassName".equals(accessor.getName()) && DEFAULT_FACTORY_CLASS_NAMES.equals(beanValue)) {
+        final @NonNls String factoryName = accessor.getName();
+        if ("loggerClassName".equals(factoryName) && DEFAULT_FACTORY_CLASS_NAMES.equals(beanValue)) {
           return false;
         }
-        if ("loggerFactoryMethodNames".equals(accessor.getName()) && DEFAULT_FACTORY_METHOD_NAMES.equals(beanValue)) {
+        if ("loggerFactoryMethodNames".equals(factoryName) && DEFAULT_FACTORY_METHOD_NAMES.equals(beanValue)) {
           return false;
         }
         return true;

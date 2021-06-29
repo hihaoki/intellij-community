@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components.labels;
 
 import com.intellij.openapi.actionSystem.ActionPlaces;
@@ -7,8 +7,8 @@ import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.EmptyIcon;
-import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.*;
 
@@ -18,9 +18,13 @@ import java.awt.event.InputEvent;
 
 /**
  * @author Konstantin Bulenkov
+ * @see <a href="https://jetbrains.github.io/ui/controls/link/">IJ Platform UI Guidelines | Link</a>
+ * @deprecated use {@link com.intellij.ui.components.AnActionLink} instead
  */
+@ApiStatus.ScheduledForRemoval(inVersion = "2022.2")
+@Deprecated
 public class ActionLink extends LinkLabel<Object> implements DataProvider {
-  private static final EmptyIcon ICON = JBUI.scale(EmptyIcon.create(0, 12));
+  private static final EmptyIcon ICON = JBUIScale.scaleIcon(EmptyIcon.create(0, 12));
   private final AnAction myAction;
   private InputEvent myEvent;
   private Color myVisitedColor;
@@ -41,7 +45,7 @@ public class ActionLink extends LinkLabel<Object> implements DataProvider {
                     @Nullable Runnable onDone,
                     @NotNull String place) {
     super(text, icon);
-    setListener(new LinkListener<Object>() {
+    setListener(new LinkListener<>() {
       @Override
       public void linkSelected(LinkLabel<Object> aSource, Object aLinkData) {
         ActionUtil.invokeAction(myAction, ActionLink.this, place, myEvent, onDone);

@@ -15,8 +15,6 @@ import com.intellij.openapi.wm.impl.SystemDock;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -31,13 +29,15 @@ public final class MacDockDelegate implements SystemDock.Delegate {
   private static final PopupMenu dockMenu = new PopupMenu("DockMenu");
   private static final Menu recentProjectsMenu = new Menu("Recent Projects");
 
-  private MacDockDelegate() {}
+  private MacDockDelegate() { }
 
   private static void initDockMenu() {
     dockMenu.add(recentProjectsMenu);
 
     try {
-      getAppMethod("setDockMenu", PopupMenu.class).invoke(getApp(), dockMenu);
+      Class<?> appClass = Class.forName("com.apple.eawt.Application");
+      Object application = appClass.getMethod("getApplication").invoke(null);
+      appClass.getMethod("setDockMenu", PopupMenu.class).invoke(application, dockMenu);
     }
     catch (Exception e) {
       LOG.error(e);
@@ -47,32 +47,22 @@ public final class MacDockDelegate implements SystemDock.Delegate {
   @Override
   public void updateRecentProjectsMenu () {
     RecentProjectsManager projectsManager = RecentProjectsManager.getInstance();
-    if (projectsManager == null) return;
+    if (projectsManager == null) {
+      return;
+    }
     List<AnAction> recentProjectActions = RecentProjectListActionProvider.getInstance().getActions(false);
     recentProjectsMenu.removeAll();
 
-    for (final AnAction action : recentProjectActions) {
-      MenuItem menuItem = new MenuItem(((ReopenProjectAction)action).getProjectName());
+    for (AnAction action : recentProjectActions) {
+      MenuItem menuItem = new MenuItem(((ReopenProjectAction)action).getProjectNameToDisplay());
       menuItem.addActionListener(new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
-          ActionUtil.performActionDumbAware(action, AnActionEvent.createFromAnAction(action, null, ActionPlaces.DOCK_MENU, DataManager.getInstance().getDataContext(null)));
+          ActionUtil.performActionDumbAwareWithCallbacks(action, AnActionEvent.createFromAnAction(action, null, ActionPlaces.DOCK_MENU, DataManager.getInstance().getDataContext(null)));
         }
       });
       recentProjectsMenu.add(menuItem);
     }
-  }
-
-  private static Object getApp() throws NoSuchMethodException, ClassNotFoundException, InvocationTargetException, IllegalAccessException {
-    return getAppClass().getMethod("getApplication").invoke(null);
-  }
-
-  private static Method getAppMethod(final String name, Class... args) throws NoSuchMethodException, ClassNotFoundException {
-    return getAppClass().getMethod(name, args);
-  }
-
-  private static Class<?> getAppClass() throws ClassNotFoundException {
-    return Class.forName("com.apple.eawt.Application");
   }
 
   synchronized public static SystemDock.Delegate getInstance() {

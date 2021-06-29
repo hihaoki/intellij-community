@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.analysis;
 
@@ -8,8 +8,13 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.AutoScrollToSourceHandler;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import com.intellij.util.xmlb.annotations.Transient;
@@ -19,7 +24,7 @@ import javax.swing.*;
 @State(name = "AnalysisUIOptions", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 public class AnalysisUIOptions implements PersistentStateComponent<AnalysisUIOptions> {
   public static AnalysisUIOptions getInstance(Project project) {
-    return ServiceManager.getService(project, AnalysisUIOptions.class);
+    return project.getService(AnalysisUIOptions.class);
   }
 
   public boolean AUTOSCROLL_TO_SOURCE = false;
@@ -27,13 +32,14 @@ public class AnalysisUIOptions implements PersistentStateComponent<AnalysisUIOpt
   public volatile boolean GROUP_BY_SEVERITY = false;
   public volatile boolean FILTER_RESOLVED_ITEMS = true;
   public boolean ANALYZE_TEST_SOURCES = true;
+  public boolean ANALYZE_INJECTED_CODE = true;
   @AnalysisScope.Type
   public int SCOPE_TYPE = AnalysisScope.PROJECT;
   public String CUSTOM_SCOPE_NAME = "";
   @Transient
   private final AutoScrollToSourceHandler myAutoScrollToSourceHandler;
   public volatile boolean SHOW_STRUCTURE = false;
-  public String FILE_MASK;
+  public @NlsSafe String FILE_MASK;
 
   public boolean ANALYSIS_IN_BACKGROUND = true;
 
@@ -124,9 +130,9 @@ public class AnalysisUIOptions implements PersistentStateComponent<AnalysisUIOpt
     @NotNull private final InspectionResultsView myView;
 
     InspectionResultsViewToggleAction(@NotNull InspectionResultsView view,
-                                             @NotNull String text,
-                                             @NotNull String description,
-                                             @NotNull Icon icon) {
+                                      @NotNull @NlsActions.ActionText String text,
+                                      @NotNull @NlsActions.ActionDescription String description,
+                                      @NotNull Icon icon) {
       super(text, description, icon);
       myView = view;
     }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.ide
 
 import com.intellij.idea.StartupUtil
@@ -62,10 +62,8 @@ class BuiltInServerManagerImpl : BuiltInServerManager() {
 
   companion object {
     @JvmField
-    internal val NOTIFICATION_GROUP: NotNullLazyValue<NotificationGroup> = object : NotNullLazyValue<NotificationGroup>() {
-      override fun compute(): NotificationGroup {
-        return NotificationGroup("Built-in Server", NotificationDisplayType.STICKY_BALLOON, true)
-      }
+    internal val NOTIFICATION_GROUP: NotNullLazyValue<NotificationGroup> = NotNullLazyValue.lazy {
+      NotificationGroup("Built-in Server", NotificationDisplayType.STICKY_BALLOON, true)
     }
 
     @JvmStatic
@@ -135,7 +133,7 @@ class BuiltInServerManagerImpl : BuiltInServerManager() {
         try {
           @Suppress("DEPRECATION")
           server = when (mainServer) {
-            null -> BuiltInServer.start(firstPort = defaultPort, portsCount = PORTS_COUNT)
+            null -> BuiltInServer.start(firstPort = defaultPort, portsCount = PORTS_COUNT, tryAnyPort = true)
             else -> BuiltInServer.start(eventLoopGroup = mainServer.eventLoopGroup, isEventLoopGroupOwner = false, firstPort = defaultPort,
                                         portsCount = PORTS_COUNT, tryAnyPort = true)
           }
@@ -144,9 +142,9 @@ class BuiltInServerManagerImpl : BuiltInServerManager() {
         catch (e: Throwable) {
           LOG.info(e)
           NOTIFICATION_GROUP.value.createNotification(
-            BuiltInServerBundle.message("notification.content.cannot.start.internal.http.server.git.integration.javascript.debugger.and.liveedit.may.operate.with.errors") +
-            BuiltInServerBundle.message("notification.content.please.check.your.firewall.settings.and.restart") + ApplicationNamesInfo.getInstance().fullProductName,
-            NotificationType.ERROR).notify(null)
+            BuiltInServerBundle.message("notification.content.cannot.start.internal.http.server.and.ask.for.restart.0", ApplicationNamesInfo.getInstance().fullProductName),
+            NotificationType.ERROR
+          ).notify(null)
           return@Consumer
         }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.completion;
 
 import com.intellij.codeInsight.completion.*;
@@ -166,8 +166,9 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
                                     final PrefixMatcher matcher,
                                     final @Nullable CompletionResultSet resultSet,
                                     final Consumer<? super LookupElement> _consumer) {
-    final Consumer<LookupElement> consumer = new Consumer<LookupElement>() {
+    final Consumer<LookupElement> consumer = new Consumer<>() {
       final Set<LookupElement> added = new HashSet<>();
+
       @Override
       public void consume(LookupElement element) {
         if (added.add(element)) {
@@ -233,10 +234,15 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
       PrioritizedLookupElement<?> prioritized = lookupElement.as(PrioritizedLookupElement.CLASS_CONDITION_KEY);
       if (prioritized == null || prioritized.getPriority() == 0) {
         zeroPriority.add(lookupElement);
-      } else {
+      }
+      else {
         consumer.consume(lookupElement);
       }
     });
+
+    if (qualifierType != null) {
+      processImplicitSpread(qualifierType, consumer, matcher);
+    }
 
     for (LookupElement element : zeroPriority) {
       consumer.consume(element);
@@ -246,6 +252,26 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
       return addStaticMembers(parameters, matcher, staticMembers, consumer);
     }
     return EmptyRunnable.INSTANCE;
+  }
+
+  private static void processImplicitSpread(@NotNull PsiType type, @NotNull Consumer<LookupElement> consumer, @NotNull PrefixMatcher matcher) {
+    var typeParameter = PsiUtil.getComponentForSpreadWithDot(type);
+    if (!(typeParameter instanceof PsiClassType)) {
+      return;
+    }
+    var resolveResult = ((PsiClassType)typeParameter).resolveGenerics();
+    PsiClass resolvedClass = resolveResult.getElement();
+    if (resolvedClass == null) {
+      return;
+    }
+    for (var method : resolvedClass.getAllMethods()) {
+      if (GroovyPropertyUtils.isSimplePropertyGetter(method)) {
+        var lookupElement = CompleteReferenceExpression.createPropertyLookupElement(method, resolveResult.getSubstitutor(), matcher);
+        if (lookupElement != null) {
+          consumer.consume(lookupElement);
+        }
+      }
+    }
   }
 
   private static boolean isLightElementDeclaredDuringCompletion(Object object) {
@@ -261,7 +287,7 @@ public class GrMainCompletionProvider extends CompletionProvider<CompletionParam
                                        final PrefixMatcher matcher,
                                        final Map<PsiModifierListOwner, LookupElement> staticMembers, final Consumer<? super LookupElement> consumer) {
     final StaticMemberProcessor processor = completeStaticMembers(parameters);
-    processor.processMembersOfRegisteredClasses(matcher, (member, psiClass) -> {
+    processor.processMembersOfRegisteredClasses(matcher::prefixMatches, (member, psiClass) -> {
       if (member instanceof GrAccessorMethod) {
         member = ((GrAccessorMethod)member).getProperty();
       }

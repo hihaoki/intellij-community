@@ -1,7 +1,6 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.highlighting;
 
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
@@ -10,6 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,7 +24,7 @@ import java.util.Collection;
  */
 public abstract class HighlightManager {
   public static HighlightManager getInstance(Project project) {
-    return ServiceManager.getService(project, HighlightManager.class);
+    return project.getService(HighlightManager.class);
   }
 
   /**
@@ -146,6 +146,7 @@ public abstract class HighlightManager {
    * @deprecated Use the overload with TextAttributesKey
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addRangeHighlight(@NotNull Editor editor,
                                          int startOffset,
                                          int endOffset,
@@ -157,6 +158,7 @@ public abstract class HighlightManager {
    * @deprecated Use the overload with TextAttributesKey
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addRangeHighlight(@NotNull Editor editor,
                                          int startOffset,
                                          int endOffset,
@@ -169,6 +171,7 @@ public abstract class HighlightManager {
    * @deprecated Use the overload with TextAttributesKey
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addOccurrenceHighlights(@NotNull Editor editor,
                                                PsiReference @NotNull [] occurrences,
                                                @NotNull TextAttributes attributes,
@@ -179,6 +182,7 @@ public abstract class HighlightManager {
    * @deprecated Use the overload with TextAttributesKey
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addOccurrenceHighlights(@NotNull Editor editor,
                                                PsiElement @NotNull [] elements,
                                                @NotNull TextAttributes attributes,
@@ -189,6 +193,7 @@ public abstract class HighlightManager {
    * @deprecated Use the overload with TextAttributesKey
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addOccurrenceHighlight(@NotNull Editor editor,
                                               int start,
                                               int end,

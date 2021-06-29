@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -16,17 +16,14 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.containers.ConcurrentFactoryMap;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.containers.HashingStrategy;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/**
- * @author yole
- */
+
 public final class LibraryScopeCache {
   private final LibrariesOnlyScope myLibrariesOnlyScope;
 
@@ -36,9 +33,9 @@ public final class LibraryScopeCache {
 
   private final Project myProject;
   private final ConcurrentMap<Module[], GlobalSearchScope> myLibraryScopes =
-    ConcurrentCollectionFactory.createMap(new TObjectHashingStrategy<Module[]>() {
+    ConcurrentCollectionFactory.createConcurrentMap(new HashingStrategy<>() {
       @Override
-      public int computeHashCode(Module[] object) {
+      public int hashCode(Module[] object) {
         return Arrays.hashCode(object);
       }
 
@@ -146,8 +143,8 @@ public final class LibraryScopeCache {
   }
 
   private @NotNull GlobalSearchScope calcLibraryUseScope(@NotNull List<? extends OrderEntry> entries) {
-    Set<Module> modulesWithLibrary = new THashSet<>(entries.size());
-    Set<Module> modulesWithSdk = new THashSet<>(entries.size());
+    Set<Module> modulesWithLibrary = new HashSet<>(entries.size());
+    Set<Module> modulesWithSdk = new HashSet<>(entries.size());
     for (OrderEntry entry : entries) {
       (entry instanceof JdkOrderEntry ? modulesWithSdk : modulesWithLibrary).add(entry.getOwnerModule());
     }
@@ -195,6 +192,10 @@ public final class LibraryScopeCache {
     public boolean isSearchInLibraries() {
       return true;
     }
-  }
 
+    @Override
+    public String toString() {
+      return "Libraries only in (" + myBaseScope + ")";
+    }
+  }
 }

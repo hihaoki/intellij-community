@@ -69,8 +69,13 @@ public class GitStagingAreaHolder {
   @Nullable
   private GitConflict createConflict(@Nullable GitFileStatus record) {
     if (record == null) return null;
+    return createConflict(myRepository.getRoot(), record);
+  }
+
+  @Nullable
+  public static GitConflict createConflict(@NotNull VirtualFile root, @NotNull GitFileStatus record) {
     if (!GitIndexStatusUtilKt.isConflicted(record.getIndex(), record.getWorkTree())) return null;
-    return new GitConflict(myRepository.getRoot(), record.getPath(),
+    return new GitConflict(root, record.getPath(),
                            getConflictStatus(record.getIndex()), getConflictStatus(record.getWorkTree()));
   }
 
@@ -92,9 +97,7 @@ public class GitStagingAreaHolder {
     VirtualFile root = myRepository.getRoot();
 
     RecursiveFilePathSet dirtyScope = new RecursiveFilePathSet(true); // GitVcs#needsCaseSensitiveDirtyScope is true
-    for (FilePath path : dirtyPaths) {
-      dirtyScope.add(path);
-    }
+    dirtyScope.addAll(dirtyPaths);
 
     List<GitFileStatus> rootRecords = GitIndexStatusUtilKt.getStatus(myProject, root, dirtyPaths, true, false, false);
     rootRecords.removeIf(record -> {

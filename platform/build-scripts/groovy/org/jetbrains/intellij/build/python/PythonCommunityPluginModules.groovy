@@ -18,8 +18,10 @@ class PythonCommunityPluginModules {
     "intellij.python.copyright",
     "intellij.python.terminal",
     "intellij.python.grazie",
+    "intellij.python.markdown",
     "intellij.python.reStructuredText",
     "intellij.python.sdk",
+    "intellij.python.featuresTrainer",
   ]
   static String pythonCommunityName = "python-ce"
 
@@ -40,11 +42,10 @@ class PythonCommunityPluginModules {
       directoryName = name
       mainJarName = "${name}.jar"
       modules.each { module ->
-        withModule(module, mainJarName, null)
+        withModule(module, mainJarName)
       }
       withModule(mainModuleName, mainJarName)
       withGeneratedResources(new HelpersGenerator(), "helpers")
-      doNotCreateSeparateJarForLocalizableResources()
       withProjectLibrary("libthrift")  // Required for "Python Console" in intellij.python.community.impl module
       body.delegate = delegate
       body()
@@ -63,6 +64,7 @@ class HelpersGenerator implements ResourcesGenerator {
     context.ant.copy(todir: output) {
       fileset(dir: "$context.paths.communityHome/python/helpers") {
         exclude(name: "**/setup.py")
+        exclude(name: "**/.idea/")
         exclude(name: "pydev/pydev_test*")
         exclude(name: "tests/")
       }

@@ -6,9 +6,10 @@ import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.CodeInsightWorkspaceSettings
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings
+import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
-import com.intellij.ide.JavaLanguageCodeStyleSettingsProvider
 import com.intellij.java.JavaBundle
+import com.intellij.lang.java.JavaLanguage
 import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.options.DslConfigurableBase
 import com.intellij.openapi.options.ex.Settings
@@ -18,6 +19,7 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.ContextHelpLabel
 import com.intellij.ui.IdeUICustomization
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.layout.*
 import javax.swing.JComponent
 
@@ -25,12 +27,13 @@ class JavaAutoImportOptions(val project: Project) : DslConfigurableBase(), AutoI
   private val excludeTable = ExcludeTable(project)
 
   override fun createPanel(): DialogPanel {
+    excludeTable.tableView.setShowGrid(false)
     val dcaSettings = DaemonCodeAnalyzerSettings.getInstance()
     val ciSettings = CodeInsightSettings.getInstance()
     val ciWorkspaceSettings = CodeInsightWorkspaceSettings.getInstance(project)
     lateinit var dataContextOwner: JComponent
     return panel {
-      titledRow("Java") {
+      titledRow(JavaLanguage.INSTANCE.displayName) {
         row {
           cell {
             label(JavaBundle.message("label.show.import.popup.for"))
@@ -57,7 +60,11 @@ class JavaAutoImportOptions(val project: Project) : DslConfigurableBase(), AutoI
           }
         }
         row {
-          checkBox(ApplicationBundle.message("checkbox.add.unambiguous.imports.on.the.fly"), ciSettings::ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY)
+          cell {
+            checkBox(ApplicationBundle.message("checkbox.add.unambiguous.imports.on.the.fly"),
+                     ciSettings::ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY)
+            ContextHelpLabel.create(ApplicationBundle.message("help.add.unambiguous.imports"))()
+          }
         }
         row {
           cell {
@@ -68,7 +75,9 @@ class JavaAutoImportOptions(val project: Project) : DslConfigurableBase(), AutoI
               ApplicationBundle.message("help.optimize.imports.on.the.fly"),
               ApplicationBundle.message("help.link.optimize.imports.on.the.fly")
             ) { openJavaImportSettings(dataContextOwner) }()
-            comment(IdeUICustomization.getInstance().projectMessage("configurable.current.project.tooltip"))
+            val label = JBLabel(AllIcons.General.ProjectConfigurable)
+            label.toolTipText = IdeUICustomization.getInstance().projectMessage("configurable.current.project.tooltip")
+            component(label)
           }
         }
         row {

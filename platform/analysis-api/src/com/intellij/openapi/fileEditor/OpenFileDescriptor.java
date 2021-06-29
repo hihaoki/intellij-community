@@ -6,14 +6,13 @@ import com.intellij.openapi.editor.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.pom.Navigatable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Allows opening file in editor, optionally at specific line/column position.
  */
-public class OpenFileDescriptor implements Navigatable, Comparable<OpenFileDescriptor> {
+public class OpenFileDescriptor implements FileEditorNavigatable, Comparable<OpenFileDescriptor> {
   /**
    * Tells descriptor to navigate in specific editor rather than file editor in main IDE window.
    * For example if you want to navigate in editor embedded into modal dialog, you should provide this data.
@@ -28,6 +27,7 @@ public class OpenFileDescriptor implements Navigatable, Comparable<OpenFileDescr
   private final RangeMarker myRangeMarker;
 
   private boolean myUseCurrentWindow;
+  private boolean myUsePreviewTab;
   private ScrollType myScrollType = ScrollType.CENTER;
 
   public OpenFileDescriptor(@NotNull Project project, @NotNull VirtualFile file, int offset) {
@@ -63,6 +63,7 @@ public class OpenFileDescriptor implements Navigatable, Comparable<OpenFileDescr
     }
   }
 
+  @Override
   @NotNull
   public VirtualFile getFile() {
     return myFile;
@@ -171,8 +172,19 @@ public class OpenFileDescriptor implements Navigatable, Comparable<OpenFileDescr
     return this;
   }
 
+  @Override
   public boolean isUseCurrentWindow() {
     return myUseCurrentWindow;
+  }
+
+  public OpenFileDescriptor setUsePreviewTab(boolean usePreviewTab) {
+    myUsePreviewTab = usePreviewTab;
+    return this;
+  }
+
+  @Override
+  public boolean isUsePreviewTab() {
+    return myUsePreviewTab;
   }
 
   public void setScrollType(@NotNull ScrollType scrollType) {

@@ -3,23 +3,21 @@ package com.intellij.execution.testframework;
 
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.Location;
-import com.intellij.execution.configurations.RunConfiguration;
-import com.intellij.execution.configurations.RunProfile;
 import com.intellij.notification.NotificationGroup;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.AppIconScheme;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.pom.Navigatable;
-import com.intellij.psi.PsiElement;
 import com.intellij.ui.AppIcon;
 import com.intellij.ui.SystemNotifications;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,7 +31,7 @@ public final class TestsUIUtil {
   public static final NotificationGroup NOTIFICATION_GROUP = NotificationGroup.logOnlyGroup("Test Runner");
 
   public static final Color PASSED_COLOR = new Color(0, 128, 0);
-  private static final String TESTS = "tests";
+  private static final @NonNls String TESTS = "tests";
 
   static {
     //pre-register notification group for Run ToolWindow to show it in notifications settings
@@ -41,33 +39,6 @@ public final class TestsUIUtil {
   }
 
   private TestsUIUtil() {
-  }
-
-  @Nullable
-  public static Object getData(final AbstractTestProxy testProxy, @NotNull String dataId, final TestFrameworkRunningModel model) {
-    final TestConsoleProperties properties = model.getProperties();
-    final Project project = properties.getProject();
-    if (testProxy == null) return null;
-    if (AbstractTestProxy.DATA_KEY.is(dataId)) return testProxy;
-    if (CommonDataKeys.NAVIGATABLE.is(dataId)) return getOpenFileDescriptor(testProxy, model);
-    if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
-      final Location location = testProxy.getLocation(project, properties.getScope());
-      if (location != null) {
-        final PsiElement element = location.getPsiElement();
-        return element.isValid() ? element : null;
-      }
-      else {
-        return null;
-      }
-    }
-    if (Location.DATA_KEY.is(dataId)) return testProxy.getLocation(project, properties.getScope());
-    if (RunConfiguration.DATA_KEY.is(dataId)) {
-      final RunProfile configuration = properties.getConfiguration();
-      if (configuration instanceof RunConfiguration) {
-        return configuration;
-      }
-    }
-    return null;
   }
 
   public static boolean isMultipleSelectionImpossible(DataContext dataContext) {
@@ -87,8 +58,13 @@ public final class TestsUIUtil {
     return false;
   }
 
-  public static Navigatable getOpenFileDescriptor(final AbstractTestProxy testProxy, final TestFrameworkRunningModel model) {
-    final TestConsoleProperties testConsoleProperties = model.getProperties();
+  public static Navigatable getOpenFileDescriptor(final AbstractTestProxy testProxy,
+                                                  final TestFrameworkRunningModel model) {
+    return getOpenFileDescriptor(testProxy, model.getProperties());
+  }
+
+  public static Navigatable getOpenFileDescriptor(final AbstractTestProxy testProxy,
+                                                  final TestConsoleProperties testConsoleProperties) {
     return getOpenFileDescriptor(testProxy, testConsoleProperties,
                                  TestConsoleProperties.OPEN_FAILURE_LINE.value(testConsoleProperties));
   }
@@ -103,10 +79,11 @@ public final class TestsUIUtil {
       if (openFailureLine) {
         return proxy.getDescriptor(location, testConsoleProperties);
       }
-      final OpenFileDescriptor openFileDescriptor = location == null ? null : location.getOpenFileDescriptor();
-      if (openFileDescriptor != null && openFileDescriptor.getFile().isValid()) {
-        return openFileDescriptor;
+      final Navigatable navigatable = location == null ? null : location.getNavigatable();
+      if (navigatable instanceof OpenFileDescriptor && ((OpenFileDescriptor)navigatable).getFile().isValid()) {
+        return navigatable;
       }
+      return navigatable;
     }
     return null;
   }
@@ -115,7 +92,7 @@ public final class TestsUIUtil {
                                      boolean started,
                                      final AbstractTestProxy root,
                                      final TestConsoleProperties properties,
-                                     @Nullable final String comment) {
+                                     @Nullable final @NlsContexts.SystemNotificationText String comment) {
     notifyByBalloon(project, root, properties, new TestResultPresentation(root, started, comment).getPresentation());
   }
 
@@ -149,14 +126,16 @@ public final class TestsUIUtil {
     SystemNotifications.getInstance().notify("TestRunner", title, text);
   }
 
-  private static String getTestResultsNotificationDisplayId(@NotNull String toolWindowId) {
+  private static @NonNls String getTestResultsNotificationDisplayId(@NotNull String toolWindowId) {
     return "Test Results: " + toolWindowId;
   }
 
+  @NlsContexts.NotificationContent
   public static String getTestSummary(AbstractTestProxy proxy) {
     return new TestResultPresentation(proxy).getPresentation().getBalloonText();
   }
 
+  @NlsContexts.SystemNotificationText
   public static String getTestShortSummary(AbstractTestProxy proxy) {
     return new TestResultPresentation(proxy).getPresentation().getText();
   }
@@ -189,11 +168,11 @@ public final class TestsUIUtil {
   public static class TestResultPresentation {
     private final AbstractTestProxy myRoot;
     private final boolean myStarted;
-    private final String myComment;
+    private final @NlsContexts.SystemNotificationText String myComment;
 
-    private String myTitle;
-    private String myText;
-    private String myBalloonText;
+    private @NlsContexts.SystemNotificationTitle String myTitle;
+    private @NlsContexts.SystemNotificationText String myText;
+    private @NlsContexts.NotificationContent String myBalloonText;
     private MessageType myType;
 
     private int myFailedCount;
@@ -201,7 +180,7 @@ public final class TestsUIUtil {
     private int myNotStartedCount;
     private int myIgnoredCount;
 
-    public TestResultPresentation(AbstractTestProxy root, boolean started, String comment) {
+    public TestResultPresentation(AbstractTestProxy root, boolean started, @NlsContexts.SystemNotificationText String comment) {
       myRoot = root;
       myStarted = started;
       myComment = comment;
@@ -211,15 +190,15 @@ public final class TestsUIUtil {
       this(root, true, null);
     }
 
-    public String getTitle() {
+    public @NlsContexts.SystemNotificationTitle String getTitle() {
       return myTitle;
     }
 
-    public String getText() {
+    public @NlsContexts.SystemNotificationText String getText() {
       return myText;
     }
 
-    public String getBalloonText() {
+    public @NlsContexts.NotificationContent String getBalloonText() {
       return myBalloonText;
     }
 
@@ -287,33 +266,39 @@ public final class TestsUIUtil {
         myIgnoredCount = ignoredCount;
 
         if (failedCount > 0) {
-          myTitle = ExecutionBundle.message("junit.runing.info.tests.failed.label");
+          myTitle = ExecutionBundle.message("junit.running.info.tests.failed.label");
           myBalloonText = TestRunnerBundle.message("tests.failed.0.passed.1.ignored.2.not.started.3",
-                                                   failedCount, passedCount, ignoredCount, notStartedCount);
-          myText = TestRunnerBundle.message("0.failed.1.passed.2.ignored.3.not.started",
-                                            failedCount, passedCount, ignoredCount, notStartedCount);
+                                                   failedCount, passedCount, ignoredCount, ignoredCount > 0 ? 0 : notStartedCount);
+          myText = myComment == null
+                   ? TestRunnerBundle.message("0.failed.1.passed.2.ignored.3.not.started",
+                                              failedCount, passedCount, ignoredCount, ignoredCount > 0 ? 0 : notStartedCount)
+                   : TestRunnerBundle.message("0.failed.1.passed.2.ignored.3.not.started.with.comment",
+                                              failedCount, passedCount, ignoredCount, ignoredCount > 0 ? 0 : notStartedCount, myComment);
           myType = MessageType.ERROR;
         }
         else if (ignoredCount > 0) {
           myTitle = TestRunnerBundle.message("tests.ignored.error.message");
           myBalloonText = TestRunnerBundle.message("tests.ignored.0.passed.1", ignoredCount, passedCount);
-          myText = TestRunnerBundle.message("0.ignored.1.passed", ignoredCount, passedCount);
+          myText = myComment == null
+                   ? TestRunnerBundle.message("0.ignored.1.passed", ignoredCount, passedCount)
+                   : TestRunnerBundle.message("0.ignored.1.passed.with.comment", ignoredCount, passedCount, myComment);
           myType = MessageType.WARNING;
         }
         else if (notStartedCount > 0) {
           myTitle = ExecutionBundle.message("junit.running.info.failed.to.start.error.message");
           myBalloonText = TestRunnerBundle.message("failed.to.start.0.passed.1", notStartedCount, passedCount);
-          myText = TestRunnerBundle.message("0.not.started.1.passed", notStartedCount, passedCount);
+          myText = myComment == null
+                   ? TestRunnerBundle.message("0.not.started.1.passed", notStartedCount, passedCount)
+                   : TestRunnerBundle.message("0.not.started.1.passed.with.comment", notStartedCount, passedCount, myComment);
           myType = MessageType.ERROR;
         }
         else {
-          myTitle = ExecutionBundle.message("junit.runing.info.tests.passed.label");
+          myTitle = ExecutionBundle.message("junit.running.info.tests.passed.label");
           myBalloonText = TestRunnerBundle.message("tests.passed.0", passedCount);
-          myText = TestRunnerBundle.message("0.passed", passedCount);
+          myText = myComment == null
+                   ? TestRunnerBundle.message("0.passed", passedCount)
+                   : TestRunnerBundle.message("0.passed.with.comment", passedCount, myComment);
           myType = MessageType.INFO;
-        }
-        if (myComment != null) {
-          myText += " " + myComment;
         }
       }
       return this;

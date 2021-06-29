@@ -39,7 +39,7 @@ public final class UnknownSdkType extends SdkType {
   }
 
   @Override
-  public boolean isValidSdkHome(String path) {
+  public boolean isValidSdkHome(@NotNull String path) {
     return false;
   }
 
@@ -50,7 +50,7 @@ public final class UnknownSdkType extends SdkType {
 
   @NotNull
   @Override
-  public String suggestSdkName(@Nullable String currentSdkName, String sdkHome) {
+  public String suggestSdkName(@Nullable String currentSdkName, @NotNull String sdkHome) {
     return currentSdkName != null ? currentSdkName : "";
   }
 
@@ -78,9 +78,8 @@ public final class UnknownSdkType extends SdkType {
     }
   }
 
-  @Nullable
   @Override
-  public SdkAdditionalData loadAdditionalData(@NotNull Element additional) {
+  public @NotNull SdkAdditionalData loadAdditionalData(@NotNull Element additional) {
     return new UnknownSdkAdditionalData(additional);
   }
 

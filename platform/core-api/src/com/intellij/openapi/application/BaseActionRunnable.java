@@ -3,16 +3,16 @@ package com.intellij.openapi.application;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.util.ThrowableRunnable;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
+/**
+ * @deprecated Use {@link WriteAction#run(ThrowableRunnable)} or {@link ReadAction#run(ThrowableRunnable)} or similar method instead
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public abstract class BaseActionRunnable<T> {
-  private boolean mySilentExecution;
-
-  public boolean isSilentExecution() {
-    return mySilentExecution;
-  }
-
-  protected abstract void run(@NotNull Result<T> result) throws Throwable;
+  protected abstract void run(@NotNull Result<? super T> result) throws Throwable;
 
   /**
    * @deprecated use {@link ReadAction#run(ThrowableRunnable)}
@@ -23,15 +23,4 @@ public abstract class BaseActionRunnable<T> {
   @Deprecated
   @NotNull
   public abstract RunResult<T> execute();
-
-  /**
-   * Same as {@link #execute()}, but does not log an error if an exception occurs.
-   * @deprecated use {@link ReadAction#run(ThrowableRunnable)} or  {@link WriteAction#run(ThrowableRunnable)} instead
-   */
-  @Deprecated
-  @NotNull
-  public final RunResult<T> executeSilently() {
-    mySilentExecution = true;
-    return execute();
-  }
 }

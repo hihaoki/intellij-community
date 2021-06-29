@@ -31,9 +31,11 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.nio.file.Paths;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 
 public class JUnit5TestRunnerUtil {
   private static final String[] DISABLED_ANNO = {"org.junit.jupiter.api.Disabled"};
@@ -44,6 +46,12 @@ public class JUnit5TestRunnerUtil {
     "org.junit.jupiter.api.condition.DisabledIfSystemProperty",
     "org.junit.jupiter.api.condition.DisabledOnOs"
   };
+
+  private static final String[] SCRIPT_COND_ANNO =
+    {
+      "org.junit.jupiter.api.condition.DisabledIf",
+      "org.junit.jupiter.api.condition.EnabledIf"
+    };
 
   private static final String[] ENABLED_COND_ANNO = {
     "org.junit.jupiter.api.condition.EnabledOnJre",
@@ -87,7 +95,18 @@ public class JUnit5TestRunnerUtil {
             builder = builder.selectors(selectors);
           }
           if (filters != null && !filters.isEmpty()) {
-            builder = builder.filters(ClassNameFilter.includeClassNamePatterns(filters.split("\\|\\|")));
+            String[] classNames = filters.split("\\|\\|");
+            for (String className : classNames) {
+              if (!className.contains("*")) {
+                try {
+                  Class.forName(className, false, JUnit5TestRunnerUtil.class.getClassLoader());
+                }
+                catch (ClassNotFoundException e) {
+                  System.err.println(MessageFormat.format(ResourceBundle.getBundle("messages.RuntimeBundle").getString("junit.class.not.found"), className));
+                }
+              }
+            }
+            builder = builder.filters(ClassNameFilter.includeClassNamePatterns(classNames));
           }
           if (tags != null && !tags.isEmpty()) {
             builder = builder
@@ -159,7 +178,7 @@ public class JUnit5TestRunnerUtil {
     return null;
   }
 
-  private static String getDisabledCondition(ClassLoader loader, AnnotatedElement annotatedElement) throws ClassNotFoundException {
+  private static String getDisabledCondition(ClassLoader loader, AnnotatedElement annotatedElement) {
     if (isDisabledCondition(DISABLED_COND_ANNO, loader, annotatedElement)) {
       return "org.junit.*Disabled*Condition";
     }
@@ -168,17 +187,25 @@ public class JUnit5TestRunnerUtil {
       return "org.junit.*Enabled*Condition";
     }
 
+    if (isDisabledCondition(SCRIPT_COND_ANNO, loader, annotatedElement)) {
+      return "org.junit.*DisabledIfCondition";
+    }
+
     if (isDisabledCondition(DISABLED_ANNO, loader, annotatedElement)) {
       return "org.junit.*DisabledCondition";
     }
     return null;
   }
 
-  private static boolean isDisabledCondition(String[] anno, ClassLoader loader, AnnotatedElement annotatedElement) throws ClassNotFoundException {
+  private static boolean isDisabledCondition(String[] anno, ClassLoader loader, AnnotatedElement annotatedElement) {
     for (String disabledAnnotationName : anno) {
-      Class<? extends Annotation> disabledAnnotation = (Class<? extends Annotation>)Class.forName(disabledAnnotationName, false, loader);
-      if (AnnotationUtils.findAnnotation(annotatedElement, disabledAnnotation).isPresent()) {
-        return true;
+      try {
+        Class<? extends Annotation> disabledAnnotation = (Class<? extends Annotation>)Class.forName(disabledAnnotationName, false, loader);
+        if (AnnotationUtils.findAnnotation(annotatedElement, disabledAnnotation).isPresent()) {
+          return true;
+        }
+      } catch (ClassNotFoundException e) {
+        // TODO we just ignore it. In later Junit5 versions some condition annotations were removed, i.e. @DisabledIf
       }
     }
     return false;

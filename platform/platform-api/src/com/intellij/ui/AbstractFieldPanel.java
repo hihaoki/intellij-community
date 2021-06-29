@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.icons.AllIcons;
@@ -8,13 +8,13 @@ import com.intellij.openapi.actionSystem.CustomShortcutSet;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAwareAction;
-import com.intellij.openapi.ui.ComponentWithBrowseButton;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.FixedSizeButton;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.components.fields.ExtendableTextComponent;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -54,9 +54,9 @@ public abstract class AbstractFieldPanel extends JPanel {
   }
 
 
-  public abstract String getText();
+  public abstract @Nls String getText();
 
-  public abstract void setText(String text);
+  public abstract void setText(@Nls String text);
 
   @Override
   public void setEnabled(boolean enabled) {
@@ -110,7 +110,7 @@ public abstract class AbstractFieldPanel extends JPanel {
     this.add(myComponent, new GridBagConstraints(0, 1, 1, 1, 1.0, 0.0, GridBagConstraints.WEST, GridBagConstraints.HORIZONTAL, JBUI.emptyInsets(), 0, 0));
 
     if (myBrowseButtonActionListener != null) {
-      if (myComponent instanceof ExtendableTextComponent && ComponentWithBrowseButton.isUseInlineBrowserButton()) {
+      if (myComponent instanceof ExtendableTextComponent) {
         ((ExtendableTextComponent)myComponent).addExtension(ExtendableTextComponent.Extension.create(
           getDefaultIcon(), getHoveredIcon(), getIconTooltip(), this::notifyActionListener));
         new DumbAwareAction() {
@@ -161,7 +161,7 @@ public abstract class AbstractFieldPanel extends JPanel {
   }
 
   @NotNull
-  protected String getIconTooltip() {
+  protected @NlsContexts.Tooltip String getIconTooltip() {
     return UIBundle.message("component.with.browse.button.browse.button.tooltip.text") + " (" +
            KeymapUtil.getKeystrokeText(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK)) + ")";
   }

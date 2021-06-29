@@ -4,6 +4,8 @@ package org.editorconfig.plugincomponents;
 import com.intellij.application.options.codeStyle.cache.CodeStyleCachingService;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
@@ -28,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
+@Service
 public final class SettingsProviderComponent extends SimpleModificationTracker {
   private static final Key<CachedValue<List<OutPair>>> CACHED_PAIRS = Key.create("editorconfig.cached.pairs");
   public static final String ERROR = "___error___";
@@ -80,13 +83,15 @@ public final class SettingsProviderComponent extends SimpleModificationTracker {
       final VirtualFile projectBase = project.getBaseDir();
       if (projectBase != null) {
         dirs.add(project.getBasePath());
-        for (Module module : ModuleManager.getInstance(project).getModules()) {
-          for (VirtualFile root : ModuleRootManager.getInstance(module).getContentRoots()) {
-            if (!VfsUtilCore.isAncestor(projectBase, root, false)) {
-              dirs.add(root.getPath());
+        ReadAction.run(() -> {
+          for (Module module : ModuleManager.getInstance(project).getModules()) {
+            for (VirtualFile root : ModuleRootManager.getInstance(module).getContentRoots()) {
+              if (!VfsUtilCore.isAncestor(projectBase, root, false)) {
+                dirs.add(root.getPath());
+              }
             }
           }
-        }
+        });
       }
       dirs.add(PathManager.getConfigPath());
       return new CachedValueProvider.Result<>(dirs, ProjectRootModificationTracker.getInstance(project));

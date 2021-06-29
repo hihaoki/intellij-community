@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author: Eugene Zhuravlev
@@ -8,6 +8,7 @@ package com.intellij.debugger.engine;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.openapi.application.ReadAction;
@@ -113,15 +114,11 @@ public class RequestHint {
 
   protected boolean isTheSameFrame(SuspendContextImpl context) {
     if (mySteppedOut) return false;
-    final ThreadReferenceProxyImpl contextThread = context.getThread();
+    ThreadReferenceProxyImpl contextThread = context.getThread();
     if (contextThread != null) {
-      try {
-        int currentDepth = contextThread.frameCount();
-        if (currentDepth < myFrameCount) mySteppedOut = true;
-        return currentDepth == myFrameCount;
-      }
-      catch (EvaluateException ignored) {
-      }
+      int currentDepth = context.frameCount();
+      if (currentDepth < myFrameCount) mySteppedOut = true;
+      return currentDepth == myFrameCount;
     }
     return false;
   }
@@ -225,7 +222,9 @@ public class RequestHint {
           try {
             if (filter.isApplicable(context)) return filter.getStepRequestDepth(context);
           }
-          catch (Exception | AssertionError e) {LOG.error(e);}
+          catch (Exception | AssertionError e) {
+            DebuggerUtilsImpl.logError(e);
+          }
         }
       }
       // smart step feature

@@ -10,7 +10,6 @@ import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.ex.KeymapManagerEx;
 import com.intellij.openapi.keymap.impl.ActionShortcutRestrictions;
 import com.intellij.openapi.keymap.impl.KeymapImpl;
-import com.intellij.openapi.keymap.impl.KeymapManagerImpl;
 import com.intellij.openapi.keymap.impl.ShortcutRestrictions;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase;
@@ -155,10 +154,10 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
       actionManager.unregisterAction(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
       actionManager.unregisterAction(ACTION_WITH_FIXED_SHORTCUTS);
 
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED_IN_PARENT);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED_IN_PARENT);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
     }
     catch (Throwable e) {
       addSuppressedException(e);
@@ -205,20 +204,20 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
       try {
         AnAction stub = manager.getActionOrStub(id);
         AnAction action = manager.getAction(id);
-        String message = id + " (" + action.getClass().getName() + ")";
+        String actionIdAndClass = id + " (" + action.getClass().getName() + ")";
         if (stub != action) {
           Presentation before = stub.getTemplatePresentation();
           Presentation after = action.getTemplatePresentation();
-          checkPresentationProperty("icon", message, before.getIcon(), after.getIcon());
-          checkPresentationProperty("text", message, before.getText(), after.getText());
-          checkPresentationProperty("description", message, before.getDescription(), after.getDescription());
+          checkPresentationProperty("icon", actionIdAndClass, before.getIcon(), after.getIcon());
+          checkPresentationProperty("text", actionIdAndClass, before.getText(), after.getText());
+          checkPresentationProperty("description", actionIdAndClass, before.getDescription(), after.getDescription());
         }
 
         if (action instanceof ActionGroup) {
-          LOG.debug("ignored action group: " + message);
+          LOG.debug("ignored action group: " + actionIdAndClass);
         }
         else if (StringUtil.isEmpty(action.getTemplatePresentation().getText())) {
-          failures.add("no text: " + message);
+          failures.add("no text is defined for template presentation of " + actionIdAndClass + "; even if text is set in 'update' method the internal ID will be shown in Settings | Keymap");
         }
       }
       catch (PluginException exception) {

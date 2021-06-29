@@ -25,15 +25,6 @@
         <reference id="ExternalSystem.ShowCommonSettings"/>
         <reference id="ExternalSystem.ShowSettings"/>
       </group>
-      <group id="ExternalSystem.ToggleAutoReload"
-             class="com.intellij.openapi.externalSystem.autoimport.ToggleAutoReloadActionGroup">
-        <action id="ExternalSystem.ToggleAutoReload.All"
-                class="com.intellij.openapi.externalSystem.autoimport.UseAllAutoReloadTypeAction"/>
-        <action id="ExternalSystem.ToggleAutoReload.Selective"
-                class="com.intellij.openapi.externalSystem.autoimport.UseSelectiveAutoReloadTypeAction"/>
-        <action id="ExternalSystem.ToggleAutoReload.None"
-                class="com.intellij.openapi.externalSystem.autoimport.UseNoneAutoReloadTypeAction"/>
-      </group>
       <action id="ExternalSystem.OpenTasksActivationManager"
               class="com.intellij.openapi.externalSystem.action.OpenTasksActivationManagerAction">
       </action>
@@ -188,7 +179,6 @@
         <keyboard-shortcut first-keystroke="control shift O" keymap="Visual Studio" remove="true"/>
         <keyboard-shortcut first-keystroke="meta shift O" keymap="Mac OS X" replace-all="true"/>
         <keyboard-shortcut first-keystroke="meta shift O" keymap="Eclipse (Mac OS X)" replace-all="true" remove="true"/>
-        <keyboard-shortcut first-keystroke="meta shift O" keymap="Xcode" replace-all="true" remove="true"/>
         <keyboard-shortcut first-keystroke="meta shift I" keymap="Mac OS X 10.5+" replace-all="true"/>
       </action>
       <action id="ExternalSystem.HideProjectRefreshAction" class="com.intellij.openapi.externalSystem.autoimport.HideProjectRefreshAction"/>

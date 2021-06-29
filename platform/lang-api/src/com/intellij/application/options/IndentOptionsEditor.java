@@ -17,12 +17,14 @@
 package com.intellij.application.options;
 
 import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.ui.OptionGroup;
 import com.intellij.ui.components.fields.IntegerField;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -86,6 +88,7 @@ public class IndentOptionsEditor extends OptionGroup implements CodeStyleSetting
    * @deprecated Use {@link #createIndentTextField(String, int, int, int)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected JTextField createIndentTextField() {
     return createIndentTextField(null, Integer.MIN_VALUE, Integer.MAX_VALUE, 0);
   }
@@ -210,11 +213,11 @@ public class IndentOptionsEditor extends OptionGroup implements CodeStyleSetting
     myCbUseTab.setVisible(visible);
   }
 
-  private static String getIndentLabel() {
+  private static @NlsContexts.Label String getIndentLabel() {
     return ApplicationBundle.message("editbox.indent.indent");
   }
 
-  private static String getTabSizeLabel() {
+  private static @NlsContexts.Label String getTabSizeLabel() {
     return ApplicationBundle.message("editbox.indent.tab.size");
   }
 

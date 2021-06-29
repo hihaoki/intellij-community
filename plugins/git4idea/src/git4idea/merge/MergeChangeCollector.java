@@ -14,6 +14,7 @@ import git4idea.GitVcs;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommand;
 import git4idea.commands.GitLineHandler;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.util.StringScanner;
 import org.jetbrains.annotations.ApiStatus;
@@ -43,15 +44,6 @@ public class MergeChangeCollector {
   }
 
   /**
-   * @deprecated use constructor with GitRepository
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  public MergeChangeCollector(@NotNull Project project, @NotNull VirtualFile root, @NotNull GitRevisionNumber start) {
-    this(project, Objects.requireNonNull(GitUtil.getRepositoryManager(project).getRepositoryForRoot(root)), start);
-  }
-
-  /**
    * Collects changed files during or after merge operation to the supplied container.
    */
   public void collect(@NotNull UpdatedFiles updatedFiles) throws VcsException {
@@ -78,6 +70,7 @@ public class MergeChangeCollector {
    * @deprecated Use {@link #collect(UpdatedFiles)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void collect(@NotNull UpdatedFiles updatedFiles, List<? super VcsException> exceptions) {
     try {
       collect(updatedFiles);
@@ -132,7 +125,7 @@ public class MergeChangeCollector {
    */
   @Nullable
   public String getRevisionsForDiff() throws VcsException {
-    GitRevisionNumber currentHead = GitRevisionNumber.resolve(myProject, myRoot, "HEAD");
+    GitRevisionNumber currentHead = GitRevisionNumber.resolve(myProject, myRoot, GitUtil.HEAD);
     if (currentHead.equals(myStart)) {
       // The head has not advanced. This means that this is a merge that did not commit.
       // This could be caused by --no-commit option or by failed two-head merge. The MERGE_HEAD
@@ -154,14 +147,14 @@ public class MergeChangeCollector {
         }
       }
       catch (IOException e) {
-        throw new VcsException("Unable to read the file " + mergeHeadsFile + ": " + e.getMessage(), e);
+        throw new VcsException(GitBundle.message("merge.error.unable.to.read.merge.head", mergeHeadsFile, e.getLocalizedMessage()), e);
       }
     }
     else {
       // Otherwise this is a merge that did created a commit. And because of this the incoming changes
       // are diffs between old head and new head. The commit could have been multihead commit,
       // and the expression below considers it as well.
-      return myStart.getRev() + "..HEAD";
+      return myStart.getRev() + ".." + GitUtil.HEAD;
     }
     return null;
   }

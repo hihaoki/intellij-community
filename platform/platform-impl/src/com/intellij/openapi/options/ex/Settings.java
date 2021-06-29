@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.ex;
 
 import com.intellij.openapi.actionSystem.DataKey;
@@ -45,15 +45,45 @@ public abstract class Settings {
   public final ActionCallback select(Configurable configurable, String option) {
     ActionCallback callback = select(configurable);
     if (option != null && configurable instanceof SearchableConfigurable) {
-      SearchableConfigurable searchable = (SearchableConfigurable)configurable;
-      Runnable search = searchable.enableSearch(option);
-      if (search != null) callback.doWhenDone(search);
+      Runnable runnable = ((SearchableConfigurable)configurable).enableSearch(option);
+      callback.doWhenDone(() -> {
+        if (runnable != null) {
+          runnable.run();
+        }
+        else {
+          setSearchText(option);
+        }
+      });
     }
     return callback;
   }
 
   @NotNull
   protected abstract Promise<? super Object> selectImpl(Configurable configurable);
+
+  public final @Nullable Configurable getConfigurableWithInitializedUiComponent(@NotNull String configurableId,
+                                                                                boolean initializeUiComponentIfNotYet) {
+    Configurable c = find(configurableId);
+    if (c == null) return null;
+
+    Configurable configurable = choose(c, myMap.get(c));
+    return getConfigurableWithInitializedUiComponentImpl(configurable, initializeUiComponentIfNotYet);
+  }
+
+  protected abstract Configurable getConfigurableWithInitializedUiComponentImpl(@NotNull Configurable configurable,
+                                                                                boolean initializeUiComponentIfNotYet);
+
+  public final void checkModified(@NotNull String configurableId) {
+    Configurable c = find(configurableId);
+    if (c == null) return;
+
+    Configurable configurable = choose(c, myMap.get(c));
+    checkModifiedImpl(configurable);
+  }
+
+  protected abstract void checkModifiedImpl(@NotNull Configurable configurable);
+
+  protected abstract void setSearchText(String option);
 
   private <T extends Configurable> T unwrap(Configurable configurable, Class<T> type) {
     T result = ConfigurableWrapper.cast(type, configurable);

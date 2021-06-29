@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
 import com.intellij.openapi.actionSystem.DataContext;
@@ -16,11 +16,9 @@ import org.jetbrains.annotations.NotNull;
  * Note that {@code PsiFile} passed to handler's methods isn't guaranteed to be in sync with the document at the time of invocation
  * (due to performance considerations). {@link com.intellij.psi.PsiDocumentManager#commitDocument(Document)} should be invoked explicitly,
  * if an up-to-date PSI is required.
- *
- * @author yole
  */
 public abstract class TypedHandlerDelegate {
-  public static final ExtensionPointName<TypedHandlerDelegate> EP_NAME = ExtensionPointName.create("com.intellij.typedHandler");
+  public static final ExtensionPointName<TypedHandlerDelegate> EP_NAME = new ExtensionPointName<>("com.intellij.typedHandler");
 
   /**
    * If the specified character triggers auto-popup, schedules the auto-popup appearance. This method is called even
@@ -43,7 +41,7 @@ public abstract class TypedHandlerDelegate {
   /**
    * Called before the specified character typed by the user is inserted in the editor.
    */
-  @NotNull 
+  @NotNull
   public Result beforeCharTyped(char c, @NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file, @NotNull FileType fileType) {
     return Result.CONTINUE;
   }
@@ -51,7 +49,7 @@ public abstract class TypedHandlerDelegate {
   /**
    * Called after the specified character typed by the user has been inserted in the editor.
    */
-  @NotNull                        
+  @NotNull
   public Result charTyped(char c, @NotNull Project project, @NotNull final Editor editor, @NotNull final PsiFile file) {
     return Result.CONTINUE;
   }

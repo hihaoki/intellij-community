@@ -120,11 +120,22 @@ public class ProblemsHolder {
   }
 
   /**
+   * Use to register a place ({@code identifier}) which was skipped during local analysis e.g., due to too long search or similar.
+   * <p/>
+   * Such problems would be silently skipped in batch. During local analysis they would signal 'RedundantSuppression' inspection
+   * that this part was not fully processed by initial inspection and that the suppression may be not redundant
+   */
+  @SuppressWarnings({"HardCodedStringLiteral", "DialogTitleCapitalization"})
+  public void registerPossibleProblem(PsiElement identifier) {
+    registerProblem(identifier, "possible problem", ProblemHighlightType.POSSIBLE_PROBLEM);
+  }
+
+  /**
    * Returns {@link EmptyResolveMessageProvider#getUnresolvedMessagePattern()} (if implemented),
    * otherwise, default message "Cannot resolve symbol '[reference.getCanonicalText()]'".
    */
   @NotNull
-  public static String unresolvedReferenceMessage(@NotNull PsiReference reference) {
+  public static @InspectionMessage String unresolvedReferenceMessage(@NotNull PsiReference reference) {
     String message;
     if (reference instanceof EmptyResolveMessageProvider) {
       String pattern = ((EmptyResolveMessageProvider)reference).getUnresolvedMessagePattern();

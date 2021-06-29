@@ -1,16 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorMarkupModel;
 import com.intellij.openapi.editor.ex.ErrorStripTooltipRendererProvider;
 import com.intellij.openapi.editor.impl.EditorMarkupModelImpl;
 import com.intellij.openapi.editor.markup.ErrorStripeRenderer;
+import com.intellij.openapi.editor.markup.UIController;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
@@ -22,7 +22,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class ErrorStripeUpdateManager implements Disposable {
   public static ErrorStripeUpdateManager getInstance(Project project) {
-    return ServiceManager.getService(project, ErrorStripeUpdateManager.class);
+    return project.getService(ErrorStripeUpdateManager.class);
   }
 
   private final Project myProject;
@@ -59,9 +59,9 @@ public final class ErrorStripeUpdateManager implements Disposable {
   }
 
   @SuppressWarnings("WeakerAccess") // Used in Rider
-  protected void setOrRefreshErrorStripeRenderer(@NotNull EditorMarkupModel editorMarkupModel, @Nullable PsiFile file) {
+  void setOrRefreshErrorStripeRenderer(@NotNull EditorMarkupModel editorMarkupModel, @Nullable PsiFile file) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    if (!editorMarkupModel.isErrorStripeVisible() || !DaemonCodeAnalyzer.getInstance(myProject).isHighlightingAvailable(file)) {
+    if (!editorMarkupModel.isErrorStripeVisible() || file == null || !DaemonCodeAnalyzer.getInstance(myProject).isHighlightingAvailable(file)) {
       return;
     }
     ErrorStripeRenderer renderer = editorMarkupModel.getErrorStripeRenderer();
@@ -83,14 +83,19 @@ public final class ErrorStripeUpdateManager implements Disposable {
     return new DaemonTooltipRendererProvider(myProject, editor);
   }
 
-  @Nullable
-  protected TrafficLightRenderer createRenderer(@NotNull Editor editor, @Nullable PsiFile file) {
+  private TrafficLightRenderer createRenderer(@NotNull Editor editor, @Nullable PsiFile file) {
     for (TrafficLightRendererContributor contributor : TrafficLightRendererContributor.EP_NAME.getExtensionList()) {
       TrafficLightRenderer renderer = contributor.createRenderer(editor, file);
       if (renderer != null) {
         return renderer;
       }
     }
-    return new TrafficLightRenderer(myProject, editor.getDocument());
+    return new TrafficLightRenderer(myProject, editor.getDocument()) {
+      @Override
+      @NotNull
+      protected UIController createUIController() {
+        return super.createUIController(editor);
+      }
+    };
   }
 }

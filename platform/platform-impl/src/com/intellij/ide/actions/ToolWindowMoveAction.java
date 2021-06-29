@@ -1,8 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.internal.statistic.eventLog.EventPair;
+import com.intellij.internal.statistic.eventLog.events.EventPair;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
@@ -14,6 +14,7 @@ import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.WindowInfo;
 import com.intellij.ui.UIBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,6 +28,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     LeftTop, LeftBottom, BottomLeft, BottomRight, RightBottom, RightTop, TopRight, TopLeft;
 
     @Override
+    @Nls
     public String toString() {
       String top = UIBundle.message("tool.window.move.to.top.action.name");
       String left = UIBundle.message("tool.window.move.to.left.action.name");
@@ -50,7 +52,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
         case TopLeft:
           return top + " " + left;
       }
-      return super.toString();
+      throw new IllegalStateException("Should not be invoked");
     }
 
     @NotNull
@@ -91,7 +93,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     }
 
     @NotNull
-    private Icon getIcon() {
+    public Icon getIcon() {
       switch (this) {
         case LeftTop:
           return AllIcons.Actions.MoveToLeftTop;
@@ -116,7 +118,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
       return getAnchor() == window.getAnchor() && window.isSplitMode() == isSplit();
     }
 
-    void applyTo(@NotNull ToolWindow window) {
+    public void applyTo(@NotNull ToolWindow window) {
       window.setAnchor(getAnchor(), null);
       window.setSplitMode(isSplit(), null);
     }
@@ -167,7 +169,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
   }
 
   @Override
-  public @NotNull List<EventPair> getAdditionalUsageData(@NotNull AnActionEvent event) {
+  public @NotNull List<EventPair<?>> getAdditionalUsageData(@NotNull AnActionEvent event) {
     ToolWindow toolWindow = getToolWindow(event);
     if (toolWindow != null) {
       return Collections.singletonList(ToolwindowFusEventFields.TOOLWINDOW.with(toolWindow.getId()));

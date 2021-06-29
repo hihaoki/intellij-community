@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.newProject.steps;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -9,6 +9,7 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ComboboxSpeedSearch;
 import com.intellij.ui.ComboboxWithBrowseButton;
@@ -25,9 +26,7 @@ import java.awt.event.ActionListener;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class PythonSdkChooserCombo extends ComboboxWithBrowseButton {
   private final List<ActionListener> myChangedListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private static final Logger LOG = Logger.getInstance(PythonSdkChooserCombo.class);
@@ -44,7 +43,7 @@ public class PythonSdkChooserCombo extends ComboboxWithBrowseButton {
     final Sdk initialSelection = ContainerUtil.find(sdks, acceptableSdkCondition);
     final JComboBox comboBox = getComboBox();
     comboBox.setModel(new CollectionComboBoxModel(sdks, initialSelection));
-    comboBox.setRenderer(new PySdkListCellRenderer(null));
+    comboBox.setRenderer(new PySdkListCellRenderer());
     addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -65,7 +64,8 @@ public class PythonSdkChooserCombo extends ComboboxWithBrowseButton {
 
   private void updateTooltip() {
     final Object item = getComboBox().getSelectedItem();
-    getComboBox().setToolTipText(item instanceof Sdk ? ((Sdk)item).getHomePath() : null);
+    String sdkHomePath = item instanceof Sdk ? ((Sdk)item).getHomePath() : null;
+    getComboBox().setToolTipText(sdkHomePath != null ? FileUtil.toSystemDependentName(sdkHomePath) : null);
   }
 
   private void showOptions(@Nullable final Project project, @Nullable Module module) {

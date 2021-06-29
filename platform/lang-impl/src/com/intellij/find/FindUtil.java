@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.find;
 
@@ -8,8 +8,6 @@ import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter;
 import com.intellij.find.impl.FindInProjectUtil;
 import com.intellij.find.replaceInProject.ReplaceInProjectManager;
-import com.intellij.internal.statistic.eventLog.FeatureUsageData;
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -36,10 +34,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -179,6 +174,7 @@ public final class FindUtil {
       }
       if (start < end && selectWordIfFound) {
         editor.getSelectionModel().setSelection(start, end);
+        EditorSearchSession.logSelectionUpdate();
       }
     }
     else {
@@ -319,7 +315,7 @@ public final class FindUtil {
   static void findAllAndShow(@NotNull Project project, @NotNull PsiFile psiFile, @NotNull FindModel findModel) {
     findModel.setCustomScope(true);
     findModel.setProjectScope(false);
-    findModel.setCustomScopeName("File " + psiFile.getName());
+    findModel.setCustomScopeName(FindBundle.message("file.scope.name.0", psiFile.getName()));
     List<Usage> usages = findAll(project, psiFile, findModel);
     if (usages == null) return;
     final UsageTarget[] usageTargets = {new FindInProjectUtil.StringUsageTarget(project, findModel)};
@@ -733,6 +729,7 @@ public final class FindUtil {
       }
       else {
         selection.setSelection(result.getStartOffset(), result.getEndOffset());
+        EditorSearchSession.logSelectionUpdate();
       }
     }
 
@@ -899,7 +896,7 @@ public final class FindUtil {
   public static <T> UsageView showInUsageView(@Nullable PsiElement sourceElement,
                                               T @NotNull [] targets,
                                               @NotNull Function<? super T, ? extends Usage> usageConverter,
-                                              @NotNull String title,
+                                              @NlsContexts.TabTitle @NotNull String title,
                                               @Nullable Consumer<? super UsageViewPresentation> presentationSetup,
                                               @NotNull Project project) {
     if (targets.length == 0) return null;
@@ -938,7 +935,7 @@ public final class FindUtil {
   @Nullable
   public static UsageView showInUsageView(@Nullable PsiElement sourceElement,
                                           PsiElement @NotNull [] targets,
-                                          @NotNull String title,
+                                          @NotNull @NlsContexts.TabTitle String title,
                                           @NotNull Project project) {
     if (targets.length == 0) return null;
     PsiElement[] primary = sourceElement == null ? PsiElement.EMPTY_ARRAY : new PsiElement[]{sourceElement};
@@ -1010,6 +1007,7 @@ public final class FindUtil {
       EditorActionUtil.makePositionVisible(editor, selectionStartOffset);
       EditorActionUtil.makePositionVisible(editor, selectionEndOffset);
       newCaret.setSelection(selectionStartOffset, selectionEndOffset);
+      EditorSearchSession.logSelectionUpdate();
       return true;
     }
   }
@@ -1017,21 +1015,5 @@ public final class FindUtil {
   private static int getCaretPosition(FindResult findResult, int caretShiftFromSelectionStart) {
     return caretShiftFromSelectionStart < 0
            ? findResult.getEndOffset() : Math.min(findResult.getStartOffset() + caretShiftFromSelectionStart, findResult.getEndOffset());
-  }
-
-  public static void triggerUsedOptionsStats(@NotNull String type, @NotNull FindModel model) {
-    FeatureUsageData data = new FeatureUsageData().
-      addData("type", type).
-      addData("case_sensitive", model.isCaseSensitive()).
-      addData("whole_words_only", model.isWholeWordsOnly()).
-      addData("regular_expressions", model.isRegularExpressions()).
-      addData("with_file_filter", model.getFileFilter() != null).
-      addData("context", model.getSearchContext().name());
-    FUCounterUsageLogger.getInstance().logEvent("find", "search.session.started", data);
-  }
-
-  public static void triggerRegexHelpClicked(@Nullable String type) {
-    FeatureUsageData data = new FeatureUsageData().addData("type", StringUtil.notNullize(type, "Unknown"));
-    FUCounterUsageLogger.getInstance().logEvent("find", "regexp.help.clicked", data);
   }
 }

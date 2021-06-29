@@ -3,12 +3,14 @@ package com.intellij.ide.actionMacro;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.ui.playback.commands.KeyCodeTypeCommand;
 import com.intellij.openapi.ui.playback.commands.TypeCommand;
 import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jdom.Element;
@@ -18,7 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ActionMacro {
+public final class ActionMacro {
   private String myName;
 
   private final ArrayList<ActionDescriptor> myActions = new ArrayList<>();
@@ -48,6 +50,7 @@ public class ActionMacro {
     myName = name;
   }
 
+  @NlsSafe
   public String getName() {
     return myName;
   }
@@ -272,10 +275,12 @@ public class ActionMacro {
     @Override
     public void playBack(DataContext context) {
       Editor editor = CommonDataKeys.EDITOR.getData(context);
-      EditorActionManager.getInstance();
-      final TypedAction typedAction = TypedAction.getInstance();
-      for (final char aChar : myText.toCharArray()) {
-        typedAction.actionPerformed(editor, aChar, context);
+      if (editor != null) {
+        EditorActionManager.getInstance();
+        final TypedAction typedAction = TypedAction.getInstance();
+        for (final char aChar : myText.toCharArray()) {
+          typedAction.actionPerformed(editor, aChar, context);
+        }
       }
     }
 
@@ -359,11 +364,10 @@ public class ActionMacro {
       if (action == null) return;
       Presentation presentation = action.getTemplatePresentation().clone();
       AnActionEvent event = new AnActionEvent(null, context, "MACRO_PLAYBACK", presentation, ActionManager.getInstance(), 0);
-      action.beforeActionPerformedUpdate(event);
-      if (!presentation.isEnabled()) {
+      if (!ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
         return;
       }
-      action.actionPerformed(event);
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event);
     }
 
     @Override

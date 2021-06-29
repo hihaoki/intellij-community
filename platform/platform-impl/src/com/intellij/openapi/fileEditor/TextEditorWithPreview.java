@@ -3,11 +3,13 @@ package com.intellij.openapi.fileEditor;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
@@ -16,15 +18,19 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.JBSplitter;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static com.intellij.openapi.actionSystem.ActionPlaces.TEXT_EDITOR_WITH_PREVIEW;
 
@@ -41,22 +47,33 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
   private final MyListenersMultimap myListenersGenerator = new MyListenersMultimap();
   private final Layout myDefaultLayout;
   private Layout myLayout;
+  private boolean myIsVerticalSplit;
   private JComponent myComponent;
+  private JBSplitter mySplitter;
   private SplitEditorToolbar myToolbarWrapper;
-  private final String myName;
+  private final @Nls String myName;
   public static final Key<Layout> DEFAULT_LAYOUT_FOR_FILE = Key.create("TextEditorWithPreview.DefaultLayout");
 
   public TextEditorWithPreview(@NotNull TextEditor editor,
                                @NotNull FileEditor preview,
-                               @NotNull String editorName,
-                               @NotNull Layout defaultLayout) {
+                               @NotNull @Nls String editorName,
+                               @NotNull Layout defaultLayout,
+                               boolean isVerticalSplit) {
     myEditor = editor;
     myPreview = preview;
     myName = editorName;
-    myDefaultLayout = defaultLayout;
+    myDefaultLayout = ObjectUtils.notNull(getLayoutForFile(myEditor.getFile()), defaultLayout);
+    myIsVerticalSplit = isVerticalSplit;
   }
 
-  public TextEditorWithPreview(@NotNull TextEditor editor, @NotNull FileEditor preview, @NotNull String editorName) {
+  public TextEditorWithPreview(@NotNull TextEditor editor,
+                               @NotNull FileEditor preview,
+                               @NotNull @Nls String editorName,
+                               @NotNull Layout defaultLayout) {
+    this(editor, preview, editorName, defaultLayout, false);
+  }
+
+  public TextEditorWithPreview(@NotNull TextEditor editor, @NotNull FileEditor preview, @NotNull @Nls String editorName) {
     this(editor, preview, editorName, Layout.SHOW_EDITOR_AND_PREVIEW);
   }
 
@@ -104,23 +121,31 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
   @Override
   public JComponent getComponent() {
     if (myComponent == null) {
-      final JBSplitter splitter = new JBSplitter(false, 0.5f, 0.15f, 0.85f);
-      splitter.setSplitterProportionKey(getSplitterProportionKey());
-      splitter.setFirstComponent(myEditor.getComponent());
-      splitter.setSecondComponent(myPreview.getComponent());
-      splitter.setDividerWidth(3);
+      mySplitter = new JBSplitter(myIsVerticalSplit, 0.5f, 0.15f, 0.85f);
+      mySplitter.setSplitterProportionKey(getSplitterProportionKey());
+      mySplitter.setFirstComponent(myEditor.getComponent());
+      mySplitter.setSecondComponent(myPreview.getComponent());
+      mySplitter.setDividerWidth(3);
 
-      myToolbarWrapper = createMarkdownToolbarWrapper(splitter);
+      myToolbarWrapper = createMarkdownToolbarWrapper(mySplitter);
 
       if (myLayout == null) {
         String lastUsed = PropertiesComponent.getInstance().getValue(getLayoutPropertyName());
-        myLayout = Layout.fromName(lastUsed, myDefaultLayout);
+        myLayout = Layout.fromId(lastUsed, myDefaultLayout);
       }
       adjustEditorsVisibility();
 
-      myComponent = JBUI.Panels.simplePanel(splitter).addToTop(myToolbarWrapper);
+      myComponent = JBUI.Panels.simplePanel(mySplitter).addToTop(myToolbarWrapper);
     }
     return myComponent;
+  }
+
+  public boolean isVerticalSplit() {
+    return myIsVerticalSplit;
+  }
+
+  public void setVerticalSplit(boolean verticalSplit) {
+    myIsVerticalSplit = verticalSplit;
   }
 
   @NotNull
@@ -155,9 +180,20 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     }
   }
 
+  @SuppressWarnings("unused")
+  protected void onLayoutChange(Layout oldValue, Layout newValue) {}
+
   private void adjustEditorsVisibility() {
     myEditor.getComponent().setVisible(myLayout == Layout.SHOW_EDITOR || myLayout == Layout.SHOW_EDITOR_AND_PREVIEW);
     myPreview.getComponent().setVisible(myLayout == Layout.SHOW_PREVIEW || myLayout == Layout.SHOW_EDITOR_AND_PREVIEW);
+  }
+
+  protected void setLayout(@NotNull Layout layout) {
+    Layout oldLayout = myLayout;
+    myLayout = layout;
+    PropertiesComponent.getInstance().setValue(getLayoutPropertyName(), myLayout.myId, myDefaultLayout.myId);
+    adjustEditorsVisibility();
+    onLayoutChange(oldLayout, myLayout);
   }
 
   private void invalidateLayout() {
@@ -166,7 +202,8 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     myComponent.repaint();
 
     final JComponent focusComponent = getPreferredFocusedComponent();
-    if (focusComponent != null) {
+    Component focusOwner = IdeFocusManager.findInstance().getFocusOwner();
+    if (focusComponent != null && focusOwner != null && SwingUtilities.isDescendingFrom(focusOwner, getComponent())) {
       IdeFocusManager.findInstanceByComponent(focusComponent).requestFocus(focusComponent, true);
     }
   }
@@ -186,7 +223,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
       case SHOW_PREVIEW:
         return myPreview.getPreferredFocusedComponent();
       default:
-        throw new IllegalStateException(myLayout.myName);
+        throw new IllegalStateException(myLayout.myId);
     }
   }
 
@@ -229,6 +266,11 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     return myEditor;
   }
 
+  @NotNull
+  public FileEditor getPreviewEditor() {
+    return myPreview;
+  }
+
   public Layout getLayout() {
     return myLayout;
   }
@@ -260,7 +302,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     }
 
     @Override
-    public boolean canBeMergedWith(FileEditorState otherState, FileEditorStateLevel level) {
+    public boolean canBeMergedWith(@NotNull FileEditorState otherState, @NotNull FileEditorStateLevel level) {
       return otherState instanceof MyFileEditorState
              && (myFirstState == null || myFirstState.canBeMergedWith(((MyFileEditorState)otherState).myFirstState, level))
              && (mySecondState == null || mySecondState.canBeMergedWith(((MyFileEditorState)otherState).mySecondState, level));
@@ -381,33 +423,35 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
   }
 
   public enum Layout {
-    SHOW_EDITOR("Editor only", AllIcons.General.LayoutEditorOnly),
-    SHOW_PREVIEW("Preview only", AllIcons.General.LayoutPreviewOnly),
-    SHOW_EDITOR_AND_PREVIEW("Editor and Preview", AllIcons.General.LayoutEditorPreview);
+    SHOW_EDITOR("Editor only", IdeBundle.messagePointer("tab.title.editor.only")),
+    SHOW_PREVIEW("Preview only", IdeBundle.messagePointer("tab.title.preview.only")),
+    SHOW_EDITOR_AND_PREVIEW("Editor and Preview", IdeBundle.messagePointer("tab.title.editor.and.preview"));
 
-    private final String myName;
-    private final Icon myIcon;
+    private final @NotNull Supplier<@Nls String> myName;
+    private final String myId;
 
-    Layout(String name, Icon icon) {
+    Layout(String id, @NotNull Supplier<String> name) {
+      myId = id;
       myName = name;
-      myIcon = icon;
     }
 
-    public static Layout fromName(String name, Layout defaultValue) {
-      for (Layout layout : Layout.values()) {
-        if (layout.myName.equals(name)) {
+    public static Layout fromId(String id, Layout defaultValue) {
+      for (Layout layout : values()) {
+        if (layout.myId.equals(id)) {
           return layout;
         }
       }
       return defaultValue;
     }
 
-    public String getName() {
-      return myName;
+    public @Nls String getName() {
+      return myName.get();
     }
 
-    public Icon getIcon() {
-      return myIcon;
+    public Icon getIcon(TextEditorWithPreview editor) {
+      if (this == SHOW_EDITOR) return AllIcons.General.LayoutEditorOnly;
+      if (this == SHOW_PREVIEW) return AllIcons.General.LayoutPreviewOnly;
+      return editor.myIsVerticalSplit ? AllIcons.Actions.PreviewDetailsVertically : AllIcons.Actions.PreviewDetails;
     }
   }
 
@@ -415,7 +459,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     private final Layout myActionLayout;
 
     ChangeViewModeAction(Layout layout) {
-      super(layout.getName(), layout.getName(), layout.getIcon());
+      super(layout.getName(), layout.getName(), layout.getIcon(TextEditorWithPreview.this));
       myActionLayout = layout;
     }
 
@@ -427,10 +471,19 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     @Override
     public void setSelected(@NotNull AnActionEvent e, boolean state) {
       if (state) {
-        myLayout = myActionLayout;
-        PropertiesComponent.getInstance().setValue(getLayoutPropertyName(), myLayout.myName, myDefaultLayout.myName);
-        adjustEditorsVisibility();
+        setLayout(myActionLayout);
+      } else {
+        if (myActionLayout == Layout.SHOW_EDITOR_AND_PREVIEW) {
+          mySplitter.setOrientation(!myIsVerticalSplit);
+          myIsVerticalSplit = !myIsVerticalSplit;
+        }
       }
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+      super.update(e);
+      e.getPresentation().setIcon(myActionLayout.getIcon(TextEditorWithPreview.this));
     }
   }
 
@@ -457,5 +510,27 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
   @Override
   public void navigateTo(@NotNull Navigatable navigatable) {
     getTextEditor().navigateTo(navigatable);
+  }
+
+  protected void handleLayoutChange(boolean isVerticalSplit) {
+    if (myIsVerticalSplit == isVerticalSplit) return;
+    myIsVerticalSplit = isVerticalSplit;
+
+    myToolbarWrapper.refresh();
+    mySplitter.setOrientation(myIsVerticalSplit);
+    myComponent.repaint();
+  }
+
+  @Nullable
+  private static Layout getLayoutForFile(@Nullable VirtualFile file) {
+    if (file != null) {
+      return file.getUserData(DEFAULT_LAYOUT_FOR_FILE);
+    }
+    return null;
+  }
+
+  public static void openPreviewForFile(@NotNull Project project, @NotNull VirtualFile file) {
+    file.putUserData(DEFAULT_LAYOUT_FOR_FILE, Layout.SHOW_PREVIEW);
+    FileEditorManager.getInstance(project).openFile(file, true);
   }
 }

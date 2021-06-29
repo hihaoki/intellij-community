@@ -1,11 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.execution.CantRunException;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
+import com.intellij.openapi.module.LanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
@@ -19,6 +19,7 @@ import com.intellij.pom.java.LanguageLevel;
 import com.intellij.util.PathsList;
 import com.intellij.util.text.VersionComparatorUtil;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -82,7 +83,7 @@ public class JavaParameters extends SimpleJavaParameters {
       return;
     }
     orderEnumerator.forEachModule(module -> {
-      LanguageLevel languageLevel = EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(module);
+      LanguageLevel languageLevel = LanguageLevelUtil.getEffectiveLanguageLevel(module);
       if (languageLevel.isPreview()) {
         vmParameters.add(JAVA_ENABLE_PREVIEW_PROPERTY);
         return false;
@@ -118,6 +119,7 @@ public class JavaParameters extends SimpleJavaParameters {
 
   /** @deprecated use {@link #getValidJdkToRunModule(Module, boolean)} instead */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static Sdk getModuleJdk(final Module module) throws CantRunException {
     return getValidJdkToRunModule(module, false);
   }
@@ -128,9 +130,9 @@ public class JavaParameters extends SimpleJavaParameters {
     if (jdk == null) {
       throw CantRunException.noJdkForModule(module);
     }
-    final VirtualFile homeDirectory = jdk.getHomeDirectory();
+    VirtualFile homeDirectory = jdk.getHomeDirectory();
     if (homeDirectory == null || !homeDirectory.isValid()) {
-      throw CantRunException.jdkMisconfigured(jdk, module);
+      throw CantRunException.jdkMisconfigured(jdk);
     }
     return jdk;
   }

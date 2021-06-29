@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.externalSystem.settings;
 
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -49,12 +50,6 @@ public interface ExternalSystemSettingsListener<S extends ExternalProjectSetting
   void onProjectsLinked(@NotNull Collection<S> settings);
 
   void onProjectsUnlinked(@NotNull Set<String> linkedProjectPaths);
-
-  /**
-   * @deprecated see {@link ExternalProjectSettings#setUseAutoImport} for details
-   */
-  @Deprecated
-  default void onUseAutoImportChange(boolean currentValue, @NotNull String linkedProjectPath) {}
 
   /**
    * External system settings changes might affect project structure, e.g. switching from one external system version to another

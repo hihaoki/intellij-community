@@ -1,8 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.injected.editor.InjectedFileChangesHandler;
 import com.intellij.injected.editor.InjectedFileChangesHandlerProvider;
+import com.intellij.injected.editor.InjectionMeta;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.Disposable;
@@ -40,28 +42,36 @@ import com.intellij.psi.impl.source.resolve.FileContextUtil;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.impl.source.tree.injected.Place;
 import com.intellij.psi.impl.source.tree.injected.changesHandler.CommonInjectedFileChangesHandler;
+import com.intellij.psi.impl.source.tree.injected.changesHandler.IndentAwareInjectedFileChangesHandler;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.SmartHashSet;
 import com.intellij.util.ui.UIUtil;
+import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.FocusManager;
 import javax.swing.*;
 import java.awt.*;
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
 
 /**
-* @author Gregory Shrago
-*/
-public class QuickEditHandler implements Disposable, DocumentListener {
+ * @author Gregory Shrago
+ */
+public class QuickEditHandler extends UserDataHolderBase implements Disposable, DocumentListener {
   private final Project myProject;
   private final QuickEditAction myAction;
 
+  @NotNull
   private final Editor myEditor;
   private final Document myOrigDocument;
 
+  @NotNull
   private final Document myNewDocument;
   private final PsiFile myNewFile;
   private final LightVirtualFile myNewVirtualFile;
@@ -70,11 +80,15 @@ public class QuickEditHandler implements Disposable, DocumentListener {
   private EditorWindow mySplittedWindow;
   private boolean myCommittingToOriginal;
 
-  private final InjectedFileChangesHandler myEditChangesHandler;
+  private final @NotNull InjectedFileChangesHandler myEditChangesHandler;
 
   public static final Key<String> REPLACEMENT_KEY = Key.create("REPLACEMENT_KEY");
 
-  QuickEditHandler(Project project, @NotNull PsiFile injectedFile, final PsiFile origFile, Editor editor, QuickEditAction action) {
+  QuickEditHandler(@NotNull Project project,
+                   @NotNull PsiFile injectedFile,
+                   final @NotNull PsiFile origFile,
+                   @NotNull Editor editor,
+                   @NotNull QuickEditAction action) {
     myProject = project;
     myEditor = editor;
     myAction = action;
@@ -86,16 +100,20 @@ public class QuickEditHandler implements Disposable, DocumentListener {
 
     PsiFileFactory factory = PsiFileFactory.getInstance(project);
     String text = InjectedLanguageManager.getInstance(project).getUnescapedText(injectedFile);
-    String newFileName =
-      StringUtil.notNullize(language.getDisplayName(), "Injected") + " Fragment " + "(" +
-      origFile.getName() + ":" + firstShred.getHost().getTextRange().getStartOffset() + ")" + "." + fileType.getDefaultExtension();
+    @Nls
+    String newFileName = CodeInsightBundle.message(
+      "name.for.injected.file.0.fragment.1.2.3",
+      StringUtil.notNullize(language.getDisplayName(), CodeInsightBundle.message("name.for.injected.file.default.lang.name")),
+      origFile.getName(),
+      firstShred.getHost().getTextRange().getStartOffset(),
+      fileType.getDefaultExtension()
+    );
 
     // preserve \r\n as it is done in MultiHostRegistrarImpl
     myNewFile = factory.createFileFromText(newFileName, language, text, true, false);
     myNewVirtualFile = Objects.requireNonNull((LightVirtualFile)myNewFile.getVirtualFile());
     myNewVirtualFile.setOriginalFile(injectedFile.getVirtualFile());
 
-    assert myNewFile != null : "PSI file is null";
     assert myNewFile.getTextLength() == myNewVirtualFile.getContent().length() : "PSI / Virtual file text mismatch";
 
     // suppress possible errors as in injected mode
@@ -103,12 +121,9 @@ public class QuickEditHandler implements Disposable, DocumentListener {
                           injectedFile.getUserData(InjectedLanguageUtil.FRANKENSTEIN_INJECTION));
     PsiLanguageInjectionHost host = InjectedLanguageManager.getInstance(project).getInjectionHost(injectedFile.getViewProvider());
     myNewFile.putUserData(FileContextUtil.INJECTED_IN_ELEMENT, SmartPointerManager.getInstance(project).createSmartPsiElementPointer(host));
-    myNewDocument = PsiDocumentManager.getInstance(project).getDocument(myNewFile);
-    assert myNewDocument != null;
+    myNewDocument = Objects.requireNonNull(PsiDocumentManager.getInstance(project).getDocument(myNewFile), "doc for file " + myNewFile.getName());
     EditorActionManager.getInstance().setReadonlyFragmentModificationHandler(myNewDocument, new MyQuietHandler());
     myOrigCreationStamp = myOrigDocument.getModificationStamp(); // store creation stamp for UNDO tracking
-    myOrigDocument.addDocumentListener(this, this);
-    myNewDocument.addDocumentListener(this, this);
     EditorFactory editorFactory = Objects.requireNonNull(EditorFactory.getInstance());
     // not FileEditorManager listener because of RegExp checker and alike
     editorFactory.addEditorFactoryListener(new EditorFactoryListener() {
@@ -140,11 +155,37 @@ public class QuickEditHandler implements Disposable, DocumentListener {
     if (changesHandlerFactory != null) {
       myEditChangesHandler = changesHandlerFactory.createFileChangesHandler(shreds, editor, myNewDocument, injectedFile);
     }
+    else if (ContainerUtil.or(shreds, it -> InjectionMeta.INJECTION_INDENT.get(it.getHost()) != null)) {
+      myEditChangesHandler = new IndentAwareInjectedFileChangesHandler(shreds, editor, myNewDocument, injectedFile);
+    }
     else {
       myEditChangesHandler = new CommonInjectedFileChangesHandler(shreds, editor, myNewDocument, injectedFile);
     }
     Disposer.register(this, myEditChangesHandler);
+
+    StreamEx.of(shreds).map(it -> it.getHost()).nonNull().distinct().forEach(h -> {
+      Set<QuickEditHandler> editHandlers = h.getCopyableUserData(QUICK_EDIT_HANDLERS);
+      if (editHandlers == null) {
+        editHandlers = new SmartHashSet<>();
+        h.putCopyableUserData(QUICK_EDIT_HANDLERS, editHandlers);
+      }
+      editHandlers.add(this);
+      Set<QuickEditHandler> finalEditHandlers = editHandlers;
+      Disposer.register(this, () -> finalEditHandlers.remove(this));
+    });
+
     initGuardedBlocks(shreds);
+
+    myOrigDocument.addDocumentListener(this, this);
+    myNewDocument.addDocumentListener(this, this);
+  }
+
+  private static final Key<Set<QuickEditHandler>> QUICK_EDIT_HANDLERS = Key.create("QUICK_EDIT_HANDLERS");
+
+  public static @NotNull Set<QuickEditHandler> getFragmentEditors(@NotNull PsiLanguageInjectionHost host) {
+    Set<QuickEditHandler> handlers = host.getCopyableUserData(QUICK_EDIT_HANDLERS);
+    if (handlers == null) return Collections.emptySet();
+    return handlers;
   }
 
   public boolean isValid() {
@@ -199,7 +240,7 @@ public class QuickEditHandler implements Disposable, DocumentListener {
       .setHideOnClickOutside(true)
       .setHideOnKeyOutside(true)
       .setHideOnAction(false)
-      .setFillColor(UIUtil.getControlColor())
+      .setFillColor(UIUtil.getPanelBackground())
       .createBalloon();
     DumbAwareAction.create(e -> balloon.hide())
       .registerCustomShortcutSet(CommonShortcuts.ESCAPE, component);
@@ -234,7 +275,9 @@ public class QuickEditHandler implements Disposable, DocumentListener {
     }
     else if (e.getDocument() == myOrigDocument) {
       if (myCommittingToOriginal) return;
-      if (!myEditChangesHandler.handlesRange(TextRange.from(e.getOffset(), e.getOldLength()))) return;
+      InjectedFileChangesHandler injectedFileChangesHandler =
+        Objects.requireNonNull(myEditChangesHandler, "seems that 'myEditChangesHandler' was not initialized");
+      if (!injectedFileChangesHandler.handlesRange(TextRange.from(e.getOffset(), e.getOldLength()))) return;
       ApplicationManager.getApplication().invokeLater(() -> {
         Component owner = FocusManager.getCurrentManager().getFocusOwner();
         closeEditor();
@@ -257,6 +300,10 @@ public class QuickEditHandler implements Disposable, DocumentListener {
     FileEditorManager.getInstance(myProject).closeFile(myNewVirtualFile);
   }
 
+  @TestOnly
+  public void closeEditorForTest() {
+    closeEditor();
+  }
 
   private void initGuardedBlocks(Place shreds) {
     int origOffset = -1;
@@ -310,10 +357,19 @@ public class QuickEditHandler implements Disposable, DocumentListener {
     return myNewFile;
   }
 
+  @NotNull
+  public Document getFragmentDocument() {
+    return myNewDocument;
+  }
+
   public boolean tryReuse(@NotNull PsiFile injectedFile, @NotNull TextRange hostRange) {
     return myEditChangesHandler.tryReuse(injectedFile, hostRange);
   }
 
+  @Override
+  public String toString() {
+    return "QuickEditHandler@" + this.hashCode() + super.toString();
+  }
 
   private static class MyQuietHandler implements ReadonlyFragmentModificationHandler {
     @Override

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.Disposable;
@@ -99,7 +99,7 @@ public class TabbedPaneWrapper  {
   /**
    * @see JTabbedPane#addTab(String, Icon, Component, String)
    */
-  public final synchronized void addTab(@TabTitle final String title, final Icon icon, final JComponent component, final String tip) {
+  public final synchronized void addTab(@TabTitle final String title, final Icon icon, final JComponent component, final @NlsContexts.Tooltip String tip) {
     insertTab(title, icon, component, tip, myTabbedPane.getTabCount());
   }
 
@@ -107,7 +107,7 @@ public class TabbedPaneWrapper  {
     insertTab(title, null, component, null, myTabbedPane.getTabCount());
   }
 
-  public synchronized void insertTab(@TabTitle final String title, final Icon icon, final JComponent component, final String tip, final int index) {
+  public synchronized void insertTab(@TabTitle final String title, @Nullable Icon icon, final JComponent component, final @NlsContexts.Tooltip String tip, final int index) {
     myTabbedPane.insertTab(title, icon, createTabWrapper(component), tip, index);
   }
 
@@ -222,7 +222,7 @@ public class TabbedPaneWrapper  {
     return (TabWrapper)myTabbedPane.getComponentAt(i);
   }
 
-  public final void setTitleAt(final int index, @NotNull String title) {
+  public final void setTitleAt(final int index, @NotNull @TabTitle String title) {
     assertIsDispatchThread();
     myTabbedPane.setTitleAt(index, title);
   }
@@ -284,20 +284,6 @@ public class TabbedPaneWrapper  {
     }
   }
 
-  /**
-   * @deprecated Keyboard navigation is installed/deinstalled automatically. This method does nothing now.
-   */
-  @Deprecated
-  public final void installKeyboardNavigation(){
-  }
-
-  /**
-   * @deprecated Keyboard navigation is installed/deinstalled automatically. This method does nothing now.
-   */
-  @Deprecated
-  public final void uninstallKeyboardNavigation(){
-  }
-
   public final String getTitleAt(final int i) {
     return myTabbedPane.getTitleAt(i);
   }
@@ -323,7 +309,12 @@ public class TabbedPaneWrapper  {
     myTabbedPane.removeAll();
   }
 
-  public static final class TabWrapper extends JPanel implements DataProvider{
+  @NotNull
+  public TabbedPane getTabbedPane() {
+    return myTabbedPane;
+  }
+
+  public static final class TabWrapper extends JPanel implements DataProvider {
     private JComponent myComponent;
 
     boolean myCustomFocus = true;
@@ -393,7 +384,7 @@ public class TabbedPaneWrapper  {
 
   private final class _MyFocusTraversalPolicy extends IdeFocusTraversalPolicy{
     @Override
-    public final Component getDefaultComponent(final Container focusCycleRoot) {
+    public Component getDefaultComponent(final Container focusCycleRoot) {
       final JComponent component=getSelectedComponent();
       return component == null ? null : IdeFocusTraversalPolicy.getPreferredFocusedComponent(component, this);
     }
@@ -536,6 +527,7 @@ public class TabbedPaneWrapper  {
       init(tabPlacement, installKeyboardNavigation, new JBTabsFactory(this, project, parent));
     }
 
+    @NotNull
     public JBTabs getTabs() {
       return ((JBTabsPaneImpl)myTabbedPane).getTabs();
     }

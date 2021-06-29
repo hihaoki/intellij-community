@@ -18,13 +18,14 @@ package org.jetbrains.java.generate.inspection;
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.codeInspection.ui.RegExFormatter;
 import com.intellij.codeInspection.ui.RegExInputVerifier;
 import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.ui.CheckBox;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -34,7 +35,6 @@ import org.jetbrains.java.generate.GenerateToStringUtils;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.text.Document;
-import java.awt.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -58,6 +58,7 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
     public boolean excludeEnum; // must be public for JDOMSerialization
     /** User options for excluded abstract classes */
     public boolean excludeAbstract; // must be public for JDOMSerialization
+    public boolean excludeRecords = true;
 
     public boolean excludeTestCode;
 
@@ -76,7 +77,7 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
         return new JavaElementVisitor() {
             @Override
             public void visitClass(PsiClass clazz) {
-                if (log.isDebugEnabled()) log.debug("checkClass: clazz=" + clazz);
+                if (LOG.isDebugEnabled()) LOG.debug("checkClass: clazz=" + clazz);
 
                 // must be a class
                 final PsiIdentifier nameIdentifier = clazz.getNameIdentifier();
@@ -92,6 +93,9 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
                 }
                 if (excludeEnum && clazz.isEnum()) {
                     return;
+                }
+                if (excludeRecords && clazz.isRecord()) {
+                  return;
                 }
                 if (excludeAbstract && clazz.hasModifierProperty(PsiModifier.ABSTRACT)) {
                     return;
@@ -154,7 +158,7 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
                 }
                 holder.registerProblem(nameIdentifier,
                                        JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.description", clazz.getName()),
-                                       ProblemHighlightType.GENERIC_ERROR_OR_WARNING, createFixes(holder));
+                                       ProblemHighlightType.GENERIC_ERROR_OR_WARNING, createFixes());
             }
         };
     }
@@ -166,77 +170,36 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
      */
     @Override
     public JComponent createOptionsPanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints constraints = new GridBagConstraints();
+      final JFormattedTextField excludeClassNamesField = new JFormattedTextField(new RegExFormatter());
+      excludeClassNamesField.setValue(excludeClassNamesPattern);
+      excludeClassNamesField.setColumns(25);
+      excludeClassNamesField.setInputVerifier(new RegExInputVerifier());
+      excludeClassNamesField.setFocusLostBehavior(JFormattedTextField.COMMIT);
+      excludeClassNamesField.setMinimumSize(excludeClassNamesField.getPreferredSize());
+      UIUtil.fixFormattedField(excludeClassNamesField);
+      Document document = excludeClassNamesField.getDocument();
+      document.addDocumentListener(new DocumentAdapter() {
 
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        constraints.weightx = 0.0;
-        constraints.anchor = GridBagConstraints.WEST;
-        constraints.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.exclude.classes.reg.exp.option")), constraints);
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
+          try {
+            excludeClassNamesField.commitEdit();
+            excludeClassNamesPattern = (Pattern)excludeClassNamesField.getValue();
+            excludeClassNames = excludeClassNamesPattern.pattern();
+          } catch (final Exception ignore) {}
+        }
+      });
 
-        final JFormattedTextField excludeClassNamesField = new JFormattedTextField(new RegExFormatter());
-        excludeClassNamesField.setValue(excludeClassNamesPattern);
-        excludeClassNamesField.setColumns(25);
-        excludeClassNamesField.setInputVerifier(new RegExInputVerifier());
-        excludeClassNamesField.setFocusLostBehavior(JFormattedTextField.COMMIT);
-        excludeClassNamesField.setMinimumSize(excludeClassNamesField.getPreferredSize());
-        UIUtil.fixFormattedField(excludeClassNamesField);
-        Document document = excludeClassNamesField.getDocument();
-        document.addDocumentListener(new DocumentAdapter() {
-
-            @Override
-            protected void textChanged(@NotNull DocumentEvent e) {
-                try {
-                    excludeClassNamesField.commitEdit();
-                    excludeClassNamesPattern = (Pattern)excludeClassNamesField.getValue();
-                    excludeClassNames = excludeClassNamesPattern.pattern();
-                } catch (final Exception ignore) {}
-            }
-        });
-        constraints.gridx = 1;
-        constraints.gridy = 0;
-        constraints.weightx = 1.0;
-        constraints.anchor = GridBagConstraints.NORTHWEST;
-        constraints.fill = GridBagConstraints.NONE;
-        panel.add(excludeClassNamesField, constraints);
-
-        final CheckBox excludeExceptionCheckBox = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.exception.classes.option"), this, "excludeException");
-        constraints.gridx = 0;
-        constraints.gridy = 1;
-        constraints.gridwidth = 2;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(excludeExceptionCheckBox, constraints);
-
-        final CheckBox excludeDeprecatedCheckBox = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.deprecated.classes.option"), this, "excludeDeprecated");
-        constraints.gridy = 2;
-        panel.add(excludeDeprecatedCheckBox, constraints);
-
-        final CheckBox excludeEnumCheckBox = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.enum.classes.option"), this, "excludeEnum");
-        constraints.gridy = 3;
-        panel.add(excludeEnumCheckBox, constraints);
-
-        final CheckBox excludeAbstractCheckBox = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.abstract.classes.option"), this, "excludeAbstract");
-        constraints.gridy = 4;
-        panel.add(excludeAbstractCheckBox, constraints);
-
-        final CheckBox excludeInTestCodeCheckBox = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.test.classes.option"), this, "excludeTestCode");
-        constraints.gridy = 5;
-        panel.add(excludeInTestCodeCheckBox, constraints);
-
-        final CheckBox excludeInnerClasses = new CheckBox(
-          JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.inner.classes.option"), this, "excludeInnerClasses");
-        constraints.gridy = 6;
-        constraints.weighty = 1.0;
-        panel.add(excludeInnerClasses, constraints);
-
-        return panel;
+      final MultipleCheckboxOptionsPanel optionsPanel = new MultipleCheckboxOptionsPanel(this);
+      optionsPanel.addRow(new JLabel(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.exclude.classes.reg.exp.option")), excludeClassNamesField);
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.exception.classes.option"), "excludeException");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.deprecated.classes.option"), "excludeDeprecated");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.enum.classes.option"), "excludeEnum");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.records.option"), "excludeRecords");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.abstract.classes.option"), "excludeAbstract");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.test.classes.option"), "excludeTestCode");
+      optionsPanel.addCheckbox(JavaAnalysisBundle.message("inspection.class.has.no.to.string.method.ignore.inner.classes.option"), "excludeInnerClasses");
+      return optionsPanel;
     }
 
     @Override
@@ -247,4 +210,9 @@ public class ClassHasNoToStringMethodInspection extends AbstractToStringInspecti
         }
         catch (PatternSyntaxException ignored) { }
     }
+
+  @Override
+  public void writeSettings(@NotNull Element node) {
+    DefaultJDOMExternalizer.write(this, node, field -> !"excludeRecords".equals(field.getName()) || !excludeRecords);
+  }
 }

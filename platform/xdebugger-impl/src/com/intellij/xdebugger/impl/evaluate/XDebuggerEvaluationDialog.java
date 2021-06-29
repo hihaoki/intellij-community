@@ -1,9 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.evaluate;
 
 import com.intellij.codeInsight.lookup.LookupManager;
-import com.intellij.internal.statistic.eventLog.FeatureUsageData;
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
+import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
@@ -29,6 +28,7 @@ import com.intellij.xdebugger.impl.ui.XDebuggerEditorBase;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreePanel;
 import com.intellij.xdebugger.impl.ui.tree.nodes.EvaluatingExpressionRootNode;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -144,8 +144,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
     }
     setTitle(XDebuggerBundle.message("xdebugger.evaluate.dialog.title"));
     switchToMode(mode, text);
-    FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "dialog.open",
-                                                new FeatureUsageData().addData("mode", mode.name()));
+    DebuggerEvaluationStatisticsCollector.DIALOG_OPEN.log(project, mode);
     if (mode == EvaluationMode.EXPRESSION) {
       myInputComponent.getInputEditor().selectAll();
     }
@@ -185,8 +184,8 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
   @Override
   protected void doOKAction() {
-    FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "evaluate",
-                                                new FeatureUsageData().addData("mode", myMode.name()));
+    DebuggerEvaluationStatisticsCollector.EVALUATE.log(myProject, myMode);
+    FeatureUsageTracker.getInstance().triggerFeatureUsed("debugger.evaluate.expression");
     evaluate();
   }
 
@@ -239,7 +238,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
     return getInputEditor().getExpression();
   }
 
-  private static String getSwitchButtonText(EvaluationMode mode) {
+  private static @Nls String getSwitchButtonText(EvaluationMode mode) {
     return mode != EvaluationMode.EXPRESSION
            ? XDebuggerBundle.message("button.text.expression.mode")
            : XDebuggerBundle.message("button.text.code.fragment.mode");
@@ -362,8 +361,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
       EvaluationMode newMode = (myMode == EvaluationMode.EXPRESSION) ? EvaluationMode.CODE_FRAGMENT : EvaluationMode.EXPRESSION;
       // remember only on user selection
       XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().setEvaluationDialogMode(newMode);
-      FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "mode.switch",
-                                                  new FeatureUsageData().addData("mode", newMode.name()));
+      DebuggerEvaluationStatisticsCollector.MODE_SWITCH.log(myProject, newMode);
       switchToMode(newMode, text);
     }
   }

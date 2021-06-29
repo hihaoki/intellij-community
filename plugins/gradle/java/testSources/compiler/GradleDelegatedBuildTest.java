@@ -13,6 +13,7 @@ import com.intellij.util.PathsList;
 import com.intellij.util.messages.MessageBusConnection;
 import org.assertj.core.api.Assertions;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.gradle.importing.GradleBuildScriptBuilder;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -38,19 +39,15 @@ public class GradleDelegatedBuildTest extends GradleDelegatedBuildTestCase {
 
     createProjectSubFile("impl/src/main/resources/dir/file-impl.properties");
     createProjectSubFile("impl/src/test/resources/dir/file-impl-test.properties");
+    GradleBuildScriptBuilder builder = createBuildScriptBuilder();
     importProject(
-      "allprojects {\n" +
-      "  apply plugin: 'java'\n" +
-      "}\n" +
-      "\n" +
-      "dependencies {\n" +
-      "  compile project(':api')\n" +
-      "}\n" +
-      "configure(project(':api')) {\n" +
-      "  dependencies {\n" +
-      "    compile project(':impl')\n" +
-      "  }\n" +
-      "}"
+      builder
+        .allprojects(GradleBuildScriptBuilder::withJavaPlugin)
+        .addImplementationDependency(builder.code("project(':api')"), null)
+        .project(":api", p -> {
+          p.addImplementationDependency(p.code("project(':impl')"), null);
+        })
+        .generate()
     );
     assertModules("project", "project.main", "project.test",
                   "project.api", "project.api.main", "project.api.test",
@@ -91,6 +88,52 @@ public class GradleDelegatedBuildTest extends GradleDelegatedBuildTestCase {
     doTestDirtyOutputCollection(true);
   }
 
+  @Test
+  public void testSourceSetsWithNamesContainingSpacesAndHyphens() throws Exception {
+    createProjectSubFile("src/main/java/App.java", "public class App {}");
+    createProjectSubFile("src/main/resources/dir/file.properties");
+
+    createProjectSubFile("src/test/java/Test.java", "public class Test {}");
+    createProjectSubFile("src/test/resources/dir/file-test.properties");
+
+    createProjectSubFile("src/integration-test/java/IntegrationTest.java", "public class IntegrationTest {}");
+    createProjectSubFile("src/integration-test/resources/dir/file-integrationTest.properties");
+
+    createProjectSubFile("src/anotherSourceSet/java/AnotherSourceSet.java", "public class AnotherSourceSet {}");
+    createProjectSubFile("src/anotherSourceSet/resources/dir/file-anotherSourceSet.properties");
+
+    createProjectSubFile("src/another cool name/java/Spaces.java", "public class Spaces {}");
+    createProjectSubFile("src/another cool name/resources/dir/file-Spaces.properties");
+
+    importProject(
+      "apply plugin: 'java'\n" +
+      "\n" +
+      "sourceSets {\n" +
+      "  'integration-test' {}\n" +
+      "  anotherSourceSet {}\n" +
+      "  'another cool name' {}\n" +
+      "}\n"
+    );
+    assertModules("project", "project.main", "project.test",
+                  "project.integration-test",
+                  "project.anotherSourceSet",
+                  "project.another_cool_name");
+    compileModules("project.main", "project.test", "project.integration-test", "project.anotherSourceSet", "project.another_cool_name");
+
+    String langPart = isGradleOlderThan("4.0") ? "build/classes" : "build/classes/java";
+    assertCopied(langPart + "/main/App.class");
+    assertNotCopied(langPart + "/test/AppTest.class");
+    assertCopied(langPart + "/integration-test/IntegrationTest.class");
+    assertCopied(langPart + "/anotherSourceSet/AnotherSourceSet.class");
+    assertCopied(langPart + "/another cool name/Spaces.class");
+
+    assertCopied("build/resources/main/dir/file.properties");
+    assertCopied("build/resources/test/dir/file-test.properties");
+    assertCopied("build/resources/integration-test/dir/file-integrationTest.properties");
+    assertCopied("build/resources/anotherSourceSet/dir/file-anotherSourceSet.properties");
+    assertCopied("build/resources/another cool name/dir/file-Spaces.properties");
+  }
+
   private void doTestDirtyOutputCollection(boolean enableBuildCache) throws IOException {
     createSettingsFile("include 'api', 'impl' ");
     if (enableBuildCache) {
@@ -127,20 +170,13 @@ public class GradleDelegatedBuildTest extends GradleDelegatedBuildTestCase {
                          "import my.pack.ApiTest;\n" +
                          "public class ImplTest extends ApiTest {}");
 
-    importProject(
-      "allprojects {\n" +
-      "  apply plugin: 'java'\n" +
-      "}\n" +
-      "\n" +
-      "dependencies {\n" +
-      "  compile project(':impl')\n" +
-      "}\n" +
-      "configure(project(':impl')) {\n" +
-      "  dependencies {\n" +
-      "    compile project(':api')\n" +
-      "  }\n" +
-      "}"
-    );
+    importProject(script(it -> {
+      it.allprojects(GradleBuildScriptBuilder::withJavaPlugin)
+        .addImplementationDependency(it.code("project(':impl')"), null)
+        .project(":impl", p -> {
+          p.addImplementationDependency(p.code("project(':api')"), null);
+        });
+    }));
     assertModules("project", "project.main", "project.test",
                   "project.api", "project.api.main", "project.api.test",
                   "project.impl", "project.impl.main", "project.impl.test");
@@ -163,29 +199,35 @@ public class GradleDelegatedBuildTest extends GradleDelegatedBuildTestCase {
 
     compileModules("project.main");
 
-    String langPart = isGradleOlderThen("4.0") ? "build/classes" : "build/classes/java";
+    String langPart = isGradleOlderThan("4.0") ? "build/classes" : "build/classes/java";
     List<String> expected = newArrayList(path(langPart + "/main"),
                                          path("api/" + langPart + "/main"),
                                          path("impl/" + langPart + "/main"),
                                          path("api/build/libs/api.jar"),
                                          path("impl/build/libs/impl.jar"));
 
-    if (isGradleOlderThen("3.3")) {
+    if (isGradleOlderThan("3.3")) {
       expected.addAll(asList(path("build/dependency-cache"),
                              path("api/build/dependency-cache"),
                              path("impl/build/dependency-cache")));
     }
 
-    if (!isGradleOlderThen("5.2")) {
+    if (!isGradleOlderThan("5.2")) {
       expected.addAll(asList(path("build/generated/sources/annotationProcessor/java/main"),
                              path("api/build/generated/sources/annotationProcessor/java/main"),
                              path("impl/build/generated/sources/annotationProcessor/java/main")));
     }
 
-    if (isGradleNewerOrSameThen("6.3")) {
+    if (isGradleNewerOrSameAs("6.3")) {
       expected.addAll(asList(path("build/generated/sources/headers/java/main"),
                              path("api/build/generated/sources/headers/java/main"),
                              path("impl/build/generated/sources/headers/java/main")));
+    }
+
+    if (isGradleNewerOrSameAs("7.1")) {
+      expected.addAll(asList(path("build/tmp/compileJava/previous-compilation-data.bin"),
+                             path("api/build/tmp/compileJava/previous-compilation-data.bin"),
+                             path("impl/build/tmp/compileJava/previous-compilation-data.bin")));
     }
 
     Assertions.assertThat(dirtyOutputRoots)
@@ -212,17 +254,22 @@ public class GradleDelegatedBuildTest extends GradleDelegatedBuildTestCase {
     expected = newArrayList(path(langPart + "/main"),
                             path(langPart + "/test"));
 
-    if (isGradleOlderThen("3.3")) {
+    if (isGradleOlderThan("3.3")) {
       expected.add(path("build/dependency-cache"));
     }
-    if (!isGradleOlderThen("5.2")) {
+    if (!isGradleOlderThan("5.2")) {
       expected.addAll(asList(path("build/generated/sources/annotationProcessor/java/main"),
                              path("build/generated/sources/annotationProcessor/java/test")));
     }
 
-    if (isGradleNewerOrSameThen("6.3")) {
+    if (isGradleNewerOrSameAs("6.3")) {
       expected.addAll(asList(path("build/generated/sources/headers/java/main"),
                              path("build/generated/sources/headers/java/test")));
+    }
+
+    if (isGradleNewerOrSameAs("7.1")) {
+      expected.addAll(asList(path("build/tmp/compileTestJava/previous-compilation-data.bin"),
+                             path("build/tmp/compileJava/previous-compilation-data.bin")));
     }
 
     Assertions.assertThat(dirtyOutputRoots)

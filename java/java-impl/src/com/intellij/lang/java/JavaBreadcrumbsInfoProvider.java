@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.java;
 
 import com.intellij.ide.ui.UISettings;
 import com.intellij.lang.Language;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiClassReferenceType;
@@ -52,9 +53,7 @@ public class JavaBreadcrumbsInfoProvider implements BreadcrumbsProvider {
   @Nullable
   @Override
   public Icon getElementIcon(@NotNull PsiElement element) {
-    return Registry.is("editor.breadcrumbs.java.icon")
-           ? element.getIcon(0)
-           : null;
+    return null;
   }
 
   @Nullable
@@ -111,8 +110,7 @@ public class JavaBreadcrumbsInfoProvider implements BreadcrumbsProvider {
     sb.append(")");
   }
 
-  @NotNull
-  private static String getTypeText(@Nullable PsiType type, boolean isDumb) {
+  private static @NotNull @NlsSafe String getTypeText(@Nullable PsiType type, boolean isDumb) {
     // todo PsiTypeVisitor ?
     String result;
     if (type == null) result = "";

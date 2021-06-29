@@ -5,7 +5,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
-    <orderEntry type="jdk" jdkName="IDEA jdk" jdkType="JavaSDK" />
+    <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.maven.server" />
     <orderEntry type="library" name="commons-logging" level="project" />
@@ -16,6 +16,7 @@
         <properties maven-id="org.apache.maven:maven-compat:3.3.9">
           <exclude>
             <dependency maven-id="com.google.inject:guice" />
+            <dependency maven-id="javax.inject:javax.inject" />
           </exclude>
         </properties>
         <CLASSES>
@@ -67,6 +68,7 @@
         <properties maven-id="org.apache.maven:maven-core:3.3.9">
           <exclude>
             <dependency maven-id="com.google.inject:guice" />
+            <dependency maven-id="javax.inject:javax.inject" />
           </exclude>
         </properties>
         <CLASSES>

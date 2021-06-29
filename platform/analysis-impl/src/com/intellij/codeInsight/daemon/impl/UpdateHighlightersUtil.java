@@ -1,5 +1,4 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.GutterMark;
@@ -25,8 +24,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.util.Consumer;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,8 +32,7 @@ import java.util.List;
 import java.util.*;
 
 public final class UpdateHighlightersUtil {
-
-  private final static ExtensionPointName<HighlightInfoPostFilter> EP_NAME = ExtensionPointName.create("com.intellij.highlightInfoPostFilter");
+  private final static ExtensionPointName<HighlightInfoPostFilter> EP_NAME = new ExtensionPointName<>("com.intellij.highlightInfoPostFilter");
 
   private static final Comparator<HighlightInfo> BY_START_OFFSET_NODUPS = (o1, o2) -> {
     int d = o1.getActualStartOffset() - o2.getActualStartOffset();
@@ -159,7 +155,9 @@ public final class UpdateHighlightersUtil {
 
     PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document);
     DaemonCodeAnalyzerEx codeAnalyzer = DaemonCodeAnalyzerEx.getInstanceEx(project);
-    codeAnalyzer.cleanFileLevelHighlights(project, group, psiFile);
+    if (psiFile != null) {
+      codeAnalyzer.cleanFileLevelHighlights(group, psiFile);
+    }
 
     assertMarkupConsistent(markup, project);
 
@@ -194,7 +192,7 @@ public final class UpdateHighlightersUtil {
 
     DaemonCodeAnalyzerEx codeAnalyzer = DaemonCodeAnalyzerEx.getInstanceEx(project);
     if (startOffset == 0 && endOffset == document.getTextLength()) {
-      codeAnalyzer.cleanFileLevelHighlights(project, group, psiFile);
+      codeAnalyzer.cleanFileLevelHighlights(group, psiFile);
     }
 
     MarkupModel markup = DocumentMarkupModel.forDocument(document, project, true);
@@ -203,7 +201,7 @@ public final class UpdateHighlightersUtil {
     SeverityRegistrar severityRegistrar = SeverityRegistrar.getSeverityRegistrar(project);
     HighlightersRecycler infosToRemove = new HighlightersRecycler();
     ContainerUtil.quickSort(filteredInfos, BY_START_OFFSET_NODUPS);
-    Set<HighlightInfo> infoSet = new THashSet<>(filteredInfos);
+    Set<HighlightInfo> infoSet = new HashSet<>(filteredInfos);
 
     Processor<HighlightInfo> processor = info -> {
       if (info.getGroup() == group) {
@@ -225,7 +223,7 @@ public final class UpdateHighlightersUtil {
     };
     DaemonCodeAnalyzerEx.processHighlightsOverlappingOutside(document, project, null, priorityRange.getStartOffset(), priorityRange.getEndOffset(), processor);
 
-    Map<TextRange, RangeMarker> ranges2markersCache = new THashMap<>(10);
+    Map<TextRange, RangeMarker> ranges2markersCache = new HashMap<>(10);
     boolean[] changed = {false};
     SweepProcessor.Generator<HighlightInfo> generator = proc -> ContainerUtil.process(filteredInfos, proc);
     SweepProcessor.sweep(generator, (offset, info, atStart, overlappingIntervals) -> {
@@ -233,7 +231,7 @@ public final class UpdateHighlightersUtil {
       if (!info.isFromInjection() && info.getEndOffset() < document.getTextLength() && (info.getEndOffset() <= startOffset || info.getStartOffset()>=endOffset)) return true; // injections are oblivious to restricting range
 
       if (info.isFileLevelAnnotation()) {
-        codeAnalyzer.addFileLevelHighlight(project, group, info, psiFile);
+        codeAnalyzer.addFileLevelHighlight(group, info, psiFile);
         changed[0] = true;
         return true;
       }
@@ -286,7 +284,7 @@ public final class UpdateHighlightersUtil {
 
     List<HighlightInfo> filteredInfos = applyPostFilter(project, infos);
     ContainerUtil.quickSort(filteredInfos, BY_START_OFFSET_NODUPS);
-    Map<TextRange, RangeMarker> ranges2markersCache = new THashMap<>(10);
+    Map<TextRange, RangeMarker> ranges2markersCache = new HashMap<>(10);
     PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document);
     DaemonCodeAnalyzerEx codeAnalyzer = DaemonCodeAnalyzerEx.getInstanceEx(project);
     boolean[] changed = {false};
@@ -296,7 +294,7 @@ public final class UpdateHighlightersUtil {
         return true;
       }
       if (info.isFileLevelAnnotation() && psiFile != null) {
-        codeAnalyzer.addFileLevelHighlight(project, group, info, psiFile);
+        codeAnalyzer.addFileLevelHighlight(group, info, psiFile);
         changed[0] = true;
         return true;
       }
@@ -540,9 +538,28 @@ public final class UpdateHighlightersUtil {
       HighlightInfo info = HighlightInfo.fromRangeHighlighter(highlighter);
       if (info == null) continue;
       boolean contains = !DaemonCodeAnalyzerEx
-        .processHighlights(document, project, null, info.getActualStartOffset(), info.getActualEndOffset(),
+        .processHighlights((MarkupModelEx)markup, project, null, info.getActualStartOffset(), info.getActualEndOffset(),
                            highlightInfo -> BY_START_OFFSET_NODUPS.compare(highlightInfo, info) != 0);
       assert contains: info;
+    }
+  }
+
+  /**
+   * Remove all highlighters with exactly the given range from {@link DocumentMarkupModel}.
+   * This might be useful in quick fixes and intention actions to provide immediate feedback.
+   * Note that all highlighters at the given range are removed, not only the ones produced by your inspection,
+   * but most likely that will look fine:
+   * they'll be restored when the new highlighting pass is finished.
+   * This method currently works in O(total highlighter count in file) time.
+   */
+  public static void removeHighlightersWithExactRange(@NotNull Document document, @NotNull Project project, @NotNull Segment range) {
+    MarkupModel model = DocumentMarkupModel.forDocument(document, project, false);
+    if (model == null) return;
+
+    for (RangeHighlighter highlighter : model.getAllHighlighters()) {
+      if (TextRange.areSegmentsEqual(range, highlighter)) {
+        model.removeHighlighter(highlighter);
+      }
     }
   }
 }

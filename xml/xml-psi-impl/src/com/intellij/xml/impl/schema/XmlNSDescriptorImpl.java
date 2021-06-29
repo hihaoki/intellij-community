@@ -30,7 +30,6 @@ import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.XmlNSDescriptorEx;
 import com.intellij.xml.impl.ExternalDocumentValidator;
 import com.intellij.xml.util.XmlUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -116,7 +115,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
     }
   }
 
-  private static boolean checkSchemaNamespace(String name, @NotNull XmlTag context){
+  private static boolean checkSchemaNamespace(@NotNull String name, @NotNull XmlTag context){
     final String namespace = context.getNamespaceByPrefix(XmlUtil.findPrefixByQualifiedName(name));
     if(namespace.length() > 0){
       return checkSchemaNamespace(namespace);
@@ -519,7 +518,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
   }
 
   @Override
-  public TypeDescriptor getTypeDescriptor(final String name, XmlTag context) {
+  public TypeDescriptor getTypeDescriptor(@NotNull String name, XmlTag context) {
     if(checkSchemaNamespace(name, context)){
       final String localNameByQualifiedName = XmlUtil.findLocalNameByQualifiedName(name);
 
@@ -769,7 +768,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
         XmlElementDescriptor elementDescriptorFromParent = parentDescriptor.getElementDescriptor(tag, parentTag);
 
         if (elementDescriptorFromParent == null) {
-          elementDescriptorFromParent = getDescriptorFromParent(tag, elementDescriptorFromParent);
+          elementDescriptorFromParent = getDescriptorFromParent(tag, null);
         }
         if (elementDescriptorFromParent instanceof AnyXmlElementDescriptor) {
           final XmlElementDescriptor elementDescriptor = getElementDescriptor(tag.getLocalName(), namespace);
@@ -785,7 +784,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
       XmlElementDescriptor elementDescriptor = getElementDescriptor(tag.getLocalName(), tag.getNamespace());
 
       if (elementDescriptor == null) {
-        elementDescriptor = getDescriptorFromParent(tag, elementDescriptor);
+        elementDescriptor = getDescriptorFromParent(tag, null);
       }
 
       return elementDescriptor;
@@ -817,6 +816,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
   }
 
   public XmlAttributeDescriptor[] getRootAttributeDescriptors(final XmlTag context) {
+    if (myTag == null) return XmlAttributeDescriptor.EMPTY;
     return CachedValuesManager.getProjectPsiDependentCache(myTag, XmlNSDescriptorImpl::computeAttributeDescriptors)
       .toArray(XmlAttributeDescriptor.EMPTY);
   }
@@ -912,7 +912,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
       myTargetNamespace = myTag.getAttributeValue("targetNamespace");
     }
 
-    final THashSet<PsiFile> dependenciesSet = new THashSet<>();
+    Set<PsiFile> dependenciesSet = new HashSet<>();
     collectDependencies(myTag, myFile, dependenciesSet);
     dependencies = ArrayUtil.toObjectArray(dependenciesSet);
   }

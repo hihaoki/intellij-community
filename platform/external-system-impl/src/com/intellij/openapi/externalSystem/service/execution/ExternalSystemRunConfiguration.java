@@ -22,10 +22,11 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.FoldingModel;
-import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
+import com.intellij.openapi.externalSystem.service.execution.configuration.ExternalSystemRunConfigurationExtensionManager;
+import com.intellij.openapi.externalSystem.service.execution.configuration.ExternalSystemRunConfigurationFragmentedEditor;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
@@ -35,6 +36,7 @@ import com.intellij.openapi.roots.impl.DirectoryIndex;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -42,11 +44,11 @@ import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScopes;
 import com.intellij.util.text.CharArrayUtil;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.util.xmlb.Accessor;
 import com.intellij.util.xmlb.SerializationFilter;
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -56,8 +58,6 @@ import java.io.InputStream;
 import java.util.Collections;
 
 public class ExternalSystemRunConfiguration extends LocatableConfigurationBase implements SearchScopeProvidingRunProfile {
-  static final ExtensionPointName<ExternalSystemRunConfigurationExtension> EP_NAME
-    = ExtensionPointName.create("com.intellij.externalSystem.runConfigurationExtension");
 
   public static final Key<InputStream> RUN_INPUT_KEY = Key.create("RUN_INPUT_KEY");
   public static final Key<Class<? extends BuildProgressListener>> PROGRESS_LISTENER_KEY = Key.create("PROGRESS_LISTENER_KEY");
@@ -65,6 +65,11 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   static final Logger LOG = Logger.getInstance(ExternalSystemRunConfiguration.class);
   private ExternalSystemTaskExecutionSettings mySettings = new ExternalSystemTaskExecutionSettings();
   static final boolean DISABLE_FORK_DEBUGGER = Boolean.getBoolean("external.system.disable.fork.debugger");
+
+  public static final String DEBUG_SERVER_PROCESS_NAME = "ExternalSystemDebugServerProcess";
+  private static final String REATTACH_DEBUG_PROCESS_NAME = "ExternalSystemReattachDebugProcess";
+  private boolean isDebugServerProcess = true;
+  private boolean isReattachDebugProcess = false;
 
   public ExternalSystemRunConfiguration(@NotNull ProjectSystemId externalSystemId,
                                         Project project,
@@ -77,6 +82,22 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   @Override
   public String suggestedName() {
     return AbstractExternalSystemTaskConfigurationType.generateName(getProject(), mySettings);
+  }
+
+  public boolean isReattachDebugProcess() {
+    return isReattachDebugProcess;
+  }
+
+  public void setReattachDebugProcess(boolean reattachDebugProcess) {
+    isReattachDebugProcess = reattachDebugProcess;
+  }
+
+  public boolean isDebugServerProcess() {
+    return isDebugServerProcess;
+  }
+
+  public void setDebugServerProcess(boolean debugServerProcess) {
+    isDebugServerProcess = debugServerProcess;
   }
 
   @Override
@@ -101,8 +122,17 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
     Element e = element.getChild(ExternalSystemTaskExecutionSettings.TAG_NAME);
     if (e != null) {
       mySettings = XmlSerializer.deserialize(e, ExternalSystemTaskExecutionSettings.class);
+
+      final Element debugServerProcess = element.getChild(DEBUG_SERVER_PROCESS_NAME);
+      if (debugServerProcess != null) {
+        isDebugServerProcess = Boolean.valueOf(debugServerProcess.getText());
+      }
+      final Element reattachProcess = element.getChild(REATTACH_DEBUG_PROCESS_NAME);
+      if (reattachProcess != null) {
+        isReattachDebugProcess = Boolean.valueOf(reattachProcess.getText());
+      }
     }
-    EP_NAME.forEachExtensionSafe(extension -> extension.readExternal(this, element));
+    ExternalSystemRunConfigurationExtensionManager.readExternal(this, element);
   }
 
   @Override
@@ -122,7 +152,15 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
         }
       }
     }));
-    EP_NAME.forEachExtensionSafe(extension -> extension.writeExternal(this, element));
+
+    final Element debugServerProcess = new Element(DEBUG_SERVER_PROCESS_NAME);
+    debugServerProcess.setText(String.valueOf(isDebugServerProcess));
+    element.addContent(debugServerProcess);
+    final Element reattachProcess = new Element(REATTACH_DEBUG_PROCESS_NAME);
+    reattachProcess.setText(String.valueOf(isReattachDebugProcess));
+    element.addContent(reattachProcess);
+
+    ExternalSystemRunConfigurationExtensionManager.writeExternal(this, element);
   }
 
   @NotNull
@@ -133,10 +171,14 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   @NotNull
   @Override
   public SettingsEditor<ExternalSystemRunConfiguration> getConfigurationEditor() {
+    if (Registry.is("ide.new.run.config", true)) {
+      return new ExternalSystemRunConfigurationFragmentedEditor(this);
+    }
+
     SettingsEditorGroup<ExternalSystemRunConfiguration> group = new SettingsEditorGroup<>();
     group.addEditor(ExecutionBundle.message("run.configuration.configuration.tab.title"),
                     new ExternalSystemRunConfigurationEditor(getProject(), mySettings.getExternalSystemId()));
-    EP_NAME.forEachExtensionSafe(extension -> extension.appendEditors(this, group));
+    ExternalSystemRunConfigurationExtensionManager.appendEditors(this, group);
     group.addEditor(ExecutionBundle.message("logs.tab.title"), new LogConfigurationPanel<>());
     return group;
   }
@@ -172,21 +214,6 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
     return scope;
   }
 
-  /**
-   * @deprecated Internal class {@link MyRunnableState} was turned into fully fledged class {@link ExternalSystemRunnableState}.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  public static class MyRunnableState extends ExternalSystemRunnableState {
-    public MyRunnableState(@NotNull ExternalSystemTaskExecutionSettings settings,
-                           @NotNull Project project,
-                           boolean debug,
-                           @NotNull ExternalSystemRunConfiguration configuration,
-                           @NotNull ExecutionEnvironment env) {
-      super(settings, project, debug, configuration, env);
-    }
-  }
-
   static void foldGreetingOrFarewell(@Nullable ExecutionConsole consoleView, String text, boolean isGreeting) {
     int limit = 100;
     if (text.length() < limit) {
@@ -212,22 +239,24 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
       consoleViewImpl = null;
     }
     if (consoleViewImpl != null) {
-      consoleViewImpl.performWhenNoDeferredOutput(() -> {
-        if (!ApplicationManager.getApplication().isDispatchThread()) return;
+      UIUtil.invokeLaterIfNeeded(() -> {
+        consoleViewImpl.performWhenNoDeferredOutput(() -> {
+          if (!ApplicationManager.getApplication().isDispatchThread()) return;
 
-        Document document = consoleViewImpl.getEditor().getDocument();
-        int line = isGreeting ? 0 : document.getLineCount() - 2;
-        if (CharArrayUtil.regionMatches(document.getCharsSequence(), document.getLineStartOffset(line), text)) {
-          final FoldingModel foldingModel = consoleViewImpl.getEditor().getFoldingModel();
-          foldingModel.runBatchFoldingOperation(() -> {
-            FoldRegion region = foldingModel.addFoldRegion(document.getLineStartOffset(line),
-                                                           document.getLineEndOffset(line) + 1,
-                                                           StringUtil.trimLog(text, limit));
-            if (region != null) {
-              region.setExpanded(false);
-            }
-          });
-        }
+          Document document = consoleViewImpl.getEditor().getDocument();
+          int line = isGreeting ? 0 : document.getLineCount() - 2;
+          if (CharArrayUtil.regionMatches(document.getCharsSequence(), document.getLineStartOffset(line), text)) {
+            final FoldingModel foldingModel = consoleViewImpl.getEditor().getFoldingModel();
+            foldingModel.runBatchFoldingOperation(() -> {
+              FoldRegion region = foldingModel.addFoldRegion(document.getLineStartOffset(line),
+                                                             document.getLineEndOffset(line) + 1,
+                                                             StringUtil.trimLog(text, limit));
+              if (region != null) {
+                region.setExpanded(false);
+              }
+            });
+          }
+        });
       });
     }
   }

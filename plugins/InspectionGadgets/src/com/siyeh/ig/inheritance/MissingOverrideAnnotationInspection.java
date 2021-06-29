@@ -1,10 +1,11 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.inheritance;
 
+import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.java15api.Java15APIUsageInspection;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
-import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
+import com.intellij.openapi.module.LanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.impl.scopes.ModulesScope;
@@ -137,7 +138,7 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
                                  InspectionGadgetsBundle.message(result.requireAnnotation
                                                                  ? "missing.override.annotation.problem.descriptor"
                                                                  : "missing.override.annotation.in.overriding.problem.descriptor"),
-                                 createAnnotateFix(result.requireAnnotation, result.hierarchyAnnotated));
+                                 createAnnotateFix(method, result.requireAnnotation, result.hierarchyAnnotated));
         }
       }
 
@@ -159,7 +160,7 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
                                               !JavaOverridingMethodUtil.containsAnnotationWithName(m, OVERRIDE_SHORT_NAME);
         Stream<PsiMethod> overridingMethods = JavaOverridingMethodUtil.getOverridingMethodsIfCheapEnough(method, scope, preFilter);
         if (overridingMethods == null) return;
-        result.hierarchyAnnotated = ThreeState.fromBoolean(!overridingMethods.findAny().isPresent());
+        result.hierarchyAnnotated = ThreeState.fromBoolean(overridingMethods.findAny().isEmpty());
       }
 
       private void checkMissingOverride(@NotNull PsiMethod method,
@@ -172,7 +173,7 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
           return;
         }
         LanguageLevel level = PsiUtil.getLanguageLevel(method);
-        if (level != LanguageLevel.JDK_14_PREVIEW && JavaPsiRecordUtil.getRecordComponentForAccessor(method) != null) {
+        if (JavaPsiRecordUtil.getRecordComponentForAccessor(method) != null) {
           result.requireAnnotation = true;
           return;
         }
@@ -242,7 +243,12 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
   }
 
   @NotNull
-  private static AnnotateMethodFix createAnnotateFix(final boolean requireAnnotation, final ThreeState hierarchyAnnotated) {
+  private static LocalQuickFix createAnnotateFix(@NotNull PsiMethod method,
+                                                 final boolean requireAnnotation,
+                                                 final ThreeState hierarchyAnnotated) {
+    if (hierarchyAnnotated != ThreeState.NO) {
+      return new AddAnnotationPsiFix(CommonClassNames.JAVA_LANG_OVERRIDE, method);
+    }
     return new AnnotateMethodFix(CommonClassNames.JAVA_LANG_OVERRIDE) {
       @Override
       protected boolean annotateSelf() {
@@ -251,7 +257,7 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
 
       @Override
       protected boolean annotateOverriddenMethods() {
-        return hierarchyAnnotated == ThreeState.NO;
+        return true;
       }
     };
   }
@@ -267,7 +273,7 @@ public class MissingOverrideAnnotationInspection extends AbstractBaseJavaLocalIn
       Map<LanguageLevel, GlobalSearchScope> result = ConcurrentFactoryMap.createMap(minimal -> {
         Set<Module> modules = StreamEx
           .of(ModuleManager.getInstance(project).getModules())
-          .filter(m -> EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(m).isAtLeast(minimal))
+          .filter(m -> LanguageLevelUtil.getEffectiveLanguageLevel(m).isAtLeast(minimal))
           .toSet();
         return modules == null ? null : new ModulesScope(modules, project);
       });

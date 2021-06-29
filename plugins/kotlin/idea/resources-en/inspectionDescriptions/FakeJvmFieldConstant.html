@@ -1,0 +1,18 @@
+<html>
+<body>
+Reports Kotlin properties that are not <code>const</code> and used as Java annotation arguments.
+<p>
+For example, a property with the <code>@JvmField</code> annotation has an initializer that can be evaluated at compile-time,
+and it has a primitive or <code>String</code> type.
+</p>
+
+<p>
+Such properties have a <code>ConstantValue</code> attribute in bytecode in Kotlin 1.1-1.2.
+This attribute allows javac to fold usages of the corresponding field and use that field in annotations.
+This can lead to incorrect behavior in the case of separate or incremental compilation in mixed Java/Kotlin code.
+This behavior is subject to change in Kotlin 1.3 (no <code>ConstantValue</code> attribute any more).
+Recommended action: replace the <code>@JvmField</code> annotation with the <code>const</code> modifier on a relevant Kotlin property or inline it.
+</p>
+
+</body>
+</html>

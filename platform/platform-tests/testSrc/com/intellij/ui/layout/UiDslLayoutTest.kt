@@ -1,7 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.layout
 
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.ui.HideableTitledSeparator
 import com.intellij.ui.layout.migLayout.patched.*
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.snapshotFileName
@@ -10,13 +11,13 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.After
 import org.junit.Before
+import org.junit.Test
 import java.nio.file.Paths
 import javax.swing.JPanel
 import kotlin.math.max
+import kotlin.test.assertEquals
 
-/**
- * @author yole
- */
+
 class UiDslLayoutTest : UiDslTest() {
   companion object {
     private val testDataRoot = Paths.get(PlatformTestUtil.getPlatformTestDataPath(), "ui", "layout")
@@ -48,5 +49,17 @@ class UiDslLayoutTest : UiDslTest() {
     })
 
     validateBounds(panel, testDataRoot, testName.snapshotFileName)
+  }
+
+  @Test
+  fun `hidden row preferred size`() {
+    val panel = panel {
+      hideableRow("") {
+        row { label("") }
+        row { label("")}
+      }
+    }
+    val component = panel.components[0] as HideableTitledSeparator
+    assertEquals(component.preferredSize, panel.preferredSize)
   }
 }

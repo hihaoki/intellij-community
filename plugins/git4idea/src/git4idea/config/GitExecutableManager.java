@@ -1,27 +1,30 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.config;
 
 import com.intellij.execution.wsl.WSLDistribution;
 import com.intellij.execution.wsl.WSLUtil;
+import com.intellij.execution.wsl.WslPath;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.Experiments;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.util.ThreeState;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.util.messages.Topic;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommand;
 import git4idea.commands.GitCommandResult;
 import git4idea.commands.GitLineHandler;
 import git4idea.i18n.GitBundle;
-import org.jetbrains.annotations.*;
+import org.jetbrains.annotations.CalledInAny;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.nio.file.NoSuchFileException;
@@ -36,7 +39,7 @@ import static git4idea.config.GitExecutableProblemHandlersKt.showUnsupportedVers
  */
 public class GitExecutableManager {
   public static GitExecutableManager getInstance() {
-    return ServiceManager.getService(GitExecutableManager.class);
+    return ApplicationManager.getApplication().getService(GitExecutableManager.class);
   }
 
   private static final Logger LOG = Logger.getInstance(GitExecutableManager.class);
@@ -44,8 +47,10 @@ public class GitExecutableManager {
   @NotNull private final GitExecutableDetector myExecutableDetector = new GitExecutableDetector();
   @NotNull private final CachingFileTester<GitVersion> myVersionCache;
 
+  public static final Topic<GitExecutableListener> TOPIC = new Topic<>(GitExecutableListener.class, Topic.BroadcastDirection.NONE);
+
   public GitExecutableManager() {
-    myVersionCache = new CachingFileTester<GitVersion>() {
+    myVersionCache = new CachingFileTester<>() {
       @NotNull
       @Override
       protected GitVersion testExecutable(@NotNull GitExecutable executable) throws VcsException, ParseException {
@@ -78,7 +83,7 @@ public class GitExecutableManager {
     GitCommandResult result = Git.getInstance().runCommand(handler);
     String rawResult = result.getOutputOrThrow();
     GitVersion version = GitVersion.parse(rawResult, type);
-    LOG.info("Git version for " + executable + ": " + version.toString());
+    LOG.info("Git version for " + executable + ": " + version);
     return version;
   }
 
@@ -110,15 +115,9 @@ public class GitExecutableManager {
 
   @NotNull
   public GitExecutable getExecutable(@NotNull String pathToGit) {
-    Pair<String, WSLDistribution> pair = parseWslPath(pathToGit);
-    if (pair != null) {
-      if (pair.second != null) {
-        return new GitExecutable.Wsl(pair.first, pair.second);
-      }
-      else {
-        return new GitExecutable.Unknown("wsl-unknown", pair.first,
-                                         GitBundle.message("git.executable.unknown.wsl.distribution.error.message"));
-      }
+    WslPath wslPath = WslPath.parseWindowsUncPath(pathToGit);
+    if (wslPath != null) {
+      return new GitExecutable.Wsl(wslPath.getLinuxPath(), wslPath.getDistribution());
     }
 
     return new GitExecutable.Local(pathToGit);
@@ -134,28 +133,7 @@ public class GitExecutableManager {
     String basePath = project.getBasePath();
     if (basePath == null) return null;
 
-    Pair<String, WSLDistribution> pair = parseWslPath(FileUtil.toSystemDependentName(basePath));
-    return pair != null ? pair.second : null;
-  }
-
-  @Nullable
-  private static Pair<String, @Nullable WSLDistribution> parseWslPath(@NotNull String path) {
-    if (!supportWslExecutable()) return null;
-    if (!path.startsWith(WSLDistribution.UNC_PREFIX)) return null;
-
-    path = StringUtil.trimStart(path, WSLDistribution.UNC_PREFIX);
-    int index = path.indexOf('\\');
-    if (index == -1) return null;
-
-    String distName = path.substring(0, index);
-    String wslPath = FileUtil.toSystemIndependentName(path.substring(index));
-
-    WSLDistribution distribution = WSLUtil.getDistributionByMsId(distName);
-    if (distribution == null) {
-      LOG.debug(String.format("Unknown WSL distribution: %s, known distributions: %s", distName,
-                              StringUtil.join(WSLUtil.getAvailableDistributions(), WSLDistribution::getMsId, ", ")));
-    }
-    return Pair.create(wslPath, distribution);
+    return WslPath.getDistributionByWindowsUncPath(basePath);
   }
 
   @NotNull
@@ -177,6 +155,7 @@ public class GitExecutableManager {
 
   public void dropExecutableCache() {
     myExecutableDetector.clear();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(TOPIC).executableChanged();
   }
 
   /**
@@ -216,7 +195,7 @@ public class GitExecutableManager {
    * Version identification is done under progress because it can hang in rare cases
    * Usually this takes milliseconds because version is cached
    */
-  @CalledInAwt
+  @RequiresEdt
   @NotNull
   public GitVersion getVersionUnderModalProgressOrCancel(@NotNull Project project) throws ProcessCanceledException {
     return ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
@@ -229,13 +208,13 @@ public class GitExecutableManager {
         throw new ProcessCanceledException();
       }
       return version;
-    }, GitBundle.getString("git.executable.version.progress.title"), true, project);
+    }, GitBundle.message("git.executable.version.progress.title"), true, project);
   }
 
   @CalledInAny
   @Nullable
   public GitVersion tryGetVersion(@NotNull Project project) {
-    return runUnderProgressIfNeeded(project, GitBundle.getString("git.executable.version.progress.title"), () -> {
+    return runUnderProgressIfNeeded(project, GitBundle.message("git.executable.version.progress.title"), () -> {
       try {
         GitExecutable executable = getExecutable(project);
         return identifyVersion(executable);
@@ -250,7 +229,7 @@ public class GitExecutableManager {
   }
 
   static <T> T runUnderProgressIfNeeded(@Nullable Project project,
-                                        @NotNull String title,
+                                        @NotNull @NlsContexts.ProgressTitle String title,
                                         @NotNull ThrowableComputable<T, RuntimeException> task) {
     if (ApplicationManager.getApplication().isDispatchThread()) {
       return ProgressManager.getInstance().runProcessWithProgressSynchronously(task, title, true, project);
@@ -260,7 +239,7 @@ public class GitExecutableManager {
     }
   }
 
-  @CalledInBackground
+  @RequiresBackgroundThread(generateAssertion = false)
   @NotNull
   public GitVersion identifyVersion(@NotNull String pathToGit) throws GitVersionIdentificationException {
     return identifyVersion(getExecutable(pathToGit));
@@ -271,7 +250,7 @@ public class GitExecutableManager {
    *
    * @throws GitVersionIdentificationException if there is a problem running executable or parsing version output
    */
-  @CalledInBackground
+  @RequiresBackgroundThread(generateAssertion = false)
   @NotNull
   public GitVersion identifyVersion(@NotNull GitExecutable executable) throws GitVersionIdentificationException {
     CachingFileTester<GitVersion>.TestResult result = myVersionCache.getResultFor(executable);
@@ -296,7 +275,7 @@ public class GitExecutableManager {
    *
    * @return {@code true} is executable is valid, {@code false} otherwise
    */
-  @CalledInBackground
+  @RequiresBackgroundThread
   public boolean testGitExecutableVersionValid(@NotNull Project project) {
     GitExecutable executable = getExecutable(project);
     GitVersion version = identifyVersionOrDisplayError(project, executable);
@@ -313,7 +292,7 @@ public class GitExecutableManager {
     }
   }
 
-  @CalledInBackground
+  @RequiresBackgroundThread
   @Nullable
   private GitVersion identifyVersionOrDisplayError(@NotNull Project project, @NotNull GitExecutable executable) {
     try {

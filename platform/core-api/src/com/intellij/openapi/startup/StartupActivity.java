@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.startup;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -6,31 +6,29 @@ import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <p>Runs an activity on project open.</p>
+ * Runs an activity on project open.
+ * See <a href="https://github.com/JetBrains/intellij-community/blob/master/platform/service-container/overview.md#startup-activity">docs</a> for details.
  *
- * <p>If the activity implements {@link com.intellij.openapi.project.DumbAware} interface, e.g. {@link DumbAware}, it will be started in a pooled thread
- * under 'Loading Project' dialog, otherwise it will be started in the dispatch thread after the initialization.</p>
- *
- * See https://github.com/JetBrains/intellij-community/blob/master/platform/service-container/overview.md#startup-activity.
+ * @see StartupManager
  */
 public interface StartupActivity {
-  ExtensionPointName<StartupActivity> POST_STARTUP_ACTIVITY = new ExtensionPointName<>("com.intellij.postStartupActivity");
-
   /**
-   * Please see https://github.com/JetBrains/intellij-community/blob/master/platform/service-container/overview.md#startup-activity
+   * If activity implements {@link com.intellij.openapi.project.DumbAware}, it is executed after project is opened
+   * on a background thread with no visible progress indicator. Otherwise it is executed on EDT when indexes are ready.
+   *
+   * @see StartupManager#registerPostStartupActivity
+   * @see DumbAware
    */
-  ExtensionPointName<StartupActivity.Background> BACKGROUND_POST_STARTUP_ACTIVITY = new ExtensionPointName<>("com.intellij.backgroundPostStartupActivity");
+  ExtensionPointName<StartupActivity> POST_STARTUP_ACTIVITY = new ExtensionPointName<>("com.intellij.postStartupActivity");
 
   void runActivity(@NotNull Project project);
 
   /**
-   * Represent a startup activity that should be executed before {@link com.intellij.openapi.project.DumbService} will be switched to "smart mode".
+   * Represents a startup activity that should be executed before {@link com.intellij.openapi.project.DumbService} switches to the "smart mode".
    */
-  interface RequiredForSmartMode extends StartupActivity {
-  }
+  interface RequiredForSmartMode extends StartupActivity { }
 
-  interface DumbAware extends StartupActivity, com.intellij.openapi.project.DumbAware {
-  }
+  interface DumbAware extends StartupActivity, com.intellij.openapi.project.DumbAware { }
 
-  interface Background extends StartupActivity, com.intellij.openapi.project.DumbAware {}
+  interface Background extends StartupActivity, com.intellij.openapi.project.DumbAware { }
 }

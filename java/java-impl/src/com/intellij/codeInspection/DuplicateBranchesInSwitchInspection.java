@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.codeInspection.util.InspectionMessage;
@@ -24,6 +24,8 @@ import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.SwitchUtils;
 import gnu.trove.TIntObjectHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -146,7 +148,7 @@ public class DuplicateBranchesInSwitchInspection extends LocalInspectionTool {
       return Collections.emptyList();
     }
 
-    TIntObjectHashMap<List<Rule>> rulesByHash = new TIntObjectHashMap<>();
+    Int2ObjectMap<List<Rule>> rulesByHash = new Int2ObjectOpenHashMap<>();
     List<String> commentTexts = new ArrayList<>();
     for (PsiElement element = switchBody.getFirstChild(); element != null; element = element.getNextSibling()) {
       if (!(element instanceof PsiSwitchLabeledRuleStatement)) {
@@ -160,15 +162,10 @@ public class DuplicateBranchesInSwitchInspection extends LocalInspectionTool {
         Rule rule = new Rule(ruleStatement, body, ArrayUtilRt.toStringArray(commentTexts));
         commentTexts.clear();
         int hash = rule.hash();
-        List<Rule> list = rulesByHash.get(hash);
-        if (list == null) rulesByHash.put(hash, list = new ArrayList<>());
-        list.add(rule);
+        rulesByHash.computeIfAbsent(hash, __ -> new ArrayList<>()).add(rule);
       }
     }
-
-    Collection<List<Rule>> result = new ArrayList<>();
-    rulesByHash.forEachValue(result::add); // mini-hack: ArrayList.add() always returns true
-    return result;
+    return new ArrayList<>(rulesByHash.values());
   }
 
   @NotNull
@@ -223,7 +220,7 @@ public class DuplicateBranchesInSwitchInspection extends LocalInspectionTool {
       return previousBranch; // the code without a label is not allowed in 'switch', just ignore it
     }
     Branch branch = new Branch(labels, statementList, hasImplicitBreak, comments.fetchTexts());
-    if (previousBranch == null || !previousBranch.canFallThrough()) {
+    if (!branch.canFallThrough() && (previousBranch == null || !previousBranch.canFallThrough())) {
       int hash = branch.hash();
       List<Branch> branches = branchesByHash.get(hash);
       if (branches == null) branchesByHash.put(hash, branches = new ArrayList<>());
@@ -909,10 +906,10 @@ public class DuplicateBranchesInSwitchInspection extends LocalInspectionTool {
     }
 
     void copyCaseValues() {
-      PsiExpressionList caseValuesToMergeWith = myRuleToMergeWith.myLabel.getCaseValues();
-      PsiExpressionList caseValuesToDelete = myRuleToDelete.myLabel.getCaseValues();
+      @Nullable PsiCaseLabelElementList caseValuesToMergeWith = myRuleToMergeWith.myLabel.getCaseLabelElementList();
+      @Nullable PsiCaseLabelElementList caseValuesToDelete = myRuleToDelete.myLabel.getCaseLabelElementList();
       if (caseValuesToDelete != null && caseValuesToMergeWith != null) {
-        for (PsiExpression caseValue : caseValuesToDelete.getExpressions()) {
+        for (PsiCaseLabelElement caseValue : caseValuesToDelete.getElements()) {
           caseValuesToMergeWith.addAfter(caseValue, caseValuesToMergeWith.getLastChild());
         }
       }

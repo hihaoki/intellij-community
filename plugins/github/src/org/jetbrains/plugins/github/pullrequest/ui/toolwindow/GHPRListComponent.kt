@@ -1,39 +1,42 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.toolwindow
 
+import com.intellij.collaboration.ui.SingleValueModel
+import com.intellij.collaboration.ui.codereview.OpenReviewButton
+import com.intellij.collaboration.ui.codereview.OpenReviewButtonViewModel
 import com.intellij.ide.DataManager
 import com.intellij.ide.plugins.newui.VerticalLayout
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.progress.util.ProgressWindow
 import com.intellij.openapi.project.Project
 import com.intellij.ui.*
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.labels.LinkLabel
-import com.intellij.util.ui.*
+import com.intellij.ui.scale.JBUIScale
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.ListUiUtil
+import com.intellij.util.ui.StatusText
+import com.intellij.util.ui.UIUtil
 import com.intellij.vcs.log.ui.frame.ProgressStripe
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.action.GHPRActionKeys
+import org.jetbrains.plugins.github.pullrequest.config.GithubPullRequestsProjectUISettings
 import org.jetbrains.plugins.github.pullrequest.data.GHListLoader
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.data.GHPRListUpdatesChecker
 import org.jetbrains.plugins.github.pullrequest.data.GHPRSearchQuery
+import org.jetbrains.plugins.github.pullrequest.search.GHPRSearchCompletionProvider
 import org.jetbrains.plugins.github.pullrequest.search.GHPRSearchQueryHolder
-import org.jetbrains.plugins.github.pullrequest.ui.GHLoadingErrorHandlerImpl
-import org.jetbrains.plugins.github.ui.GHHandledErrorPanelModel
-import org.jetbrains.plugins.github.ui.GHHtmlErrorPanel
+import org.jetbrains.plugins.github.pullrequest.ui.GHApiLoadingErrorHandler
+import org.jetbrains.plugins.github.ui.component.GHHandledErrorPanelModel
+import org.jetbrains.plugins.github.ui.component.GHHtmlErrorPanel
 import org.jetbrains.plugins.github.ui.util.BoundedRangeModelThresholdListener
-import org.jetbrains.plugins.github.ui.util.SingleValueModel
-import org.jetbrains.plugins.github.util.GithubUIUtil
 import java.awt.FlowLayout
-import java.awt.Point
-import java.awt.Rectangle
 import java.awt.event.ActionListener
 import java.awt.event.MouseEvent
-import java.awt.event.MouseMotionAdapter
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -77,24 +80,24 @@ internal object GHPRListComponent {
     }.also {
       ScrollingUtil.installActions(it)
       ListUtil.installAutoSelectOnMouseMove(it)
-      GithubUIUtil.Lists.installSelectionOnFocus(it)
-      GithubUIUtil.Lists.installSelectionOnRightClick(it)
+      ListUiUtil.Selection.installSelectionOnFocus(it)
+      ListUiUtil.Selection.installSelectionOnRightClick(it)
       DataManager.registerDataProvider(it) { dataId ->
         if (GHPRActionKeys.SELECTED_PULL_REQUEST.`is`(dataId)) it.selectedValue else null
       }
-      PopupHandler.installSelectionListPopup(it,
-                                             actionManager.getAction("Github.PullRequest.ToolWindow.List.Popup") as ActionGroup,
-                                             ActionPlaces.UNKNOWN, actionManager)
+      val groupId = "Github.PullRequest.ToolWindow.List.Popup"
+      PopupHandler.installSelectionListPopup(it, actionManager.getAction(groupId) as ActionGroup, groupId)
       val shortcuts = CompositeShortcutSet(CommonShortcuts.ENTER, CommonShortcuts.DOUBLE_CLICK_1)
       EmptyAction.registerWithShortcutSet("Github.PullRequest.Show", shortcuts, it)
       ListSpeedSearch(it) { item -> item.title }
     }
 
-    val openButtonViewModel = GHPROpenButtonViewModel()
-    installOpenButtonListeners(list, openButtonViewModel)
+    val openButtonViewModel = OpenReviewButtonViewModel()
+    OpenReviewButton.installOpenButtonListeners(list, openButtonViewModel) {
+      ActionManager.getInstance().getAction("Github.PullRequest.Show")
+    }
 
-    val avatarIconsProvider = dataContext.avatarIconsProviderFactory.create(GithubUIUtil.avatarSize, list)
-    val renderer = GHPRListCellRenderer(avatarIconsProvider, openButtonViewModel)
+    val renderer = GHPRListCellRenderer(dataContext.avatarIconsProvider, openButtonViewModel)
     list.cellRenderer = renderer
     UIUtil.putClientProperty(list, UIUtil.NOT_IN_HIERARCHY_COMPONENTS, listOf(renderer))
 
@@ -104,21 +107,23 @@ internal object GHPRListComponent {
       if (searchStringModel.value != searchQueryHolder.queryString)
         searchStringModel.value = searchQueryHolder.queryString
     }
-    searchStringModel.addValueChangedListener {
+    searchStringModel.addListener {
       searchQueryHolder.queryString = searchStringModel.value
     }
 
     ListEmptyTextController(listLoader, searchQueryHolder, list.emptyText, disposable)
 
-    val search = GHPRSearchPanel.create(project, searchStringModel).apply {
+    val searchCompletionProvider = GHPRSearchCompletionProvider(project, dataContext.repositoryDataService)
+    val pullRequestUiSettings = GithubPullRequestsProjectUISettings.getInstance(project)
+    val search = GHPRSearchPanel.create(project, searchStringModel, searchCompletionProvider, pullRequestUiSettings).apply {
       border = IdeBorderFactory.createBorder(SideBorder.BOTTOM)
     }
 
-    val outdatedStatePanel = JPanel(FlowLayout(FlowLayout.LEFT, UI.scale(5), 0)).apply {
+    val outdatedStatePanel = JPanel(FlowLayout(FlowLayout.LEFT, JBUIScale.scale(5), 0)).apply {
       background = UIUtil.getPanelBackground()
       border = JBUI.Borders.empty(4, 0)
       add(JLabel(GithubBundle.message("pull.request.list.outdated")))
-      add(LinkLabel<Any?>(GithubBundle.message("pull.request.list.refresh"), null) { _, _ ->
+      add(ActionLink(GithubBundle.message("pull.request.list.refresh")) {
         listLoader.reset()
       })
 
@@ -126,7 +131,7 @@ internal object GHPRListComponent {
     }
     OutdatedPanelController(listLoader, dataContext.listUpdatesChecker, outdatedStatePanel, disposable)
 
-    val errorHandler = GHLoadingErrorHandlerImpl(project, dataContext.securityService.account) {
+    val errorHandler = GHApiLoadingErrorHandler(project, dataContext.securityService.account) {
       listLoader.reset()
     }
     val errorModel = GHHandledErrorPanelModel(GithubBundle.message("pull.request.list.cannot.load"), errorHandler).apply {
@@ -185,44 +190,6 @@ internal object GHPRListComponent {
     return progressStripe
   }
 
-  private fun installOpenButtonListeners(list: JBList<GHPullRequestShort>,
-                                         openButtonViewModel: GHPROpenButtonViewModel) {
-
-    list.addMouseMotionListener(object : MouseMotionAdapter() {
-      override fun mouseMoved(e: MouseEvent) {
-        val point = e.point
-        var index = list.locationToIndex(point)
-        val cellBounds = list.getCellBounds(index, index)
-        if (cellBounds == null || !cellBounds.contains(point)) index = -1
-
-        openButtonViewModel.hoveredRowIndex = index
-        openButtonViewModel.isButtonHovered = if (index == -1) false else isInsideButton(cellBounds, point)
-        list.repaint()
-      }
-    })
-
-    object : ClickListener() {
-      override fun onClick(event: MouseEvent, clickCount: Int): Boolean {
-        val point = event.point
-        val index = list.locationToIndex(point)
-        val cellBounds = list.getCellBounds(index, index)
-        if (cellBounds == null || !cellBounds.contains(point)) return false
-
-        if (isInsideButton(cellBounds, point)) {
-          val action = ActionManager.getInstance().getAction("Github.PullRequest.Show")
-          ActionUtil.invokeAction(action, list, ActionPlaces.UNKNOWN, event, null)
-          return true
-        }
-        return false
-      }
-    }.installOn(list)
-  }
-
-  private fun isInsideButton(cellBounds: Rectangle, point: Point): Boolean {
-    val iconSize = EmptyIcon.ICON_16.iconWidth
-    val rendererRelativeX = point.x - cellBounds.x
-    return (cellBounds.width - rendererRelativeX) <= iconSize
-  }
 
   private class ListEmptyTextController(private val listLoader: GHListLoader<*>,
                                         private val searchHolder: GHPRSearchQueryHolder,
@@ -237,18 +204,22 @@ internal object GHPRListComponent {
       emptyText.clear()
       if (listLoader.loading || listLoader.error != null) return
 
-      if (searchHolder.query != GHPRSearchQuery.DEFAULT) {
+
+      val query = searchHolder.query
+      if (query == GHPRSearchQuery.DEFAULT) {
         emptyText.appendText(GithubBundle.message("pull.request.list.no.matches"))
-          .appendSecondaryText(GithubBundle.message("pull.request.list.reset.filters"), SimpleTextAttributes.LINK_ATTRIBUTES,
-                               ActionListener {
-                                 searchHolder.query = GHPRSearchQuery.DEFAULT
-                               })
+          .appendSecondaryText(GithubBundle.message("pull.request.list.reset.filters"),
+                               SimpleTextAttributes.LINK_ATTRIBUTES,
+                               ActionListener { searchHolder.query = GHPRSearchQuery.EMPTY })
+      }
+      else if (query.isEmpty()) {
+        emptyText.appendText(GithubBundle.message("pull.request.list.nothing.loaded"))
       }
       else {
-        emptyText.appendText(GithubBundle.message("pull.request.list.nothing.loaded"))
-          .appendSecondaryText(GithubBundle.message("pull.request.list.refresh"), SimpleTextAttributes.LINK_ATTRIBUTES, ActionListener {
-            listLoader.reset()
-          })
+        emptyText.appendText(GithubBundle.message("pull.request.list.no.matches"))
+          .appendSecondaryText(GithubBundle.message("pull.request.list.reset.filters.to.default", GHPRSearchQuery.DEFAULT.toString()),
+                               SimpleTextAttributes.LINK_ATTRIBUTES,
+                               ActionListener { searchHolder.query = GHPRSearchQuery.DEFAULT })
       }
     }
   }

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.propertyBased;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
@@ -84,11 +84,15 @@ class JavaCommentingStrategy extends JavaIntentionPolicy {
   @Override
   public boolean checkComments(IntentionAction intention) {
     String intentionText = intention.getText();
+    String familyName = intention.getFamilyName();
     boolean isCommentChangingAction = intentionText.startsWith("Replace with end-of-line comment") ||
                                       intentionText.startsWith("Replace with block comment") ||
+                                      intentionText.startsWith("Replace with javadoc") ||
                                       intentionText.startsWith("Remove //noinspection") ||
+                                      intentionText.startsWith("Convert to Basic Latin") ||
                                       intentionText.startsWith("Unwrap 'if' statement") ||//remove ifs content
                                       intentionText.startsWith("Remove 'if' statement") ||//remove content of the if with everything inside
+                                      intentionText.equals("Remove 'while' statement") ||
                                       intentionText.startsWith("Unimplement Class") || intentionText.startsWith("Unimplement Interface") ||//remove methods in batch
                                       intentionText.startsWith("Suppress with 'NON-NLS' comment") ||
                                       intentionText.startsWith("Move comment to separate line") ||//merge comments on same line
@@ -113,7 +117,8 @@ class JavaCommentingStrategy extends JavaIntentionPolicy {
                                       intentionText.matches("Move '.*' to Javadoc ''@throws'' tag") ||
                                       intentionText.matches("Remove '.*' from '.*' throws list") ||
                                       intentionText.matches(JavaAnalysisBundle.message("inspection.redundant.type.remove.quickfix")) ||
-                                      intentionText.matches("Remove .+ suppression");
+                                      intentionText.matches("Remove .+ suppression") ||
+                                      familyName.equals("Fix typo");
     return !isCommentChangingAction;
   }
 

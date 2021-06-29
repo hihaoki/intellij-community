@@ -10,7 +10,7 @@ import javax.swing.*;
 import java.util.function.Function;
 
 public class ToggleOptionAction extends ToggleAction {
-  private final Function<AnActionEvent, Option> optionSupplier;
+  private final @NotNull Function<? super AnActionEvent, ? extends Option> optionSupplier;
 
   @SuppressWarnings("unused")
   public ToggleOptionAction(@NotNull Option option) {
@@ -23,11 +23,11 @@ public class ToggleOptionAction extends ToggleAction {
   }
 
   @SuppressWarnings("unused")
-  public ToggleOptionAction(@NotNull Function<AnActionEvent, Option> optionSupplier) {
+  public ToggleOptionAction(@NotNull Function<? super AnActionEvent, ? extends Option> optionSupplier) {
     this(optionSupplier, null);
   }
 
-  public ToggleOptionAction(@NotNull Function<AnActionEvent, Option> optionSupplier, @Nullable Icon icon) {
+  public ToggleOptionAction(@NotNull Function<? super AnActionEvent, ? extends Option> optionSupplier, @Nullable Icon icon) {
     super(() -> null, () -> null, icon);
     this.optionSupplier = optionSupplier;
   }
@@ -45,7 +45,7 @@ public class ToggleOptionAction extends ToggleAction {
   }
 
   @Override
-  public final void update(@NotNull AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Option option = optionSupplier.apply(event);
     boolean enabled = option != null && option.isEnabled();
     boolean visible = enabled || option != null && option.isAlwaysVisible();
@@ -64,7 +64,7 @@ public class ToggleOptionAction extends ToggleAction {
 
   public interface Option {
     /**
-     * @return a not null string to override an action name
+     * @return a string to override an action name
      */
     @Nullable
     @ActionText
@@ -73,7 +73,7 @@ public class ToggleOptionAction extends ToggleAction {
     }
 
     /**
-     * @return a not null string to override an action description
+     * @return a string to override an action description
      */
     @Nullable
     @ActionDescription

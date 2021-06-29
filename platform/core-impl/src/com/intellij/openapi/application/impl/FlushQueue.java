@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.codeWithMe.ClientId;
@@ -23,14 +23,13 @@ final class FlushQueue {
   private final List<RunnableInfo> mySkippedItems = new ArrayList<>(); //protected by LOCK
 
   private final ArrayDeque<RunnableInfo> myQueue = new ArrayDeque<>(); //protected by LOCK
-  @NotNull
-  private final Consumer<Runnable> myRunnableExecutor;
+  private final @NotNull Consumer<? super Runnable> myRunnableExecutor;
 
-  private volatile boolean myMayHaveItems = false;
+  private volatile boolean myMayHaveItems;
 
   private RunnableInfo myLastInfo;
 
-  FlushQueue(@NotNull Consumer<Runnable> executor) {
+  FlushQueue(@NotNull Consumer<? super Runnable> executor) {
     myRunnableExecutor = executor;
   }
 
@@ -77,11 +76,13 @@ final class FlushQueue {
   }
 
   // Extracted to have a capture point
-  private static void doRun(@Async.Execute RunnableInfo info) {
-    if (ClientId.Companion.getPropagateAcrossThreads())
+  private static void doRun(@Async.Execute @NotNull RunnableInfo info) {
+    if (ClientId.Companion.getPropagateAcrossThreads()) {
       ClientId.withClientId(info.clientId, info.runnable);
-    else
+    }
+    else {
       info.runnable.run();
+    }
   }
 
   @Override
@@ -122,7 +123,7 @@ final class FlushQueue {
     myLastInfo = lastInfo;
 
     if (lastInfo != null) {
-      EventWatcher watcher = EventWatcher.getInstance();
+      EventWatcher watcher = EventWatcher.getInstanceOrNull();
       Runnable runnable = lastInfo.runnable;
       if (watcher != null) {
         watcher.runnableStarted(runnable, startedAt);

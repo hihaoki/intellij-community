@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.ui;
 
 import com.intellij.execution.testframework.TestConsoleProperties;
@@ -7,6 +7,7 @@ import com.intellij.execution.testframework.ToolbarPanel;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.ui.ComponentContainer;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowAnchor;
@@ -24,9 +25,7 @@ import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import java.awt.*;
 
-/**
- * @author yole
- */
+
 public abstract class TestResultsPanel extends JPanel implements Disposable, DataProvider  {
   private JScrollPane myLeftPane;
   protected final JComponent myConsole;
@@ -99,6 +98,7 @@ public abstract class TestResultsPanel extends JPanel implements Disposable, Dat
     myConsole.setBorder(new CompoundBorder(IdeBorderFactory.createBorder(SideBorder.RIGHT), new SideBorder(editorBackground, SideBorder.LEFT)));
     outputTab.add(myConsole, BorderLayout.CENTER);
     final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("TestRunnerResults", new DefaultActionGroup(myConsoleActions), false);
+    toolbar.setTargetComponent(myConsole instanceof ComponentContainer ? ((ComponentContainer)myConsole).getPreferredFocusableComponent() : myConsole);
     myToolbarComponent = toolbar.getComponent();
     outputTab.add(myToolbarComponent, BorderLayout.EAST);
     rightPanel.add(outputTab, BorderLayout.CENTER);

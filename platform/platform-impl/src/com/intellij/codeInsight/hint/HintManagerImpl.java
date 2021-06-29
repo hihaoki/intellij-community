@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.hint;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.ide.plugins.DynamicPluginListener;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
@@ -8,7 +9,6 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.event.*;
@@ -20,15 +20,19 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.popup.Balloon;
+import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Alarm;
 import com.intellij.util.BitUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.util.ui.EDT;
 import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import org.jetbrains.annotations.NotNull;
@@ -38,7 +42,6 @@ import javax.swing.*;
 import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
 
@@ -56,7 +59,7 @@ public class HintManagerImpl extends HintManager {
   private LightweightHint myQuestionHint;
   private QuestionAction myQuestionAction;
 
-  private final List<HintInfo> myHintsStack = new ArrayList<>();
+  private final List<HintInfo> myHintsStack = ContainerUtil.createLockFreeCopyOnWriteList();
   private Editor myLastEditor;
   private final Alarm myHideAlarm = new Alarm();
   private boolean myRequestFocusForNextHint;
@@ -86,7 +89,7 @@ public class HintManagerImpl extends HintManager {
   }
 
   public static HintManagerImpl getInstanceImpl() {
-    return (HintManagerImpl)ServiceManager.getService(HintManager.class);
+    return (HintManagerImpl)ApplicationManager.getApplication().getService(HintManager.class);
   }
 
   public HintManagerImpl() {
@@ -146,13 +149,10 @@ public class HintManagerImpl extends HintManager {
   }
 
   private void onDocumentChange() {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    HintInfo[] infos = getHintsStackArray();
-    for (HintInfo info : infos) {
+    EDT.assertIsEdt();
+    for (HintInfo info : myHintsStack) {
       if (BitUtil.isSet(info.flags, HIDE_BY_TEXT_CHANGE)) {
-        if (info.hint.isVisible()) {
-          info.hint.hide();
-        }
+        info.hint.hide();
         myHintsStack.remove(info);
       }
     }
@@ -174,10 +174,6 @@ public class HintManagerImpl extends HintManager {
   @Override
   public void setRequestFocusForNextHint(boolean requestFocus) {
     myRequestFocusForNextHint = requestFocus;
-  }
-
-  private HintInfo @NotNull [] getHintsStackArray() {
-    return myHintsStack.toArray(new HintInfo[0]);
   }
 
   public boolean performCurrentQuestionAction() {
@@ -204,8 +200,8 @@ public class HintManagerImpl extends HintManager {
 
 
   private void updateScrollableHints(VisibleAreaEvent e) {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    for (HintInfo info : getHintsStackArray()) {
+    EDT.assertIsEdt();
+    for (HintInfo info : myHintsStack) {
       if (info.hint != null && BitUtil.isSet(info.flags, UPDATE_BY_SCROLLING)) {
         updateScrollableHintPosition(e, info.hint, BitUtil.isSet(info.flags, HIDE_IF_OUT_OF_EDITOR));
       }
@@ -214,8 +210,8 @@ public class HintManagerImpl extends HintManager {
 
   @Override
   public boolean hasShownHintsThatWillHideByOtherHint(boolean willShowTooltip) {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    for (HintInfo hintInfo : getHintsStackArray()) {
+    EDT.assertIsEdt();
+    for (HintInfo hintInfo : myHintsStack) {
       if (hintInfo.hint.isVisible() && BitUtil.isSet(hintInfo.flags, HIDE_BY_OTHER_HINT)) return true;
       if (willShowTooltip && hintInfo.hint.isAwtTooltip()) {
         // only one AWT tooltip can be visible, so this hint will hide even though it's not marked with HIDE_BY_OTHER_HINT
@@ -303,7 +299,7 @@ public class HintManagerImpl extends HintManager {
                              int timeout,
                              boolean reviveOnEditorChange,
                              HintHint hintInfo) {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
+    EDT.assertIsEdt();
     myHideAlarm.cancelAllRequests();
 
     hideHints(HIDE_BY_OTHER_HINT, false, false);
@@ -358,17 +354,28 @@ public class HintManagerImpl extends HintManager {
       timer.start();
     }
   }
-
   @Override
   public void showHint(@NotNull final JComponent component, @NotNull RelativePoint p, int flags, int timeout) {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
+    showHint(component, p,flags,timeout,null);
+  }
+  @Override
+  public void showHint(@NotNull final JComponent component, @NotNull RelativePoint p, int flags, int timeout, @Nullable Runnable onHintHidden) {
+    EDT.assertIsEdt();
     myHideAlarm.cancelAllRequests();
 
     hideHints(HIDE_BY_OTHER_HINT, false, false);
 
-    final JBPopup popup =
-      JBPopupFactory.getInstance().createComponentPopupBuilder(component, null).setRequestFocus(false).setResizable(false).setMovable(false)
-        .createPopup();
+    ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(component, null)
+        .setRequestFocus(false)
+        .setResizable(false)
+        .setMovable(false);
+    if(onHintHidden != null)
+        builder.setCancelCallback(()->{
+          onHintHidden.run();
+          return true;
+        });
+
+    final JBPopup popup = builder.createPopup();
     popup.show(p);
 
     ListenerUtil.addMouseListener(component, new MouseAdapter() {
@@ -425,6 +432,10 @@ public class HintManagerImpl extends HintManager {
       p.x = Math.max(0, externalComponent.getWidth() - size.width);
     }
 
+    if(hint.isShouldBeReopen()){
+      hint.hide(true);
+    }
+
     if (hint.isVisible()) {
       if (updateSize) {
         hint.pack();
@@ -447,8 +458,8 @@ public class HintManagerImpl extends HintManager {
 
   @Override
   public void hideAllHints() {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    for (HintInfo info : getHintsStackArray()) {
+    EDT.assertIsEdt();
+    for (HintInfo info : myHintsStack) {
       if (!info.hint.vetoesHiding()) {
         info.hint.hide();
       }
@@ -465,12 +476,11 @@ public class HintManagerImpl extends HintManager {
    * @return coordinates in layered pane coordinate system.
    */
   public Point getHintPosition(@NotNull LightweightHint hint, @NotNull Editor editor, @PositionFlags short constraint) {
-
+    EDT.assertIsEdt();
     LogicalPosition pos = editor.getCaretModel().getLogicalPosition();
     final DataContext dataContext = ((EditorEx)editor).getDataContext();
     final Rectangle dominantArea = PlatformDataKeys.DOMINANT_HINT_AREA_RECTANGLE.getData(dataContext);
 
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
     if (dominantArea != null) {
       return getHintPositionRelativeTo(hint, editor, constraint, dominantArea, pos);
     }
@@ -478,7 +488,7 @@ public class HintManagerImpl extends HintManager {
     JRootPane rootPane = editor.getComponent().getRootPane();
     if (rootPane != null) {
       JLayeredPane lp = rootPane.getLayeredPane();
-      for (HintInfo info : getHintsStackArray()) {
+      for (HintInfo info : myHintsStack) {
         if (!info.hint.isSelectingHint()) continue;
         IdeTooltip tooltip = info.hint.getCurrentIdeTooltip();
         if (tooltip != null) {
@@ -711,7 +721,7 @@ public class HintManagerImpl extends HintManager {
   }
 
   private void showInformationHint(@NotNull Editor editor,
-                                   @NotNull String text,
+                                   @NotNull @NlsContexts.HintText String text,
                                    @Nullable HyperlinkListener listener,
                                    @PositionFlags short position) {
     JComponent label = HintUtil.createInformationLabel(text, listener, null, null);
@@ -729,7 +739,7 @@ public class HintManagerImpl extends HintManager {
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       return;
     }
-    AccessibleContextUtil.setName(component, "Hint");
+    AccessibleContextUtil.setName(component, IdeBundle.message("information.hint.accessible.context.name"));
     LightweightHint hint = new LightweightHint(component);
     Point p = getHintPosition(hint, editor, position);
     showEditorHint(hint, editor, p, HIDE_BY_ANY_KEY | HIDE_BY_TEXT_CHANGE | HIDE_BY_SCROLLING, 0, false, position);
@@ -898,7 +908,7 @@ public class HintManagerImpl extends HintManager {
 
   private class MyAnActionListener implements AnActionListener {
     @Override
-    public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
+    public void beforeActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event) {
       if (action instanceof ActionToIgnore) return;
 
       AnAction escapeAction = ActionManagerEx.getInstanceEx().getAction(IdeActions.ACTION_EDITOR_ESCAPE);
@@ -954,17 +964,15 @@ public class HintManagerImpl extends HintManager {
   }
 
   boolean isEscapeHandlerEnabled() {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    for (int i = myHintsStack.size() - 1; i >= 0; i--) {
-      final HintInfo info = myHintsStack.get(i);
+    boolean isEDT = EDT.isCurrentThreadEdt();
+    HintInfo[] arr = myHintsStack.toArray(new HintInfo[0]);
+    for (int i = arr.length - 1; i > -1; i--) {
+      HintInfo info = arr[i];
       if (!info.hint.isVisible()) {
-        myHintsStack.remove(i);
-
-        // We encountered situation when 'hint' instances use 'hide()' method as object destruction callback
-        // (e.g. LineTooltipRenderer creates hint that overrides keystroke of particular action that produces hint and
-        // de-registers it inside 'hide()'. That means that the hint can 'stuck' to old editor location if we just remove
-        // it but don't call hide())
-        info.hint.hide();
+        if (isEDT) {
+          myHintsStack.remove(info);
+          info.hint.hide();
+        }
         continue;
       }
 
@@ -977,42 +985,32 @@ public class HintManagerImpl extends HintManager {
 
   @Override
   public boolean hideHints(int mask, boolean onlyOne, boolean editorChanged) {
-    LOG.assertTrue(SwingUtilities.isEventDispatchThread());
-    try {
-      boolean done = false;
+    EDT.assertIsEdt();
+    boolean result = false;
+    HintInfo[] arr = myHintsStack.toArray(new HintInfo[0]);
+    for (int i = arr.length - 1; i > -1; i--) {
+      HintInfo info = arr[i];
+      if (!info.hint.isVisible() && !info.hint.vetoesHiding()) {
+        myHintsStack.remove(info);
+        info.hint.hide();
+        continue;
+      }
 
-      for (int i = myHintsStack.size() - 1; i >= 0; i--) {
-        final HintInfo info = myHintsStack.get(i);
-        if (!info.hint.isVisible() && !info.hint.vetoesHiding()) {
-          myHintsStack.remove(i);
-
-          // We encountered situation when 'hint' instances use 'hide()' method as object destruction callback
-          // (e.g. LineTooltipRenderer creates hint that overrides keystroke of particular action that produces hint and
-          // de-registers it inside 'hide()'. That means that the hint can 'stuck' to old editor location if we just remove
-          // it but don't call hide())
-          info.hint.hide();
-          continue;
-        }
-
-        if ((info.flags & mask) != 0 || editorChanged && !info.reviveOnEditorChange) {
-          info.hint.hide();
-          myHintsStack.remove(info);
-          if ((mask & HIDE_BY_ESCAPE) == 0 || (info.flags & DONT_CONSUME_ESCAPE) == 0) {
-            if (onlyOne) {
-              return true;
-            }
-            done = true;
+      if ((info.flags & mask) != 0 || editorChanged && !info.reviveOnEditorChange) {
+        myHintsStack.remove(info);
+        info.hint.hide();
+        if ((mask & HIDE_BY_ESCAPE) == 0 || (info.flags & DONT_CONSUME_ESCAPE) == 0) {
+          result = true;
+          if (onlyOne) {
+            break;
           }
         }
       }
-
-      return done;
     }
-    finally {
-      if (myHintsStack.isEmpty()) {
-        updateLastEditor(null);
-      }
+    if (myHintsStack.isEmpty()) {
+      updateLastEditor(null);
     }
+    return result;
   }
 
   private static final class EditorHintListenerHolder {

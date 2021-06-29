@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion.util;
 
 import com.intellij.codeInsight.completion.InsertHandler;
@@ -18,13 +18,13 @@ import org.jetbrains.annotations.Nullable;
  * @author peter
  */
 public abstract class ParenthesesInsertHandler<T extends LookupElement> implements InsertHandler<T> {
-  public static final ParenthesesInsertHandler<LookupElement> WITH_PARAMETERS = new ParenthesesInsertHandler<LookupElement>() {
+  public static final ParenthesesInsertHandler<LookupElement> WITH_PARAMETERS = new ParenthesesInsertHandler<>() {
     @Override
     protected boolean placeCaretInsideParentheses(final InsertionContext context, final LookupElement item) {
       return true;
     }
   };
-  public static final ParenthesesInsertHandler<LookupElement> NO_PARAMETERS = new ParenthesesInsertHandler<LookupElement>() {
+  public static final ParenthesesInsertHandler<LookupElement> NO_PARAMETERS = new ParenthesesInsertHandler<>() {
     @Override
     protected boolean placeCaretInsideParentheses(final InsertionContext context, final LookupElement item) {
       return false;
@@ -38,7 +38,8 @@ public abstract class ParenthesesInsertHandler<T extends LookupElement> implemen
   public static ParenthesesInsertHandler<LookupElement> getInstance(final boolean hasParameters, final boolean spaceBeforeParentheses,
                                                                     final boolean spaceBetweenParentheses,
                                                                     final boolean insertRightParenthesis, boolean allowParametersOnNextLine) {
-    return new ParenthesesInsertHandler<LookupElement>(spaceBeforeParentheses, spaceBetweenParentheses, insertRightParenthesis, allowParametersOnNextLine) {
+    return new ParenthesesInsertHandler<>(spaceBeforeParentheses, spaceBetweenParentheses, insertRightParenthesis,
+                                          allowParametersOnNextLine) {
       @Override
       protected boolean placeCaretInsideParentheses(InsertionContext context, LookupElement item) {
         return hasParameters;
@@ -161,7 +162,7 @@ public abstract class ParenthesesInsertHandler<T extends LookupElement> implemen
     }
     else if (!mySpaceBetweenParentheses) {
       final int rangeStart = context.getStartOffset();
-      final int rangeEnd = editor.getCaretModel().getOffset();
+      final int rangeEnd = Math.max(editor.getCaretModel().getOffset(), context.getStartOffset());
 
       TabOutScopesTracker.getInstance().registerScopeRange(editor, rangeStart, rangeEnd);
     }

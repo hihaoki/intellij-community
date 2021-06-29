@@ -3,10 +3,10 @@ package com.intellij.ide.impl
 
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.impl.FrameInfo
 import com.intellij.projectImport.ProjectOpenedCallback
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import java.util.function.Consumer
 import java.util.function.Predicate
 
 data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
@@ -26,8 +26,9 @@ data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
                             */
                            val showWelcomeScreen: Boolean = true,
                            @set:Deprecated(message = "Pass to constructor", level = DeprecationLevel.ERROR)
+                           @set:ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
                            var callback: ProjectOpenedCallback? = null,
-                           val frame: FrameInfo? = null,
+                           internal val frameManager: Any? = null,
                            val line: Int = -1,
                            val column: Int = -1,
                            val isRefreshVfsNeeded: Boolean = true,
@@ -38,7 +39,6 @@ data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
                            val runConversionBeforeOpen: Boolean = true,
                            internal val projectWorkspaceId: String? = null,
                            internal val isProjectCreatedWithWizard: Boolean = false,
-                           internal val sendFrameBack: Boolean = false,
                            @TestOnly
                            internal val preloadServices: Boolean = true,
                            internal val beforeInit: ((Project) -> Unit)? = null,
@@ -51,6 +51,9 @@ data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
   fun withBeforeOpenCallback(callback: Predicate<Project>) = copy(beforeOpen = { callback.test(it) })
 
   @ApiStatus.Internal
+  fun withPreparedToOpenCallback(callback: Consumer<Module>) = copy(preparedToOpen = { callback.accept(it) })
+
+  @ApiStatus.Internal
   fun withProjectName(value: String?) = copy(projectName = value)
 
   @ApiStatus.Internal
@@ -58,6 +61,9 @@ data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
 
   @ApiStatus.Internal
   fun withRunConfigurators() = copy(runConfigurators = true)
+
+  @ApiStatus.Internal
+  fun withForceOpenInNewFrame(value: Boolean) = copy(forceOpenInNewFrame = value)
 
   companion object {
     @JvmStatic
@@ -73,6 +79,13 @@ data class OpenProjectTask(val forceOpenInNewFrame: Boolean = false,
                              runConfigurators = true,
                              isProjectCreatedWithWizard = true,
                              isRefreshVfsNeeded = isRefreshVfsNeeded)
+    }
+
+    @JvmStatic
+    fun fromWizardAndRunConfigurators(): OpenProjectTask {
+      return OpenProjectTask(runConfigurators = true,
+                             isProjectCreatedWithWizard = true,
+                             isRefreshVfsNeeded = false)
     }
 
     @JvmStatic

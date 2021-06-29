@@ -375,9 +375,10 @@ public class PyOverrideImplementUtil {
     private final List<PyReferenceExpression> myUnresolved = new ArrayList<>();
 
     @Override
-    public void visitPyReferenceExpression(final PyReferenceExpression referenceExpression) {
+    public void visitPyReferenceExpression(final @NotNull PyReferenceExpression referenceExpression) {
       super.visitPyReferenceExpression(referenceExpression);
-      final PyResolveContext resolveContext = PyResolveContext.defaultContext();
+      final var context = TypeEvalContext.codeInsightFallback(referenceExpression.getProject());
+      final PyResolveContext resolveContext = PyResolveContext.defaultContext(context);
       if (referenceExpression.getReference(resolveContext).multiResolve(false).length == 0) {
         myUnresolved.add(referenceExpression);
       }
@@ -413,7 +414,7 @@ public class PyOverrideImplementUtil {
     }
 
     @Override
-    public void visitPyReferenceExpression(final PyReferenceExpression referenceExpression) {
+    public void visitPyReferenceExpression(final @NotNull PyReferenceExpression referenceExpression) {
       super.visitPyReferenceExpression(referenceExpression);
 
       if (myExpressionsToResolve.containsKey(referenceExpression.getName())) {

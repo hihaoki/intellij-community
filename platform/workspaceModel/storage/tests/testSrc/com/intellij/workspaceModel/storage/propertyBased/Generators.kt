@@ -2,6 +2,7 @@
 package com.intellij.workspaceModel.storage.propertyBased
 
 import com.intellij.workspaceModel.storage.WorkspaceEntity
+import com.intellij.workspaceModel.storage.createEmptyBuilder
 import com.intellij.workspaceModel.storage.entities.AnotherSource
 import com.intellij.workspaceModel.storage.entities.MySource
 import com.intellij.workspaceModel.storage.entities.SampleEntitySource
@@ -11,9 +12,8 @@ import com.intellij.workspaceModel.storage.impl.toClassId
 import org.jetbrains.jetCheck.GenerationEnvironment
 import org.jetbrains.jetCheck.Generator
 
-internal val newEmptyWorkspace
-  get() = Generator.constant(
-    WorkspaceEntityStorageBuilderImpl.create())
+internal val newEmptyWorkspace: Generator<WorkspaceEntityStorageBuilderImpl>
+  get() = Generator.constant(createEmptyBuilder())
 
 internal class EntityIdGenerator(private val storage: WorkspaceEntityStorageBuilderImpl) : java.util.function.Function<GenerationEnvironment, EntityId?> {
   override fun apply(t: GenerationEnvironment): EntityId? {
@@ -21,7 +21,7 @@ internal class EntityIdGenerator(private val storage: WorkspaceEntityStorageBuil
     if (filtered.none()) return null
     val nonNullIds = filtered.toList()
     val id = t.generate(Generator.integers(0, nonNullIds.lastIndex))
-    return nonNullIds[id].createPid()
+    return nonNullIds[id].createEntityId()
   }
 
   companion object {
@@ -36,7 +36,7 @@ internal class EntityIdOfFamilyGenerator(private val storage: WorkspaceEntitySto
     val existingEntities = entityFamily.entities.filterNotNull()
     if (existingEntities.isEmpty()) return null
     val randomId = t.generate(Generator.integers(0, existingEntities.lastIndex))
-    return existingEntities[randomId].createPid()
+    return existingEntities[randomId].createEntityId()
   }
 
   companion object {

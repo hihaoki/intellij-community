@@ -1,27 +1,27 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.details
 
+import com.intellij.collaboration.async.CompletableFutureUtil
 import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.newui.VerticalLayout
 import com.intellij.ui.CardLayoutPanel
 import com.intellij.ui.components.JBOptionButton
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.components.panels.Wrapper
-import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UI
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.UIUtil
-import icons.GithubIcons
+import icons.CollaborationToolsIcons
 import net.miginfocom.layout.LC
 import net.miginfocom.swing.MigLayout
+import org.jetbrains.plugins.github.GithubIcons
 import org.jetbrains.plugins.github.api.data.GHRepositoryPermissionLevel
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestState
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.data.GHPRMergeabilityState
 import org.jetbrains.plugins.github.pullrequest.data.service.GHPRSecurityService
 import org.jetbrains.plugins.github.pullrequest.ui.details.action.*
-import org.jetbrains.plugins.github.ui.GHHtmlErrorPanel
+import org.jetbrains.plugins.github.ui.component.GHHtmlErrorPanel
 import org.jetbrains.plugins.github.ui.util.HtmlEditorPane
-import org.jetbrains.plugins.github.util.GithubAsyncUtil
 import java.awt.FlowLayout
 import java.awt.event.ActionEvent
 import javax.swing.*
@@ -49,6 +49,7 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
       val statusComponent = createStatusComponent()
 
       val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+        isOpaque = false
         for (button in createButtons()) {
           add(button)
         }
@@ -62,15 +63,13 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
 
       val actionsPanel = JPanel(null).apply {
         isOpaque = false
-        layout = MigLayout(LC().fill().gridGap("${UI.scale(5)}", "0").insets("0"))
+        layout = MigLayout(LC().fill().gridGap("${JBUIScale.scale(5)}", "0").insets("0"))
 
         add(buttonsPanel)
         add(errorComponent)
       }
 
-      return NonOpaquePanel(VerticalLayout(UI.scale(4))).apply {
-        border = JBUI.Borders.emptyLeft(4)
-
+      return NonOpaquePanel(VerticalLayout(JBUIScale.scale(4))).apply {
         add(statusComponent, VerticalLayout.FILL_HORIZONTAL)
         add(actionsPanel, VerticalLayout.FILL_HORIZONTAL)
       }
@@ -94,14 +93,19 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
                               || stateModel.viewerDidAuthor
 
       override fun createStatusComponent(): JComponent {
-        val stateLabel = JLabel(GithubBundle.message("pull.request.state.closed.long"), GithubIcons.PullRequestClosed, SwingConstants.LEFT)
+        val stateLabel = JLabel(
+          GithubBundle.message("pull.request.state.closed.long"),
+          CollaborationToolsIcons.PullRequestClosed,
+          SwingConstants.LEFT
+        )
         return if (canReopen) stateLabel
         else {
           val accessDeniedLabel = JLabel().apply {
             icon = AllIcons.RunConfigurations.TestError
             text = GithubBundle.message("pull.request.repo.access.required")
           }
-          JPanel(VerticalLayout(UI.scale(STATUSES_GAP))).apply {
+          JPanel(VerticalLayout(JBUIScale.scale(STATUSES_GAP))).apply {
+            isOpaque = false
             add(stateLabel, VerticalLayout.FILL_HORIZONTAL)
             add(accessDeniedLabel, VerticalLayout.FILL_HORIZONTAL)
           }
@@ -140,7 +144,8 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
         val stateLabel = JLabel(GithubBundle.message("pull.request.loading.status"), AllIcons.RunConfigurations.TestNotRan,
                                 SwingConstants.LEFT)
         val accessDeniedLabel = createAccessDeniedLabel(isDraft)
-        return JPanel(VerticalLayout(UI.scale(STATUSES_GAP))).apply {
+        return JPanel(VerticalLayout(JBUIScale.scale(STATUSES_GAP))).apply {
+          isOpaque = false
           add(stateLabel)
           add(accessDeniedLabel)
         }
@@ -190,7 +195,8 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
 
         val accessDeniedLabel = createAccessDeniedLabel(isDraft)
 
-        return JPanel(VerticalLayout(UI.scale(STATUSES_GAP))).apply {
+        return JPanel(VerticalLayout(JBUIScale.scale(STATUSES_GAP))).apply {
+          isOpaque = false
           add(statusChecks)
           add(requiredReviewsLabel)
           add(conflictsLabel)
@@ -278,7 +284,7 @@ internal class GHPRStatePanel(private val securityService: GHPRSecurityService, 
         private fun update() {
           val mergeability = stateModel.mergeabilityState
           if (mergeability == null) {
-            if (stateModel.mergeabilityLoadingError?.takeIf { !GithubAsyncUtil.isCancellation(it) } == null) {
+            if (stateModel.mergeabilityLoadingError?.takeIf { !CompletableFutureUtil.isCancellation(it) } == null) {
               panel.setContent(createNotLoadedComponent(stateModel.isDraft))
             }
             else {

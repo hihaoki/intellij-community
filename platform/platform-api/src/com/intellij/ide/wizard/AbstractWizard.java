@@ -5,21 +5,23 @@ import com.intellij.CommonBundle;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.Experiments;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.JBCardLayout;
 import com.intellij.ui.components.panels.OpaquePanel;
 import com.intellij.ui.mac.TouchbarDataKeys;
-import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.UiNotifyConnector;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -68,7 +70,7 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
     initWizard(title);
   }
 
-  private void initWizard(final String title) {
+  private void initWizard(final @NlsContexts.DialogTitle String title) {
     setTitle(title);
     myCurrentStep = 0;
     myPreviousButton = new JButton(IdeBundle.message("button.wizard.previous"));
@@ -107,8 +109,12 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
 
   @Override
   protected JComponent createSouthPanel() {
+    if (useDialogWrapperSouthPanel())
+      return super.createSouthPanel();
+
     JPanel panel = new JPanel(new BorderLayout());
-    panel.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+    int inset = isNewWizard() ? 15 : 0;
+    panel.setBorder(BorderFactory.createEmptyBorder(8, inset, 0, inset));
 
     JPanel buttonPanel = new JPanel();
 
@@ -122,7 +128,7 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
 
       int index = 0;
       JPanel leftPanel = new JPanel();
-      if (ApplicationInfo.contextHelpAvailable()) {
+      if (ApplicationInfo.contextHelpAvailable() && !isNewWizard()) {
         leftPanel.add(myHelpButton);
         TouchbarDataKeys.putDialogButtonDescriptor(myHelpButton, index++);
       }
@@ -174,24 +180,7 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
     myNextButton.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(final ActionEvent e) {
-        if (isLastStep()) {
-          // Commit data of current step and perform OK action
-          final Step currentStep = mySteps.get(myCurrentStep);
-          LOG.assertTrue(currentStep != null);
-          try {
-            currentStep._commit(true);
-            doOKAction();
-          }
-          catch (final CommitStepException exc) {
-            String message = exc.getMessage();
-            if (message != null) {
-              Messages.showErrorDialog(myContentPanel, message);
-            }
-          }
-        }
-        else {
-          doNextAction();
-        }
+        proceedToNextStep();
       }
     });
 
@@ -211,6 +200,33 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
     });
 
     return panel;
+  }
+
+  protected boolean useDialogWrapperSouthPanel() { return false; }
+
+  /**
+   * Validates the current step. If the current step is valid commits it and moves the wizard to the next step.
+   * Usually, should be used from UI event handlers or after deferred user interaction, e.g. validation in background thread.
+   */
+  public void proceedToNextStep() {
+    if (isLastStep()) {
+      // Commit data of current step and perform OK action
+      Step currentStep = mySteps.get(myCurrentStep);
+      LOG.assertTrue(currentStep != null);
+      try {
+        currentStep._commit(true);
+        doOKAction();
+      }
+      catch (CommitStepException exc) {
+        String message = exc.getMessage();
+        if (message != null) {
+          Messages.showErrorDialog(myContentPanel, message);
+        }
+      }
+    }
+    else {
+      doNextAction();
+    }
   }
 
   public JPanel getContentComponent() {
@@ -497,8 +513,8 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
   public void updateButtons(boolean lastStep, boolean canGoNext, boolean firstStep) {
     if (lastStep) {
       if (mySteps.size() > 1) {
-        myNextButton.setText(UIUtil.removeMnemonic(IdeBundle.message("button.finish")));
-        myNextButton.setMnemonic('F');
+        myNextButton.setText(UIUtil.removeMnemonic(IdeBundle.message(isNewWizard() ? "button.create" : "button.finish")));
+        myNextButton.setMnemonic(isNewWizard() ? 'C' : 'F');
       }
       else {
         myNextButton.setText(IdeBundle.message("button.ok"));
@@ -515,6 +531,10 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
     }
 
     myPreviousButton.setEnabled(!firstStep);
+  }
+
+  private static boolean isNewWizard() {
+    return Experiments.getInstance().isFeatureEnabled("new.project.wizard");
   }
 
   protected boolean isFirstStep() {
@@ -545,6 +565,7 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
    * @deprecated unused
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected JButton getFinishButton() {
     return new JButton();
   }
@@ -555,6 +576,14 @@ public abstract class AbstractWizard<T extends Step> extends DialogWrapper {
 
   protected void helpAction() {
     HelpManager.getInstance().invokeHelp(getHelpID());
+  }
+
+  @Override
+  protected Action @NotNull [] createActions() {
+    if (useDialogWrapperSouthPanel())
+      throw new UnsupportedOperationException("Not implemented");
+
+    return super.createActions();
   }
 
   @Override

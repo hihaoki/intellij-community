@@ -1,14 +1,20 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
+
 public class PyArgumentListInspectionTest extends PyInspectionTestCase {
+
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
+  }
+
   public void testBadarglist() {
     doTest();
   }
@@ -428,7 +434,7 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
                          "    # This never gets called\n" +
                          "    print(f'SubFoo.__new__: {p1}, {p2}')\n" +
                          "\n" +
-                         "sub = SubFoo(1<warning descr=\"Parameter(s) unfilledPossible callees:SubFoo.__new__(self: SubFoo, p1, p2)MetaFoo.__call__(cls: MetaFoo, p3, p4)\">)</warning>\n" +
+                         "sub = SubFoo(1<warning descr=\"Parameter 'p4' unfilled\">)</warning>\n" +
                          "foo = Foo(3<warning descr=\"Parameter 'p4' unfilled\">)</warning>")
     );
   }
@@ -452,5 +458,10 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
                          "foo = Foo()\n" +
                          "sub = SubFoo(1<warning descr=\"Parameter 'p2' unfilled\">)</warning>")
     );
+  }
+
+  // PY-43915
+  public void testWeakUnionClassMethodParameters() {
+    doTest();
   }
 }

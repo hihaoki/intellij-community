@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistics.config
 
 import com.intellij.internal.statistic.config.EventLogConfigParserException
@@ -31,7 +31,9 @@ abstract class EventLogConfigBaseParserTest {
                        existingConfig: Map<EventLogBuildType, EventLogSendConfiguration> = emptyMap(),
                        existingEndpoints: Map<String, String> = emptyMap(),
                        notExistingConfig: Set<EventLogBuildType> = emptySet(),
-                       notExistingEndpoints: Set<String> = emptySet()) {
+                       notExistingEndpoints: Set<String> = emptySet(),
+                       existingOptions: Map<String, String> = emptyMap(),
+                       notExistingOptions: Set<String> = emptySet()) {
     val reader = BufferedReader(StringReader(config))
     val settings = EventLogExternalSettings.parseSendSettings(reader, DEFAULT_VERSION)
     Assert.assertNotNull(settings)
@@ -55,6 +57,15 @@ abstract class EventLogConfigBaseParserTest {
 
     for (endpoint in notExistingEndpoints) {
       Assert.assertNull(settings.getEndpoint(endpoint))
+    }
+
+    val options = settings.options
+    for (option in existingOptions) {
+      Assert.assertEquals(option.value, options[option.key])
+    }
+
+    for (option in notExistingOptions) {
+      Assert.assertNull(options[option])
     }
   }
 

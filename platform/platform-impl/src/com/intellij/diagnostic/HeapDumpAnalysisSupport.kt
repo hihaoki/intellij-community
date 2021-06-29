@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic
 
 import com.google.gson.stream.JsonReader
@@ -14,6 +14,7 @@ import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.util.io.exists
 import java.awt.Component
 import java.io.File
 import java.io.FileOutputStream
@@ -22,9 +23,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
-/**
- * @author yole
- */
+
 open class HeapDumpAnalysisSupport {
   companion object {
     fun getInstance() = service<HeapDumpAnalysisSupport>()
@@ -73,7 +72,7 @@ open class HeapDumpAnalysisSupport {
 
 internal class AnalyzePendingSnapshotActivity: StartupActivity.DumbAware {
   override fun runActivity(project: Project) {
-    if (ApplicationManager.getApplication().isUnitTestMode) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment) {
       return
     }
 
@@ -106,8 +105,11 @@ internal class AnalyzePendingSnapshotActivity: StartupActivity.DumbAware {
     }
 
     path?.let {
-      val heapProperties = HeapReportProperties(reason ?: MemoryReportReason.None, liveStats ?: "")
-      AnalysisRunnable(Paths.get(it), heapProperties, true).run()
+      val hprofPath = Paths.get(it)
+      if (hprofPath.exists()) {
+        val heapProperties = HeapReportProperties(reason ?: MemoryReportReason.None, liveStats ?: "")
+        AnalysisRunnable(hprofPath, heapProperties, true).run()
+      }
     }
   }
 }

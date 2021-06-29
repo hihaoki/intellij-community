@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform;
 
 import com.intellij.facet.ui.ValidationResult;
@@ -14,9 +14,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author yole
- */
+
 public interface DirectoryProjectGenerator<T> {
   @Nullable
   @Nls(capitalization = Nls.Capitalization.Sentence)
@@ -42,13 +40,7 @@ public interface DirectoryProjectGenerator<T> {
 
   @NotNull
   default NotNullLazyValue<ProjectGeneratorPeer<T>> createLazyPeer() {
-    return new NotNullLazyValue<ProjectGeneratorPeer<T>>() {
-      @NotNull
-      @Override
-      protected ProjectGeneratorPeer<T> compute() {
-        return createPeer();
-      }
-    };
+    return NotNullLazyValue.lazy(this::createPeer);
   }
 
   /**

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.i18n.batch;
 
 import com.intellij.codeInspection.i18n.I18nizeConcatenationQuickFix;
@@ -16,6 +16,8 @@ import com.intellij.lang.properties.references.I18nUtil;
 import com.intellij.lang.properties.references.I18nizeQuickFixDialog;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
@@ -25,6 +27,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.LabeledComponent;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -38,9 +41,9 @@ import com.intellij.usages.UsageViewPresentation;
 import com.intellij.usages.impl.UsagePreviewPanel;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.ui.ItemRemovable;
 import com.intellij.util.ui.UI;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -59,14 +62,14 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
+public final class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
   private static final Logger LOG = Logger.getInstance(I18nizeMultipleStringsDialog.class);
   private static final @NonNls String LAST_USED_PROPERTIES_FILE = "LAST_USED_PROPERTIES_FILE";
   private static final @NonNls String LAST_USED_CONTEXT = "I18N_FIX_LAST_USED_CONTEXT";
 
   @NotNull private final Project myProject;
   private final List<I18nizedPropertyData<D>> myKeyValuePairs;
-  private final Function<D, List<UsageInfo>> myUsagePreviewProvider;
+  private final @NotNull Function<? super D, ? extends List<UsageInfo>> myUsagePreviewProvider;
   private final Set<Module> myContextModules;
   private final ResourceBundleManager myResourceBundleManager;
   private JComboBox<String> myPropertiesFile;
@@ -79,7 +82,7 @@ public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
   public I18nizeMultipleStringsDialog(@NotNull Project project,
                                       @NotNull List<I18nizedPropertyData<D>> keyValuePairs,
                                       @NotNull Set<PsiFile> contextFiles,
-                                      @NotNull Function<D, List<UsageInfo>> usagePreviewProvider, 
+                                      @NotNull Function<? super D, ? extends List<UsageInfo>> usagePreviewProvider,
                                       Icon markAsNonNlsButtonIcon,
                                       boolean canShowCodeInfo) {
     super(project, true);
@@ -109,11 +112,11 @@ public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
       return textGenerator.getI18nizedConcatenationText(propertyKey, paramsString, getPropertiesFile(), null);
     }
 
-    String templateName = paramsString.isEmpty() ? myResourceBundleManager.getTemplateName() 
+    String templateName = paramsString.isEmpty() ? myResourceBundleManager.getTemplateName()
                                                  : myResourceBundleManager.getConcatenationTemplateName();
     LOG.assertTrue(templateName != null);
     FileTemplate template = FileTemplateManager.getInstance(myProject).getCodeTemplate(templateName);
-    Map<String, String> attributes = new THashMap<>();
+    Map<String, String> attributes = new HashMap<>();
     attributes.put(JavaI18nizeQuickFixDialog.PROPERTY_KEY_OPTION_KEY, propertyKey);
     attributes.put(JavaI18nizeQuickFixDialog.RESOURCE_BUNDLE_OPTION_KEY, myRBEditorTextField != null ? myRBEditorTextField.getText() : null);
     attributes.put(JavaI18nizeQuickFixDialog.PROPERTY_VALUE_ATTR, propertyValue);
@@ -126,18 +129,34 @@ public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
       return "";
     }
   }
-  
+
   @Override
-  protected @Nullable String getDimensionServiceKey() {
+  protected String getDimensionServiceKey() {
     return "i18nInBatch";
   }
 
-  @Nullable
   @Override
   protected JComponent createNorthPanel() {
-    List<String> files = myResourceBundleManager != null ? myResourceBundleManager.suggestPropertiesFiles(myContextModules)
-                                                         : I18nUtil.defaultSuggestPropertiesFiles(myProject, myContextModules);
-    myPropertiesFile = new ComboBox<>(ArrayUtil.toStringArray(files));
+    myPropertiesFile = new ComboBox<>();
+    SwingUtilities.invokeLater(() -> {
+      ReadAction.nonBlocking(() -> myResourceBundleManager != null ? myResourceBundleManager.suggestPropertiesFiles(myContextModules)
+                                                                   : I18nUtil.defaultSuggestPropertiesFiles(myProject, myContextModules))
+        .finishOnUiThread(ModalityState.stateForComponent(myPropertiesFile), files -> {
+          myPropertiesFile.setModel(new DefaultComboBoxModel<>(ArrayUtil.toStringArray(files)));
+          if (!files.isEmpty()) {
+            String contextString = getContextString();
+            @NlsSafe String preselectedFile;
+            if (contextString != null && contextString.equals(PropertiesComponent.getInstance(myProject).getValue(LAST_USED_CONTEXT))) {
+              preselectedFile = PropertiesComponent.getInstance(myProject).getValue(LAST_USED_PROPERTIES_FILE);
+            }
+            else {
+              preselectedFile = null;
+            }
+            myPropertiesFile.setSelectedItem(ObjectUtils.notNull(preselectedFile, files.get(0)));
+          }
+        })
+        .submit(AppExecutorUtil.getAppExecutorService());
+    });
     new ComboboxSpeedSearch(myPropertiesFile);
     LabeledComponent<JComboBox<String>> component = new LabeledComponent<>();
     component.setText(JavaI18nBundle.message("property.file"));
@@ -147,31 +166,25 @@ public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
       public void actionPerformed(ActionEvent e) {
         PropertiesFile propertiesFile = getPropertiesFile();
         if (propertiesFile != null) {
-          for (int i = 0; i < myKeyValuePairs.size(); i++) {
-            I18nizedPropertyData<D> data = myKeyValuePairs.get(i);
-            I18nizedPropertyData<D> updated = data.changeKey(
-              I18nizeQuickFixDialog.suggestUniquePropertyKey(data.getValue(), data.getKey(), propertiesFile)
-            );
-            myKeyValuePairs.set(i, updated);
-          }
+          List<I18nizedPropertyData<D>> pairs = myKeyValuePairs;
+          ReadAction.nonBlocking(() -> {
+            List<I18nizedPropertyData<D>> result = new ArrayList<>();
+            for (I18nizedPropertyData<D> data : pairs) {
+              result.add(data.changeKey(I18nizeQuickFixDialog.suggestUniquePropertyKey(data.getValue(), data.getKey(), propertiesFile)));
+            }  
+            return result;
+          }).finishOnUiThread(ModalityState.stateForComponent(myPropertiesFile), datum -> {
+            for (int i = 0; i < datum.size(); i++) {
+              myKeyValuePairs.set(i, datum.get(i));
+            }
+          }).submit(AppExecutorUtil.getAppExecutorService());
         }
       }
     });
 
-    if (!files.isEmpty()) {
-      String contextString = getContextString();
-      String preselectedFile;
-      if (contextString != null && contextString.equals(PropertiesComponent.getInstance(myProject).getValue(LAST_USED_CONTEXT))) {
-        preselectedFile = PropertiesComponent.getInstance(myProject).getValue(LAST_USED_PROPERTIES_FILE);
-      }
-      else {
-        preselectedFile = null;
-      }
-      myPropertiesFile.setSelectedItem(ObjectUtils.notNull(preselectedFile, files.get(0)));
-    }
     JPanel panel = new JPanel(new BorderLayout());
     panel.add(component, BorderLayout.NORTH);
-    
+
     if (myShowCodeInfo && hasResourceBundleInTemplate()) {
       myRBEditorTextField = new TextFieldWithStoredHistory("RESOURCE_BUNDLE_KEYS");
       if (!myRBEditorTextField.getHistory().isEmpty()) {
@@ -310,7 +323,7 @@ public class I18nizeMultipleStringsDialog<D> extends DialogWrapper {
 
     @Override
     public String getColumnName(int column) {
-      return column == 0 ? "Key" : "Value";
+      return column == 0 ? JavaI18nBundle.message("key.column.name") : JavaI18nBundle.message("value.column.name");
     }
 
     @Override

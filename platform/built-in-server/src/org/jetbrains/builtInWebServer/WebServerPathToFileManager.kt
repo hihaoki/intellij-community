@@ -1,10 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.builtInWebServer
 
-import com.google.common.base.Function
-import com.google.common.cache.Cache
-import com.google.common.cache.CacheBuilder
-import com.google.common.cache.CacheLoader
+import com.github.benmanes.caffeine.cache.CacheLoader
+import com.github.benmanes.caffeine.cache.Caffeine
 import com.intellij.ProjectTopics
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadAction
@@ -12,6 +10,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.rootManager
+import com.intellij.openapi.roots.AdditionalLibraryRootsListener
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -32,11 +31,11 @@ private const val cacheSize: Long = 4096 * 4
  * Implement [WebServerRootsProvider] to add your provider
  */
 class WebServerPathToFileManager(private val project: Project) {
-  val pathToInfoCache: Cache<String, PathInfo> = CacheBuilder.newBuilder().maximumSize(cacheSize).expireAfterAccess(10, TimeUnit.MINUTES).build<String, PathInfo>()!!
+  internal val pathToInfoCache = Caffeine.newBuilder().maximumSize(cacheSize).expireAfterAccess(10, TimeUnit.MINUTES).build<String, PathInfo>()
   // time to expire should be greater than pathToFileCache
-  private val virtualFileToPathInfo = CacheBuilder.newBuilder().maximumSize(cacheSize).expireAfterAccess(11, TimeUnit.MINUTES).build<VirtualFile, PathInfo>()
+  private val virtualFileToPathInfo = Caffeine.newBuilder().maximumSize(cacheSize).expireAfterAccess(11, TimeUnit.MINUTES).build<VirtualFile, PathInfo>()
 
-  internal val pathToExistShortTermCache = CacheBuilder.newBuilder().maximumSize(cacheSize).expireAfterAccess(5, TimeUnit.SECONDS).build<String, Boolean>()!!
+  internal val pathToExistShortTermCache = Caffeine.newBuilder().maximumSize(cacheSize).expireAfterAccess(5, TimeUnit.SECONDS).build<String, Boolean>()
 
   /**
    * https://youtrack.jetbrains.com/issue/WEB-25900
@@ -44,8 +43,10 @@ class WebServerPathToFileManager(private val project: Project) {
    * Compute suitable roots for oldest parent (web/foo/my/file.dart -> oldest is web and we compute all suitable roots for it in advance) to avoid linear search
    * (i.e. to avoid two queries for root if files web/foo and web/bar requested if root doesn't have web dir)
    */
-  internal val parentToSuitableRoot = CacheBuilder.newBuilder().maximumSize(cacheSize).expireAfterAccess(10, TimeUnit.MINUTES).build<String, List<SuitableRoot>>(
-    CacheLoader.from(Function { path ->
+  internal val parentToSuitableRoot = Caffeine
+    .newBuilder()
+    .maximumSize(cacheSize).expireAfterAccess(10, TimeUnit.MINUTES)
+    .build<String, List<SuitableRoot>>(CacheLoader { path ->
       val suitableRoots = SmartList<SuitableRoot>()
       var moduleQualifier: String? = null
       val modules = runReadAction { ModuleManager.getInstance(project).modules }
@@ -56,7 +57,7 @@ class WebServerPathToFileManager(private val project: Project) {
           }
 
           for (root in rootProvider.getRoots(module.rootManager)) {
-            if (root.findChild(path!!) != null) {
+            if (root.findChild(path) != null) {
               if (moduleQualifier == null) {
                 moduleQualifier = getModuleNameQualifier(project, module)
               }
@@ -66,7 +67,7 @@ class WebServerPathToFileManager(private val project: Project) {
         }
       }
       suitableRoots
-    }))!!
+    })
 
   init {
     ApplicationManager.getApplication().messageBus.connect (project).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
@@ -93,6 +94,10 @@ class WebServerPathToFileManager(private val project: Project) {
         clearCache()
       }
     })
+    project.messageBus.connect().subscribe(AdditionalLibraryRootsListener.TOPIC,
+                                           AdditionalLibraryRootsListener { _, _, _, _ ->
+                                             clearCache()
+                                           })
   }
 
   companion object {

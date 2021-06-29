@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.diagnostic.AttachmentFactory;
@@ -148,9 +148,7 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     if (mySkipChangeRequests) {
       return;
     }
-    if (!myEditor.isStickySelection() && !myEditor.getDocument().isInEventsHandling()) {
-      CopyPasteManager.getInstance().stopKillRings();
-    }
+    stopKillRings();
     myCaretModel.doWithCaretMerging(() -> {
       updateCachedStateIfNeeded();
 
@@ -239,7 +237,7 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
         if (!editorSettings.isCaretInsideTabs()) {
           CharSequence text = document.getCharsSequence();
           if (offset >= 0 && offset < document.getTextLength()) {
-            if (text.charAt(offset) == '\t' && (columnShift <= 0 || offset == oldOffset)) {
+            if (text.charAt(offset) == '\t' && (columnShift <= 0 || offset == oldOffset) && !isAtRtlLocation()) {
               if (columnShift <= 0) {
                 newColumnNumber = myEditor.offsetToVisualPosition(offset, true, false).column;
               }
@@ -537,8 +535,8 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     if (mySkipChangeRequests) {
       return;
     }
-    if (!myEditor.isStickySelection() && !myEditor.getDocument().isInEventsHandling() && !pos.equals(myVisibleCaret)) {
-      CopyPasteManager.getInstance().stopKillRings();
+    if (!pos.equals(myVisibleCaret)) {
+      stopKillRings();
     }
     updateCachedStateIfNeeded();
 
@@ -603,8 +601,8 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     if (mySkipChangeRequests) {
       return null;
     }
-    if (!myEditor.isStickySelection() && !myEditor.getDocument().isInEventsHandling() && !pos.equals(myLogicalCaret)) {
-      CopyPasteManager.getInstance().stopKillRings();
+    if (!pos.equals(myLogicalCaret)) {
+      stopKillRings();
     }
     return doMoveToLogicalPosition(pos, locateBeforeSoftWrap, debugBuffer, adjustForInlays, fireListeners);
   }
@@ -697,11 +695,11 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     myVisualLineStart = myEditor.visualPositionToOffset(new VisualPosition(myVisibleCaret.line, 0));
     myVisualLineEnd = myEditor.visualPositionToOffset(new VisualPosition(myVisibleCaret.line + 1, 0));
 
-    int y = myEditor.visualLineToY(myVisibleCaret.line);
+    int[] yRange = myEditor.visualLineToYRange(myVisibleCaret.line);
 
     int logicalLineStartY;
     if (myEditor.getSoftWrapModel().getSoftWrap(myVisualLineStart) == null) {
-      logicalLineStartY = y;
+      logicalLineStartY = yRange[0];
     }
     else {
       int startVisualLine = myEditor.myView.offsetToVisualLine(EditorUtil.getNotFoldedLineStartOffset(myEditor, getOffset()), false);
@@ -710,14 +708,14 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
 
     int logicalLineEndY;
     if (myEditor.getSoftWrapModel().getSoftWrap(myVisualLineEnd) == null) {
-      logicalLineEndY = y;
+      logicalLineEndY = yRange[1];
     }
     else {
       int endVisualLine = myEditor.myView.offsetToVisualLine(EditorUtil.getNotFoldedLineEndOffset(myEditor, getOffset()), true);
-      logicalLineEndY = myEditor.visualLineToY(endVisualLine);
+      logicalLineEndY = myEditor.visualLineToY(endVisualLine) + myEditor.getLineHeight();
     }
 
-    myVerticalInfo = new VerticalInfo(y, logicalLineStartY, logicalLineEndY - logicalLineStartY + myEditor.getLineHeight());
+    myVerticalInfo = new VerticalInfo(yRange[0], logicalLineStartY, logicalLineEndY - logicalLineStartY);
   }
 
   void onInlayAdded(int offset) {
@@ -1251,7 +1249,7 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
   @Override
   public void selectLineAtCaret() {
     validateContext(true);
-    myCaretModel.doWithCaretMerging(() -> SelectionModelImpl.doSelectLineAtCaret(this));
+    myCaretModel.doWithCaretMerging(() -> EditorActionUtil.selectEntireLines(this, true));
   }
 
   @Override
@@ -1342,6 +1340,7 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
   }
 
   @Override
+  @NonNls
   public String toString() {
     return "Caret at " + (myDocumentUpdateCounter == myCaretModel.myDocumentUpdateCounter ? myVisibleCaret : getOffset()) +
            (mySelectionMarker == null ? "" : ", selection marker: " + mySelectionMarker);
@@ -1470,6 +1469,12 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     if (!isValid) throw new IllegalStateException("Caret is invalid");
   }
 
+  private void stopKillRings() {
+    if (!myEditor.isStickySelection() && !myEditor.getDocument().isInEventsHandling()) {
+      CopyPasteManager.getInstance().stopKillRings(myEditor.getDocument());
+    }
+  }
+
   @TestOnly
   public void validateState() {
     LOG.assertTrue(!DocumentUtil.isInsideSurrogatePair(myEditor.getDocument(), getOffset()));
@@ -1481,7 +1486,8 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
     private final int y; // y coordinate of caret
     private final int logicalLineY; // y coordinate of caret's logical line start
     private final int logicalLineHeight; // height of caret's logical line
-                                         // (if there are soft wraps, it's larger than a visual line's height)
+                                         // (If there are soft wraps, it's larger than a visual line's height.
+                                         // it's also larger if caret is located at a custom fold region)
 
     private VerticalInfo(int y, int logicalLineY, int logicalLineHeight) {
       this.y = y;
@@ -1529,7 +1535,7 @@ public class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
         int newOffset = Math.min(intervalStart(), e.getOffset() + e.getNewLength());
         if (!e.getDocument().isInBulkUpdate() && e.isWholeTextReplaced()) {
           try {
-            final int line = ((DocumentEventImpl)e).translateLineViaDiff(myLogicalCaret.line);
+            int line = ((DocumentEventImpl)e).translateLineViaDiff(myLogicalCaret.line);
             newOffset = myEditor.logicalPositionToOffset(new LogicalPosition(line, myLogicalCaret.column));
           }
           catch (FilesTooBigForDiffException ex) {

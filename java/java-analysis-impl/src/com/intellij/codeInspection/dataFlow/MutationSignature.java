@@ -1,7 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow;
 
+import com.intellij.codeInspection.dataFlow.jvm.SpecialField;
+import com.intellij.codeInspection.util.InspectionMessage;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.PsiFieldImpl;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ObjectUtils;
 import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.ExpressionUtils;
@@ -24,7 +29,6 @@ public final class MutationSignature {
   static final MutationSignature UNKNOWN = new MutationSignature(false, new boolean[0]);
   static final MutationSignature PURE = new MutationSignature(false, new boolean[0]);
   private static final MutationSignature MUTATES_THIS_ONLY = new MutationSignature(true, new boolean[0]);
-  public static final String INVALID_TOKEN_MESSAGE = "Invalid token: %s; supported are 'this', 'param1', 'param2', etc.";
   private final boolean myThis;
   private final boolean[] myParameters;
 
@@ -169,7 +173,7 @@ public final class MutationSignature {
       else if (part.startsWith("param")) {
         int argNum = Integer.parseInt(part.substring("param".length()));
         if (argNum < 0 || argNum > 255) {
-          throw new IllegalArgumentException(String.format(INVALID_TOKEN_MESSAGE, part));
+          throw new IllegalArgumentException(JavaAnalysisBundle.message("mutation.signature.problem.invalid.token", part));
         }
         if(args.length < argNum) {
           args = Arrays.copyOf(args, argNum);
@@ -177,7 +181,7 @@ public final class MutationSignature {
         args[argNum-1] = true;
       }
       else if (!part.isEmpty()) {
-        throw new IllegalArgumentException(String.format(INVALID_TOKEN_MESSAGE, part));
+        throw new IllegalArgumentException(JavaAnalysisBundle.message("mutation.signature.problem.invalid.token", part));
       }
     }
     return new MutationSignature(mutatesThis, args);
@@ -185,25 +189,26 @@ public final class MutationSignature {
 
   /**
    * Checks the mutation signature
+   *
    * @param signature signature to check
-   * @param method a method to apply the signature
+   * @param method    a method to apply the signature
    * @return error message or null if signature is valid
    */
-  public static @Nullable String checkSignature(@NotNull String signature, @NotNull PsiMethod method) {
+  public static @Nullable @InspectionMessage String checkSignature(@NotNull String signature, @NotNull PsiMethod method) {
     try {
       MutationSignature ms = parse(signature);
       if (ms.myThis && method.hasModifierProperty(PsiModifier.STATIC)) {
-        return "Static method cannot mutate 'this'";
+        return JavaAnalysisBundle.message("mutation.signature.problem.static.method.cannot.mutate.this");
       }
       PsiParameter[] parameters = method.getParameterList().getParameters();
       if (ms.myParameters.length > parameters.length) {
-        return "Reference to parameter #" + ms.myParameters.length + " is invalid";
+        return JavaAnalysisBundle.message("mutation.signature.problem.reference.to.parameter.invalid", ms.myParameters.length);
       }
       for (int i = 0; i < ms.myParameters.length; i++) {
         if (ms.myParameters[i]) {
           PsiType type = parameters[i].getType();
           if (ClassUtils.isImmutable(type)) {
-            return "Parameter #" + (i + 1) + " has immutable type '" + type.getPresentableText() + "'";
+            return JavaAnalysisBundle.message("mutation.signature.problem.parameter.has.immutable.type", i + 1, type.getPresentableText());
           }
         }
       }
@@ -240,6 +245,11 @@ public final class MutationSignature {
       while (true) {
         for (PsiField field : clazz.getFields()) {
           if (!field.hasModifierProperty(PsiModifier.STATIC) && field.hasInitializer()) {
+            PsiExpression initializer = PsiUtil.skipParenthesizedExprDown(PsiFieldImpl.getDetachedInitializer(field));
+            // TODO: support less trivial initializers
+            if (initializer instanceof PsiLiteralExpression) {
+              continue;
+            }
             return UNKNOWN;
           }
         }

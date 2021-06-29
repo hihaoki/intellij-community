@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.template
 
 import com.intellij.JavaTestUtil
+import com.intellij.application.options.CodeStyle
 import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.codeInsight.completion.InsertHandler
@@ -27,7 +28,6 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase
@@ -39,6 +39,7 @@ import org.jdom.Element
 import org.jetbrains.annotations.NotNull
 
 import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
+
 /**
  * @author spleaner
  */
@@ -194,7 +195,7 @@ class LiveTemplateTest extends LiveTemplateTestCase {
     checkResultByText("class C {\n" +
                       "  bar() {\n" +
                       "      foo()\n" +
-                      "              <caret>\n" +
+                      "      <caret>\n" +
                       "      foo()\n" +
                       "  }\n" +
                       "}")
@@ -326,7 +327,7 @@ class Foo {
   }
 
   void "_testIterForceBraces"() {
-    def settings = CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE)
+    def settings = CodeStyle.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE)
     settings.IF_BRACE_FORCE = CommonCodeStyleSettings.FORCE_BRACES_ALWAYS
 
     try {
@@ -581,6 +582,13 @@ class A {{
   void "test invoke surround template by tab"() {
     myFixture.configureByText "a.java", "class A { public void B() { I<caret> } }"
     myFixture.type('\t')
+    WriteCommandAction.runWriteCommandAction(myFixture.getProject(), {
+      def templateState = TemplateManagerImpl.getTemplateState(myFixture.getEditor())
+      assertNotNull(templateState)
+      templateState.nextTab() // Object
+      templateState.nextTab() // o
+    })
+
     myFixture.checkResult("class A { public void B() {\n" +
                           "    for (Object o :) {\n" +
                           "        \n" +
@@ -771,8 +779,7 @@ class Foo {
 
     @Override
     Result calculateResult(@NotNull Expression[] params, ExpressionContext context) {
-      def state = TemplateManagerImpl.getTemplateState(context.editor)
-      return state != null ? state.getVariableValue(myVariableName) : null
+      return context.getVariableValue(myVariableName)
     }
 
     @Override

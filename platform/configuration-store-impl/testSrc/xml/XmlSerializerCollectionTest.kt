@@ -15,6 +15,7 @@ import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XCollection
 import org.jdom.Element
 import org.junit.Test
+import java.util.*
 
 @Suppress("PropertyName")
 internal class XmlSerializerCollectionTest {
@@ -127,6 +128,46 @@ internal class XmlSerializerCollectionTest {
           <option value="a" />
         </option>
       </BeanWithArrayWithoutTagName>""".trimIndent(), bean)
+  }
+
+  @Test
+  fun java9ImmutableSet() {
+    class Bean {
+      @XCollection
+      var foo = java.util.Set.of("a", "b")
+    }
+
+    val bean = Bean()
+     testSerializer(
+     """
+      <Bean>
+        <option name="foo">
+          <option value="a" />
+          <option value="b" />
+        </option>
+      </Bean>""".trimIndent(), bean)
+  }
+
+  @Test
+  fun immutableCollections() {
+    class Bean {
+      @XCollection
+      val firstElement: List<String> = Arrays.asList("gradle")
+      @XCollection
+      val secondElement: List<String> = Collections.singletonList("maven")
+    }
+
+    val bean = Bean()
+    testSerializer(
+      """
+      <Bean>
+        <option name="firstElement">
+          <option value="gradle" />
+        </option>
+        <option name="secondElement">
+          <option value="maven" />
+        </option>
+      </Bean>""".trimIndent(), bean)
   }
 
   @Test fun arrayAnnotationWithElementTag() {

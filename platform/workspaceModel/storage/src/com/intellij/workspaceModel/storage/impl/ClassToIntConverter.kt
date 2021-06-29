@@ -3,6 +3,7 @@ package com.intellij.workspaceModel.storage.impl
 
 import com.google.common.collect.HashBiMap
 import com.intellij.workspaceModel.storage.WorkspaceEntity
+import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicInteger
 
 internal object ClassToIntConverter {
@@ -14,6 +15,20 @@ internal object ClassToIntConverter {
 
   @Synchronized
   fun getClassOrDie(id: Int): Class<*> = class2Int.inverse().getValue(id)
+
+  fun getMap(): HashBiMap<Class<*>, Int> = class2Int
+
+  fun fromMap(map: Map<Class<*>, Int>) {
+    class2Int.clear()
+    class2Int.putAll(map)
+    idGenerator.set((map.map { it.value }.maxOrNull() ?: -1) + 1)
+  }
+
+  @TestOnly
+  fun clear() {
+    class2Int.clear()
+    idGenerator.set(0)
+  }
 }
 
 internal fun Class<*>.toClassId(): Int = ClassToIntConverter.getInt(this)

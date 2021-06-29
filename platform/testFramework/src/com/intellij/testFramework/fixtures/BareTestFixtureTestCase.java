@@ -1,8 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.testFramework.*;
 import org.jetbrains.annotations.NotNull;
@@ -19,13 +19,14 @@ import static org.junit.Assume.assumeFalse;
 
 @TestOnly
 public abstract class BareTestFixtureTestCase {
-  @Rule public final TestName myNameRule = new TestName();
+  @Rule public final TestName testName = new TestName();
+  @Rule public final TestRule testLoggerWatcher = TestLoggerFactory.createTestWatcher();
 
   private BareTestFixture myFixture;
 
   @Before
   public final void setupFixture() throws Exception {
-    ApplicationInfoImpl.setInStressTest(TestFrameworkUtil.isPerformanceTest(null, getClass().getName()));
+    ApplicationManagerEx.setInStressTest(TestFrameworkUtil.isPerformanceTest(null, getClass().getName()));
 
     boolean headless = SKIP_HEADLESS && getClass().getAnnotation(SkipInHeadlessEnvironment.class) != null;
     assumeFalse("Class '" + getClass().getName() + "' is skipped because it requires working UI environment", headless);
@@ -34,7 +35,7 @@ public abstract class BareTestFixtureTestCase {
 
     myFixture = IdeaTestFixtureFactory.getFixtureFactory().createBareFixture();
     myFixture.setUp();
-    Disposer.register(getTestRootDisposable(), ()-> ApplicationInfoImpl.setInStressTest(false));
+    Disposer.register(getTestRootDisposable(), () -> ApplicationManagerEx.setInStressTest(false));
   }
 
   @After
@@ -45,16 +46,11 @@ public abstract class BareTestFixtureTestCase {
     }
   }
 
-  @NotNull
-  protected final String getTestName(boolean lowercaseFirstLetter) {
-    return PlatformTestUtil.getTestName(myNameRule.getMethodName(), lowercaseFirstLetter);
+  protected final @NotNull String getTestName(boolean lowercaseFirstLetter) {
+    return PlatformTestUtil.getTestName(testName.getMethodName(), lowercaseFirstLetter);
   }
 
-  @NotNull
-  public final Disposable getTestRootDisposable() {
+  protected final @NotNull Disposable getTestRootDisposable() {
     return myFixture.getTestRootDisposable();
   }
-
-  @Rule
-  public TestRule testLoggerWatcher = TestLoggerFactory.createTestWatcher();
 }

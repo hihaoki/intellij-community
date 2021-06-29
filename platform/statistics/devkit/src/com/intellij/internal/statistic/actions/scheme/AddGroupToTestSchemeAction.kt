@@ -6,9 +6,10 @@ import com.intellij.idea.ActionsBundle
 import com.intellij.internal.statistic.StatisticsBundle
 import com.intellij.internal.statistic.StatisticsDevKitUtil
 import com.intellij.internal.statistic.StatisticsDevKitUtil.showNotification
-import com.intellij.internal.statistic.eventLog.whitelist.LocalWhitelistGroup
-import com.intellij.internal.statistic.eventLog.whitelist.WhitelistTestGroupStorage
-import com.intellij.internal.statistic.service.fus.FUStatisticsWhiteListGroupsService
+import com.intellij.internal.statistic.eventLog.validator.storage.GroupValidationTestRule
+import com.intellij.internal.statistic.eventLog.events.EventsSchemeBuilder
+import com.intellij.internal.statistic.eventLog.validator.storage.ValidationTestRulesPersistedStorage
+import com.intellij.internal.statistic.utils.StatisticsRecorderUtil
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.progress.ProgressIndicator
@@ -32,14 +33,18 @@ class AddGroupToTestSchemeAction constructor(private val recorderId: String = St
                     ActionsBundle.messagePointer("action.AddGroupToTestSchemeAction.description"),
                     AllIcons.General.Add) {
 
+  override fun update(event: AnActionEvent) {
+    event.presentation.isEnabled = StatisticsRecorderUtil.isTestModeEnabled(recorderId)
+  }
+
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project ?: return
-    val testStorage = WhitelistTestGroupStorage.getTestStorage(recorderId)
+    val testStorage = ValidationTestRulesPersistedStorage.getTestStorage(recorderId, true)
     if (testStorage == null) {
       showNotification(project, NotificationType.ERROR, StatisticsBundle.message("stats.cannot.find.test.scheme.storage"))
       return
     }
-    val group = LocalWhitelistGroup("", false)
+    val group = GroupValidationTestRule("", false)
     val dialog = createAddToTestSchemeDialog(project, testStorage, group)
     if (dialog == null || !dialog.showAndGet()) return
 
@@ -56,11 +61,10 @@ class AddGroupToTestSchemeAction constructor(private val recorderId: String = St
 
   companion object {
     fun createAddToTestSchemeDialog(project: Project,
-                                    testGroupStorage: WhitelistTestGroupStorage,
-                                    group: LocalWhitelistGroup): DialogWrapper? {
-      val productionGroups = loadProductionGroups(project, testGroupStorage)
-      if (productionGroups == null) return null
-      val groupConfiguration = EventsTestSchemeGroupConfiguration(project, productionGroups, group)
+                                    testRulesStorage: ValidationTestRulesPersistedStorage,
+                                    group: GroupValidationTestRule): DialogWrapper? {
+      val scheme = loadEventsScheme(project, testRulesStorage) ?: return null
+      val groupConfiguration = EventsTestSchemeGroupConfiguration(project, scheme.productionGroups, group, scheme.generatedScheme)
       val dialog = dialog(
         StatisticsBundle.message("stats.add.test.group.to.test.scheme"),
         panel = groupConfiguration.panel,
@@ -73,14 +77,15 @@ class AddGroupToTestSchemeAction constructor(private val recorderId: String = St
       return dialog
     }
 
-    private fun loadProductionGroups(project: Project,
-                                     testGroupStorage: WhitelistTestGroupStorage): FUStatisticsWhiteListGroupsService.WLGroups? {
-      return ProgressManager.getInstance().run(object : Task.WithResult<FUStatisticsWhiteListGroupsService.WLGroups?, IOException>(
+    private fun loadEventsScheme(project: Project,
+                                 testRulesStorage: ValidationTestRulesPersistedStorage): EditEventsTestSchemeAction.EventsTestScheme? {
+      return ProgressManager.getInstance().run(object : Task.WithResult<EditEventsTestSchemeAction.EventsTestScheme?, IOException>(
         project, StatisticsBundle.message("stats.loading.validation.rules"), true) {
-        override fun compute(indicator: ProgressIndicator): FUStatisticsWhiteListGroupsService.WLGroups? {
-          val productionGroups = testGroupStorage.loadProductionGroups()
+        override fun compute(indicator: ProgressIndicator): EditEventsTestSchemeAction.EventsTestScheme? {
+          val productionGroups = testRulesStorage.loadProductionGroups()
           if (indicator.isCanceled) return null
-          return productionGroups
+          val eventsScheme = EventsSchemeBuilder.buildEventsScheme()
+          return EditEventsTestSchemeAction.EventsTestScheme(emptyList(), productionGroups, eventsScheme)
         }
       })
     }

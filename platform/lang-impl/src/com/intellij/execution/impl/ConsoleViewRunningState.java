@@ -6,6 +6,8 @@ import com.intellij.execution.process.*;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.util.ObjectUtils;
+import com.pty4j.PtyProcess;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -17,6 +19,7 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 
 public class ConsoleViewRunningState extends ConsoleState {
+  private static final char LF = '\n';
   private final ConsoleViewImpl myConsole;
   private final ProcessHandler myProcessHandler;
   private final ConsoleState myFinishedStated;
@@ -27,9 +30,7 @@ public class ConsoleViewRunningState extends ConsoleState {
     @Override
     public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
       if (outputType instanceof ProcessOutputType) {
-        myStreamsSynchronizer.doWhenStreamsSynchronized(event.getText(), (ProcessOutputType)outputType, () -> {
-          print(event.getText(), outputType);
-        });
+        myStreamsSynchronizer.doWhenStreamsSynchronized(event.getText(), (ProcessOutputType)outputType, () -> print(event.getText(), outputType));
       }
       else {
         print(event.getText(), outputType);
@@ -54,7 +55,7 @@ public class ConsoleViewRunningState extends ConsoleState {
 
     // attach to process stdin
     if (attachToStdIn) {
-      final OutputStream processInput = myProcessHandler.getProcessInput();
+      OutputStream processInput = myProcessHandler.getProcessInput();
       myUserInputWriter = processInput == null ? null : createOutputStreamWriter(processInput, processHandler);
     }
     else {
@@ -88,7 +89,7 @@ public class ConsoleViewRunningState extends ConsoleState {
 
   @Override
   public boolean isCommandLine(@NotNull String line) {
-    return myProcessHandler instanceof BaseProcessHandler && line.equals(((BaseProcessHandler)myProcessHandler).getCommandLine());
+    return myProcessHandler instanceof BaseProcessHandler && line.equals(((BaseProcessHandler<?>)myProcessHandler).getCommandLine());
   }
 
   @Override
@@ -102,17 +103,29 @@ public class ConsoleViewRunningState extends ConsoleState {
   }
 
   @Override
-  public void sendUserInput(@NotNull final String input) throws IOException {
+  public void sendUserInput(@NotNull String input) throws IOException {
     if (myUserInputWriter == null) {
       throw new IOException(ExecutionBundle.message("no.user.process.input.error.message"));
     }
-    myUserInputWriter.write(input);
+    char enterKeyCode = getEnterKeyCode();
+    String inputToSend = input.replace(LF, enterKeyCode);
+    myUserInputWriter.write(inputToSend);
     myUserInputWriter.flush();
+  }
+
+  private char getEnterKeyCode() {
+    if (myProcessHandler instanceof BaseProcessHandler<?>) {
+      PtyProcess process = ObjectUtils.tryCast(((BaseProcessHandler<?>)myProcessHandler).getProcess(), PtyProcess.class);
+      if (process != null) {
+        return (char)process.getEnterKeyCode();
+      }
+    }
+    return LF;
   }
 
   @NotNull
   @Override
-  public ConsoleState attachTo(@NotNull final ConsoleViewImpl console, final @NotNull ProcessHandler processHandler) {
+  public ConsoleState attachTo(@NotNull ConsoleViewImpl console, @NotNull ProcessHandler processHandler) {
     return dispose().attachTo(console, processHandler);
   }
 

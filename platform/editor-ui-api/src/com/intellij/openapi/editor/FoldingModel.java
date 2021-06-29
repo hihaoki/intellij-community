@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.editor;
 
-import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,16 +39,6 @@ public interface FoldingModel {
    */
   @Nullable
   FoldRegion addFoldRegion(int startOffset, int endOffset, @NotNull String placeholderText);
-
-  /**
-   * @deprecated Does nothing
-   */
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
-  @Deprecated
-  default boolean addFoldRegion(@NotNull FoldRegion region) {
-    DeprecatedMethodException.report("Use addFoldRegion(int,int,String) instead");
-    return true;
-  }
 
   /**
    * Removes the specified fold region. This method must be called
@@ -112,6 +101,7 @@ public interface FoldingModel {
    * after the operation. Use {@link #runBatchFoldingOperation(Runnable)} instead.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   void runBatchFoldingOperation(@NotNull Runnable operation, boolean moveCaretFromCollapsedRegion);
 
   default void runBatchFoldingOperationDoNotCollapseCaret(@NotNull Runnable operation) {
@@ -129,4 +119,20 @@ public interface FoldingModel {
    *                                  of editor will be used as an anchor instead). If {@code false}, no scrolling adjustment will be done.
    */
   void runBatchFoldingOperation(@NotNull Runnable operation, boolean allowMovingCaret, boolean keepRelativeCaretPosition);
+
+  /**
+   * Creates a fold region with custom representation (defined by the provided renderer). Created region spans whole document lines, and
+   * always remains in a collapsed state (it can be removed, but not expanded).
+   *
+   * @param startLine starting document line in a target line range to fold (inclusive)
+   * @param endLine ending document line in a target line range to fold (inclusive)
+   * @param renderer Renderer defining the representation of fold region (size and rendered content). One renderer can be re-used for
+   *                 multiple fold regions.
+   * @return resulting fold region, or {@code null} if it cannot be created (e.g. due to unsupported overlapping with already existing
+   * regions)
+   */
+  @ApiStatus.Experimental
+  default @Nullable CustomFoldRegion addCustomLinesFolding(int startLine, int endLine, @NotNull CustomFoldRegionRenderer renderer) {
+    return null;
+  }
 }

@@ -8,13 +8,14 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.ui.CheckedTreeNode;
 import com.intellij.util.Function;
@@ -22,10 +23,7 @@ import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.progress.StepsProgressIndicator;
 import com.intellij.vcs.log.VcsFullCommitDetails;
-import org.jetbrains.annotations.CalledInAny;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -142,7 +140,7 @@ public final class PushController implements Disposable {
   }
 
   private boolean isPreChecked(@NotNull MyRepoModel<?, ?, ?> model) {
-    return Registry.is("vcs.push.all.with.commits") ||
+    return AdvancedSettings.getBoolean("vcs.push.all.with.commits") ||
            model.getSupport().getRepositoryManager().isSyncEnabled() ||
            preselectByUser(model.getRepository());
   }
@@ -212,7 +210,7 @@ public final class PushController implements Disposable {
 
     //noinspection unchecked
     myView2Model.put(repoNode, (MyRepoModel<Repository, PushSource, PushTarget>)model);
-    repoPanel.addRepoNodeListener(new RepositoryNodeListener<T>() {
+    repoPanel.addRepoNodeListener(new RepositoryNodeListener<>() {
       @Override
       public void onTargetChanged(T newTarget) {
         repoNode.setChecked(true);
@@ -232,7 +230,7 @@ public final class PushController implements Disposable {
       }
 
       @Override
-      public void onTargetInEditMode(@NotNull String currentValue) {
+      public void onTargetInEditMode(@NotNull @Nls String currentValue) {
         myPushLog.fireEditorUpdated(currentValue);
       }
     });
@@ -240,6 +238,7 @@ public final class PushController implements Disposable {
   }
 
   // TODO This logic shall be moved to some common place and used instead of DvcsUtil.getShortRepositoryName
+  @Nls
   @NotNull
   private String getDisplayedRepoName(@NotNull Repository repository) {
     String name = DvcsUtil.getShortRepositoryName(repository);
@@ -302,7 +301,7 @@ public final class PushController implements Disposable {
           if (!errors.isEmpty()) {
             shouldBeSelected = false;
             model.setLoadedCommits(ContainerUtil.emptyList());
-            myPushLog.setChildren(node, ContainerUtil.map(errors, (Function<VcsError, DefaultMutableTreeNode>)error -> {
+            myPushLog.setChildren(node, ContainerUtil.map(errors, error -> {
               VcsLinkedTextComponent errorLinkText = new VcsLinkedTextComponent(error.getText(), new VcsLinkListener() {
                 @Override
                 public void hyperlinkActivated(@NotNull DefaultMutableTreeNode sourceNode, @NotNull MouseEvent event) {
@@ -361,7 +360,7 @@ public final class PushController implements Disposable {
     return model.isSelected() &&
            (hasCommitsToPush(model) ||
             // set force check only for async with no registry option
-            !(model.getSupport().getRepositoryManager().isSyncEnabled() || Registry.is("vcs.push.all.with.commits")));
+            !(model.getSupport().getRepositoryManager().isSyncEnabled() || AdvancedSettings.getBoolean("vcs.push.all.with.commits")));
   }
 
   private boolean preselectByUser(@NotNull Repository repository) {
@@ -581,7 +580,7 @@ public final class PushController implements Disposable {
     for (int i = 0; i < commits.size(); ++i) {
       if (i >= commitsNum) {
         @NonNls
-        final VcsLinkedTextComponent moreCommitsLink = new VcsLinkedTextComponent("<a href='loadMore'>...</a>", new VcsLinkListener() {
+        final VcsLinkedTextComponent moreCommitsLink = new VcsLinkedTextComponent(HtmlChunk.link("loadMore", "...").toString(), new VcsLinkListener() {
           @Override
           public void hyperlinkActivated(@NotNull DefaultMutableTreeNode sourceNode, @NotNull MouseEvent event) {
             TreeNode parent = sourceNode.getParent();

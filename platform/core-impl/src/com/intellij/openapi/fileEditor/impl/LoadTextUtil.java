@@ -9,6 +9,8 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.io.ByteArraySequence;
+import com.intellij.openapi.util.io.ByteSequence;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
@@ -21,12 +23,12 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.*;
 import com.intellij.util.text.ByteArrayCharSequence;
 import com.intellij.util.text.CharArrayUtil;
-import gnu.trove.THashSet;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -34,6 +36,7 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 public final class LoadTextUtil {
@@ -108,7 +111,7 @@ public final class LoadTextUtil {
     int crCount = 0;
     int lfCount = 0;
     int crlfCount = 0;
-    byte[] result = new byte[endOffset-startOffset];
+    byte[] result = ArrayUtil.newByteArray(endOffset - startOffset);
 
     for (int src = startOffset; src < endOffset; src++) {
       char c = (char)charsAsBytes[src];
@@ -149,7 +152,7 @@ public final class LoadTextUtil {
 
     for (int src = startOffset; src < endOffset; src++) {
       char c = (char)charsAsBytes[src];
-      if (c > 128) {
+      if (c >= 128) {
         result.append(UNDEFINED_CHAR);
         continue;
       }
@@ -238,17 +241,23 @@ public final class LoadTextUtil {
   // guess from file type or content
   @NotNull
   private static DetectResult detectHardCharset(@NotNull VirtualFile virtualFile,
-                                                byte @NotNull [] content,
+                                                byte @NotNull [] internalBuffer,
                                                 int length,
                                                 @NotNull FileType fileType) {
-    String charsetName = fileType.getCharset(virtualFile, content);
-    DetectResult guessed = guessFromContent(virtualFile, content, length);
-    Charset hardCodedCharset = charsetName == null ? guessed.hardCodedCharset : CharsetToolkit.forName(charsetName);
-
-    if (hardCodedCharset == null && guessed.guessed == CharsetToolkit.GuessedEncoding.VALID_UTF8) {
-      return new DetectResult(StandardCharsets.UTF_8, guessed.guessed, guessed.BOM);
+    String charsetName = fileType.getCharset(virtualFile, internalBuffer); // todo aaaaah
+    Charset charset = charsetName == null ? null : CharsetToolkit.forName(charsetName);
+    DetectResult detectResult = guessFromContent(virtualFile, internalBuffer, length);
+    Charset hardCodedCharset = charset == null ? detectResult.hardCodedCharset : charset;
+    CharsetToolkit.GuessedEncoding guessed = detectResult.guessed;
+    byte[] detectedBOM = detectResult.BOM;
+    Charset result;
+    if (hardCodedCharset == null && guessed == CharsetToolkit.GuessedEncoding.VALID_UTF8) {
+      result = StandardCharsets.UTF_8;
     }
-    return new DetectResult(hardCodedCharset, guessed.guessed, guessed.BOM);
+    else {
+      result = hardCodedCharset;
+    }
+    return new DetectResult(result, guessed, detectedBOM);
   }
 
   @NotNull
@@ -265,11 +274,11 @@ public final class LoadTextUtil {
 
   @NotNull
   private static DetectResult detectInternalCharsetAndSetBOM(@NotNull VirtualFile file,
-                                                             byte @NotNull [] content,
+                                                             byte @NotNull [] internalBuffer,
                                                              int length,
                                                              boolean saveBOM,
                                                              @NotNull FileType fileType) {
-    DetectResult info = detectHardCharset(file, content, length, fileType);
+    DetectResult info = detectHardCharset(file, internalBuffer, length, fileType);
 
     Charset charset;
     if (info.hardCodedCharset == null) {
@@ -339,8 +348,10 @@ public final class LoadTextUtil {
   private static DetectResult guessFromBytes(byte @NotNull [] content,
                                              int startOffset, int endOffset,
                                              @NotNull Charset defaultCharset) {
-    CharsetToolkit toolkit = new CharsetToolkit(content, defaultCharset);
-    toolkit.setEnforce8Bit(true);
+    if (startOffset == endOffset) {
+      return new DetectResult(null, CharsetToolkit.GuessedEncoding.SEVEN_BIT, null);
+    }
+    CharsetToolkit toolkit = new CharsetToolkit(content, defaultCharset, true);
     Charset charset = toolkit.guessFromBOM();
     if (charset != null) {
       byte[] bom = ObjectUtils.notNull(CharsetToolkit.getMandatoryBom(charset), CharsetToolkit.UTF8_BOM);
@@ -366,7 +377,7 @@ public final class LoadTextUtil {
     else {
       switch (info.guessed) {
         case SEVEN_BIT:
-          charset = CharsetToolkit.US_ASCII_CHARSET;
+          charset = StandardCharsets.US_ASCII;
           break;
         case VALID_UTF8:
           charset = StandardCharsets.UTF_8;
@@ -434,7 +445,9 @@ public final class LoadTextUtil {
     }
     setDetectedFromBytesFlagBack(virtualFile, buffer);
 
-    virtualFile.setBinaryContent(buffer, newModificationStamp, -1, requestor);
+    try (OutputStream stream = virtualFile.getOutputStream(requestor, newModificationStamp, -1)) {
+      stream.write(buffer);
+    }
   }
 
   @NotNull
@@ -605,23 +618,23 @@ public final class LoadTextUtil {
 
   // written in push way to make sure no-one stores the CharSequence because it came from thread-local byte buffers which will be overwritten soon
   @NotNull
-  public static FileType processTextFromBinaryPresentationOrNull(byte @NotNull [] bytes, int length,
+  public static FileType processTextFromBinaryPresentationOrNull(@NotNull ByteSequence bytes,
                                                                  @NotNull VirtualFile virtualFile,
                                                                  boolean saveDetectedSeparators,
                                                                  boolean saveBOM,
                                                                  @NotNull FileType fileType,
                                                                  @NotNull NotNullFunction<? super CharSequence, ? extends FileType> fileTextProcessor) {
-    DetectResult info = detectInternalCharsetAndSetBOM(virtualFile, bytes, length, saveBOM, fileType);
-    Charset internalCharset = info.hardCodedCharset;
-    CharsetToolkit.GuessedEncoding guessed = info.guessed;
+    byte[] buffer = ((ByteArraySequence)bytes).getInternalBuffer();
+    DetectResult detectResult = detectInternalCharsetAndSetBOM(virtualFile, buffer, bytes.length(), saveBOM, fileType);
+    Charset internalCharset = detectResult.hardCodedCharset;
+    CharsetToolkit.GuessedEncoding guessed = detectResult.guessed;
     CharSequence toProcess;
     if (internalCharset == null || guessed == CharsetToolkit.GuessedEncoding.BINARY || guessed == CharsetToolkit.GuessedEncoding.INVALID_UTF8) {
       // the charset was not detected so the file is likely binary
       toProcess = null;
     }
     else {
-      ConvertResult result =
-        convertBytesAndSetSeparator(bytes, length, virtualFile, saveDetectedSeparators, info, internalCharset);
+      ConvertResult result = convertBytesAndSetSeparator(buffer, bytes.length(), virtualFile, saveDetectedSeparators, detectResult, internalCharset);
       toProcess = result.text;
     }
     return fileTextProcessor.fun(toProcess);
@@ -683,7 +696,7 @@ public final class LoadTextUtil {
                                             final int startOffset, int endOffset,
                                             @NotNull Charset internalCharset) {
     assert startOffset >= 0 && startOffset <= endOffset && endOffset <= bytes.length: startOffset + "," + endOffset+": "+bytes.length;
-    if (internalCharset instanceof SevenBitCharset || internalCharset == CharsetToolkit.US_ASCII_CHARSET) {
+    if (internalCharset instanceof SevenBitCharset || internalCharset == StandardCharsets.US_ASCII) {
       // optimisation: skip byte-to-char conversion for ascii chars
       return convertLineSeparatorsToSlashN(bytes, startOffset, endOffset);
     }
@@ -730,7 +743,7 @@ public final class LoadTextUtil {
 
     @NotNull
     Set<String> allLineSeparators() {
-      Set<String> result = new THashSet<>();
+      Set<String> result = new HashSet<>();
       if (CR_count > 0) result.add(LineSeparator.CR.getSeparatorString());
       if (LF_count > 0) result.add(LineSeparator.LF.getSeparatorString());
       if (CRLF_count > 0) result.add(LineSeparator.CRLF.getSeparatorString());

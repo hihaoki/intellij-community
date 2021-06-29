@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.target
 
 import com.intellij.execution.ExecutionException
@@ -49,7 +49,7 @@ abstract class TargetEnvironment(
     var volumeData: TargetEnvironmentType.TargetSpecificVolumeData? = null  // excluded from equals / hashcode
   }
 
-  data class DownloadRoot(
+  data class DownloadRoot @JvmOverloads constructor(
     /**
      * A certain path on the local machine or null for creating a temporary directory.
      * The temporary directory should be deleted with [shutdown].
@@ -57,7 +57,13 @@ abstract class TargetEnvironment(
     val localRootPath: Path?,
 
     /** TODO Should [Temprorary] paths with the same hint point on the same directory for uploads and downloads? */
-    val targetRootPath: TargetPath
+    val targetRootPath: TargetPath,
+
+    /**
+     * If not null, target should try to persist the contents of the folder between the sessions,
+     * and make it available for the next session requests with the same persistentId
+     */
+    val persistentId: String? = null
   )
 
   /** Target TCP port forwardings. */
@@ -74,28 +80,35 @@ abstract class TargetEnvironment(
     val target: Int?
   )
 
-  /**
-   * TODO Do we really need to have two different kinds of bind mounts?
-   *  Docker and SSH provides bi-directional access to the target files.
-   */
-  interface UploadableVolume {
+  interface Volume {
     val localRoot: Path
 
     val targetRoot: String
 
     /**
-     * Upload `"$localRootPath/$relativePath"` to `"$targetRoot/$relativePath"`.
-     * Returns the resulting remote path (even if it's predictable, many tests rely on specific, usually relative paths).
+     * Returns the resulting remote path (even if it's predictable, many tests rely on specific, usually relative paths)
+     * of uploading `"$localRootPath/$relativePath"` to `"$targetRoot/$relativePath"`.
+     * Does not perform any kind of bytes transfer.
      */
     @Throws(IOException::class)
-    fun upload(relativePath: String, progressIndicator: ProgressIndicator): String
+    fun resolveTargetPath(relativePath: String): String
   }
 
-  interface DownloadableVolume {  // TODO Would it be better if there is no inheritance from the upload Volume?
-    /* The only difference from the old [DownloadVolume]. */
-    val localRoot: Path
+  /**
+   * TODO Do we really need to have two different kinds of bind mounts?
+   *  Docker and SSH provides bi-directional access to the target files.
+   */
+  interface UploadableVolume : Volume {
 
-    val targetRoot: String
+    /**
+     * Upload `"$localRootPath/$relativePath"` to `"$targetRoot/$relativePath"`
+     */
+    @Throws(IOException::class)
+    fun upload(relativePath: String,
+               targetProgressIndicator: TargetProgressIndicator)
+  }
+
+  interface DownloadableVolume : Volume {
 
     @Throws(IOException::class)
     fun download(relativePath: String, progressIndicator: ProgressIndicator)
@@ -111,8 +124,7 @@ abstract class TargetEnvironment(
   open val targetPortBindings: Map<TargetPortBinding, Int>
     get() = throw UnsupportedOperationException()
 
-  /** Values are local ports. */
-  open val localPortBindings: Map<LocalPortBinding, HostPort>
+  open val localPortBindings: Map<LocalPortBinding, ResolvedPortBinding>
     get() = throw UnsupportedOperationException()
 
   // TODO There are planned further modifications related to this method:
@@ -129,4 +141,15 @@ abstract class TargetEnvironment(
   //FIXME: document
   abstract fun shutdown()
 
+  interface BatchUploader {
+    fun canUploadInBatches(): Boolean
+
+    @Throws(IOException::class)
+    fun runBatchUpload(uploads: List<Pair<UploadableVolume, String>>,
+                       targetProgressIndicator: TargetProgressIndicator)
+  }
+
+  interface PtyTargetEnvironment {
+    fun isWithPty(): Boolean
+  }
 }

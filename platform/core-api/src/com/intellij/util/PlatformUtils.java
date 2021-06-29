@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.application.ApplicationInfo;
@@ -27,6 +27,7 @@ public final class PlatformUtils {
   public static final String IDEA_EDU_PREFIX = "IdeaEdu";
   public static final String APPCODE_PREFIX = "AppCode";
   public static final String CLION_PREFIX = "CLion";
+  public static final String MOBILE_IDE_PREFIX = "MobileIDE";
   public static final String PYCHARM_PREFIX = "Python";
   public static final String PYCHARM_CE_PREFIX = "PyCharmCore";
   public static final String PYCHARM_DS_PREFIX = "PyCharmDS";
@@ -37,12 +38,14 @@ public final class PlatformUtils {
   public static final String DBE_PREFIX = "DataGrip";
   public static final String RIDER_PREFIX = "Rider";
   public static final String GOIDE_PREFIX = "GoLand";
-  public static final String INTELLIJ_CLIENT_PREFIX = "IntelliJClient";
+  public static final String FLEET_PREFIX = "FleetBackend";
+  public static final String CWM_GUEST_PREFIX = "CodeWithMeGuest";
+  public static final String GATEWAY_PREFIX = "Gateway";
 
-  private static final Set<String> COMMERCIAL_EDITIONS = new HashSet<>(Arrays.asList(IDEA_PREFIX, APPCODE_PREFIX, CLION_PREFIX,
-                                                                                     PYCHARM_PREFIX, RUBY_PREFIX, PHP_PREFIX,
-                                                                                     WEB_PREFIX, DBE_PREFIX, RIDER_PREFIX,
-                                                                                     GOIDE_PREFIX));
+  @SuppressWarnings("SSBasedInspection") private static final Set<String> COMMERCIAL_EDITIONS = new HashSet<>(Arrays.asList(
+    IDEA_PREFIX, APPCODE_PREFIX, CLION_PREFIX, MOBILE_IDE_PREFIX, PYCHARM_PREFIX, PYCHARM_DS_PREFIX, RUBY_PREFIX, PHP_PREFIX, WEB_PREFIX,
+    DBE_PREFIX, RIDER_PREFIX, GOIDE_PREFIX));
+
   public static @NotNull String getPlatformPrefix() {
     return getPlatformPrefix(IDEA_PREFIX);
   }
@@ -58,7 +61,7 @@ public final class PlatformUtils {
   }
 
   public static boolean isJetBrainsProduct() {
-    final ApplicationInfo appInfo = ApplicationInfo.getInstance();
+    ApplicationInfo appInfo = ApplicationInfo.getInstance();
     return appInfo != null && appInfo.getShortCompanyName().equals("JetBrains");
   }
 
@@ -90,8 +93,12 @@ public final class PlatformUtils {
     return is(CLION_PREFIX);
   }
 
+  public static boolean isMobileIde() {
+    return is(MOBILE_IDE_PREFIX);
+  }
+
   public static boolean isCidr() {
-    return isAppCode() || isCLion();
+    return isAppCode() || isCLion() || isMobileIde();
   }
 
   public static boolean isPyCharm() {
@@ -134,8 +141,8 @@ public final class PlatformUtils {
     return is(GOIDE_PREFIX);
   }
 
-  public static boolean isIntelliJClient() {
-    return is(INTELLIJ_CLIENT_PREFIX);
+  public static boolean isCodeWithMeGuest() {
+    return is(CWM_GUEST_PREFIX);
   }
 
   public static boolean isCommunityEdition() {
@@ -146,7 +153,11 @@ public final class PlatformUtils {
     return COMMERCIAL_EDITIONS.contains(getPlatformPrefix());
   }
 
-  private static boolean is(@NotNull String idePrefix) {
+  public static boolean isFleetBackend() {
+    return is(FLEET_PREFIX);
+  }
+
+  private static boolean is(String idePrefix) {
     return idePrefix.equals(getPlatformPrefix());
   }
 }

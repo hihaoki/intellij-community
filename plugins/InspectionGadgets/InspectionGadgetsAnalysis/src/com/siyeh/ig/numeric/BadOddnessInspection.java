@@ -15,14 +15,15 @@
  */
 package com.siyeh.ig.numeric;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInspection.dataFlow.CommonDataflow;
 import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
-import com.intellij.psi.JavaTokenType;
-import com.intellij.psi.PsiBinaryExpression;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiType;
+import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.ConstantExpressionUtil;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ObjectUtils;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -55,7 +56,7 @@ public class BadOddnessInspection extends BaseInspection {
       if (!ComparisonUtils.isEqualityComparison(expression)) {
         return;
       }
-      final PsiExpression lhs = expression.getLOperand();
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
       final PsiExpression rhs = expression.getROperand();
       if (isModTwo(lhs) && hasValue(rhs, 1)) {
         registerError(expression, expression);
@@ -79,12 +80,21 @@ public class BadOddnessInspection extends BaseInspection {
       if (rhs == null) {
         return false;
       }
-      return hasValue(rhs, 2) && canBeNegative(lhs);
+      return hasValue(rhs, 2) && !isChanged(lhs) && canBeNegative(lhs);
     }
 
     private static boolean canBeNegative(PsiExpression lhs) {
       LongRangeSet range = CommonDataflow.getExpressionRange(lhs);
       return range == null || range.min() < 0;
+    }
+    
+    private static boolean isChanged(PsiExpression lhs) {
+      if (!(lhs instanceof PsiReferenceExpression)) return false;
+      PsiVariable variable = ObjectUtils.tryCast(((PsiReferenceExpression)lhs).resolve(), PsiVariable.class);
+      if (variable == null) return false;
+      PsiCodeBlock codeBlock = PsiTreeUtil.getParentOfType(variable, PsiCodeBlock.class);
+      if (codeBlock == null) return false;
+      return !HighlightControlFlowUtil.isEffectivelyFinal(variable, codeBlock, null);
     }
 
     private static boolean hasValue(PsiExpression expression, int testValue) {

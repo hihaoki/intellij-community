@@ -52,9 +52,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+
 public class PyQualifiedReference extends PyReferenceImpl {
   private static final Logger LOG = Logger.getInstance(PyQualifiedReference.class);
 
@@ -137,7 +135,7 @@ public class PyQualifiedReference extends PyReferenceImpl {
       return false;
     }
     for (PyExpression ex : collectAssignedAttributes(qName, qualifier)) {
-      if (referencedName.equals(ex.getName())) {
+      if (referencedName.equals(ex.getName()) && !PyUtil.isInstanceAttribute(ex)) {
         ret.poke(ex, RatedResolveResult.RATE_NORMAL);
         return true;
       }
@@ -268,13 +266,13 @@ public class PyQualifiedReference extends PyReferenceImpl {
     final Set<String> members = new HashSet<>();
     myElement.getContainingFile().accept(new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyReferenceExpression(PyReferenceExpression node) {
+      public void visitPyReferenceExpression(@NotNull PyReferenceExpression node) {
         super.visitPyReferenceExpression(node);
         visitPyQualifiedExpression(node);
       }
 
       @Override
-      public void visitPyTargetExpression(PyTargetExpression node) {
+      public void visitPyTargetExpression(@NotNull PyTargetExpression node) {
         super.visitPyTargetExpression(node);
         visitPyQualifiedExpression(node);
       }

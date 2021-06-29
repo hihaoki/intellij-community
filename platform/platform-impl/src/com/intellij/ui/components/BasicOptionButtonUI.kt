@@ -72,8 +72,14 @@ open class BasicOptionButtonUI : OptionButtonUI() {
     _optionButton = null
   }
 
-  override fun getPreferredSize(c: JComponent): Dimension = Dimension(mainButton.preferredSize.width + arrowButton.preferredSize.width,
-                                                                      maxOf(mainButton.preferredSize.height, arrowButton.preferredSize.height))
+  override fun getPreferredSize(c: JComponent): Dimension {
+    if (!arrowButton.isVisible) return mainButton.preferredSize
+
+    return Dimension(
+      mainButton.preferredSize.width + arrowButton.preferredSize.width,
+      maxOf(mainButton.preferredSize.height, arrowButton.preferredSize.height)
+    )
+  }
 
   protected open fun installPopup() {
     showPopupAction = DumbAwareAction.create { showPopup() }
@@ -273,10 +279,10 @@ open class BasicOptionButtonUI : OptionButtonUI() {
   protected open fun createPopup(toSelect: Action?, ensureSelection: Boolean): ListPopup {
     val (actionGroup, mapping) = createActionMapping()
     val dataContext = createActionDataContext()
-    val actionItems = ActionPopupStep.createActionItems(actionGroup, dataContext, false, false, true, true, ActionPlaces.UNKNOWN, null)
+    val place = ActionPlaces.getPopupPlace(optionButton.getClientProperty(JBOptionButton.PLACE) as? String)
+    val actionItems = ActionPopupStep.createActionItems(actionGroup, dataContext, false, false, true, true, place, null)
     val defaultSelection = if (toSelect != null) Condition<AnAction> { mapping[it] == toSelect } else null
-
-    return OptionButtonPopup(OptionButtonPopupStep(actionItems, defaultSelection), dataContext, toSelect != null || ensureSelection)
+    return OptionButtonPopup(OptionButtonPopupStep(actionItems, place, defaultSelection), dataContext, toSelect != null || ensureSelection)
   }
 
   protected open fun createActionDataContext(): DataContext = DataManager.getInstance().getDataContext(optionButton)
@@ -334,8 +340,10 @@ open class BasicOptionButtonUI : OptionButtonUI() {
     override fun minimumLayoutSize(parent: Container): Dimension = parent.minimumSize
   }
 
-  open inner class OptionButtonPopup(step: ActionPopupStep, dataContext: DataContext, private val ensureSelection: Boolean)
-    : PopupFactoryImpl.ActionGroupPopup(null, step, null, dataContext, ActionPlaces.UNKNOWN, -1) {
+  open inner class OptionButtonPopup(step: ActionPopupStep,
+                                     dataContext: DataContext,
+                                     private val ensureSelection: Boolean)
+    : PopupFactoryImpl.ActionGroupPopup(null, step, null, dataContext, -1) {
     init {
       list.background = background
     }
@@ -358,10 +366,10 @@ open class BasicOptionButtonUI : OptionButtonUI() {
     }
   }
 
-  open inner class OptionButtonPopupStep(actions: List<PopupFactoryImpl.ActionItem>, private val defaultSelection: Condition<AnAction>?)
+  open inner class OptionButtonPopupStep(actions: List<PopupFactoryImpl.ActionItem>, place: String, private val defaultSelection: Condition<AnAction>?)
     : ActionPopupStep(actions, null,
                       Supplier<DataContext> { DataManager.getInstance().getDataContext(optionButton) },
-                      null, true, defaultSelection, false, true, null) {
+                      place, true, defaultSelection, false, true, null) {
     // if there is no default selection condition - -1 should be returned, this way first enabled action should be selected by
     // OptionButtonPopup.afterShow() (if corresponding ensureSelection parameter is true)
     override fun getDefaultOptionIndex(): Int = defaultSelection?.let { super.getDefaultOptionIndex() } ?: -1

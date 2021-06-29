@@ -7,6 +7,7 @@ import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -34,7 +35,7 @@ public class ForwardCompatibilityInspection extends AbstractBaseJavaLocalInspect
       }
 
       @Nullable
-      private String getIdentifierWarning(PsiIdentifier identifier) {
+      private @InspectionMessage String getIdentifierWarning(PsiIdentifier identifier) {
         String name = identifier.getText();
         PsiElement parent = identifier.getParent();
         switch (name) {
@@ -57,12 +58,17 @@ public class ForwardCompatibilityInspection extends AbstractBaseJavaLocalInspect
             break;
           case PsiKeyword.VAR:
             if (languageLevel.isLessThan(LanguageLevel.JDK_10) && parent instanceof PsiClass) {
-              return JavaErrorBundle.message("var.identifier.warn");
+              return JavaErrorBundle.message("restricted.identifier.warn", PsiKeyword.VAR, 10);
             }
             break;
           case PsiKeyword.YIELD:
             if (languageLevel.isLessThan(LanguageLevel.JDK_14) && parent instanceof PsiClass) {
-              return JavaErrorBundle.message("yield.identifier.warn");
+              return JavaErrorBundle.message("restricted.identifier.warn", PsiKeyword.YIELD, 14);
+            }
+            break;
+          case PsiKeyword.RECORD:
+            if (languageLevel.isLessThan(LanguageLevel.JDK_16) && parent instanceof PsiClass) {
+              return JavaErrorBundle.message("restricted.identifier.warn", PsiKeyword.RECORD, 16);
             }
             break;
         }

@@ -16,11 +16,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class MoveMembersImpl {
-  /**
-   * @deprecated Use {@link #getRefactoringName()} instead
-   */
-  @Deprecated
-  public static final String REFACTORING_NAME = "Move Static Members";
 
   /**
    * element should be either not anonymous PsiClass whose members should be moved

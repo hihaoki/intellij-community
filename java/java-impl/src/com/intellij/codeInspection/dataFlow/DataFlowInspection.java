@@ -7,6 +7,7 @@ import com.intellij.codeInsight.daemon.impl.quickfix.SimplifyBooleanExpressionFi
 import com.intellij.codeInsight.daemon.impl.quickfix.UnwrapSwitchLabelFix;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.dataFlow.fix.FindDfaProblemCauseFix;
+import com.intellij.codeInspection.dataFlow.fix.ReplaceWithBooleanEqualsFix;
 import com.intellij.codeInspection.dataFlow.fix.SurroundWithRequireNonNullFix;
 import com.intellij.codeInspection.nullable.NullableStuffInspection;
 import com.intellij.pom.java.LanguageLevel;
@@ -15,6 +16,7 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiPrecedenceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
@@ -68,7 +70,7 @@ public class DataFlowInspection extends DataFlowInspectionBase {
   @Nullable
   @Override
   protected LocalQuickFix createExplainFix(PsiExpression anchor, TrackingRunner.DfaProblemType problemType) {
-    return new FindDfaProblemCauseFix(TREAT_UNKNOWN_MEMBERS_AS_NULLABLE, IGNORE_ASSERT_STATEMENTS, anchor, problemType);
+    return new FindDfaProblemCauseFix(IGNORE_ASSERT_STATEMENTS, anchor, problemType);
   }
 
   @Nullable
@@ -192,7 +194,7 @@ public class DataFlowInspection extends DataFlowInspectionBase {
         fixes.add(new SurroundWithRequireNonNullFix(qualifier));
       }
 
-      if (onTheFly && !ExpressionUtils.isNullLiteral(qualifier)) {
+      if (!ExpressionUtils.isNullLiteral(qualifier)) {
         ContainerUtil.addIfNotNull(fixes, createExplainFix(qualifier, new TrackingRunner.NullableDfaProblemType()));
       }
 
@@ -202,6 +204,15 @@ public class DataFlowInspection extends DataFlowInspectionBase {
       LOG.error(e);
     }
     return fixes;
+  }
+
+  @Override
+  protected @NotNull List<LocalQuickFix> createUnboxingNullableFixes(@NotNull PsiExpression qualifier, PsiExpression expression, boolean onTheFly) {
+    List<LocalQuickFix> result = new SmartList<>();
+    if (TypeConversionUtil.isBooleanType(qualifier.getType())) {
+      result.add(new ReplaceWithBooleanEqualsFix(qualifier));
+    }
+    return result;
   }
 
   @Override
@@ -234,32 +245,32 @@ public class DataFlowInspection extends DataFlowInspectionBase {
         message("inspection.data.flow.nullable.quickfix.option"),
         SUGGEST_NULLABLE_ANNOTATIONS, box -> SUGGEST_NULLABLE_ANNOTATIONS = box.isSelected());
 
+      JCheckBox treatUnknownMembersAsNullable = createCheckBoxWithHTML(
+        message("inspection.data.flow.treat.non.annotated.members.and.parameters.as.nullable"),
+        TREAT_UNKNOWN_MEMBERS_AS_NULLABLE, box -> TREAT_UNKNOWN_MEMBERS_AS_NULLABLE = box.isSelected());
+
+      JCheckBox reportNullArguments = createCheckBoxWithHTML(
+        message("inspection.data.flow.report.not.null.required.parameter.with.null.literal.argument.usages"),
+        REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER, box -> REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER = box.isSelected());
+
+      JCheckBox reportNullableMethodsReturningNotNull = createCheckBoxWithHTML(
+        message("inspection.data.flow.report.nullable.methods.that.always.return.a.non.null.value"),
+        REPORT_NULLABLE_METHODS_RETURNING_NOT_NULL, box -> REPORT_NULLABLE_METHODS_RETURNING_NOT_NULL = box.isSelected());
+
       JCheckBox dontReportTrueAsserts = createCheckBoxWithHTML(
         message("inspection.data.flow.true.asserts.option"),
         DONT_REPORT_TRUE_ASSERT_STATEMENTS, box -> DONT_REPORT_TRUE_ASSERT_STATEMENTS = box.isSelected());
 
       JCheckBox ignoreAssertions = createCheckBoxWithHTML(
-        "Ignore assert statements",
+        message("inspection.data.flow.ignore.assert.statements"),
         IGNORE_ASSERT_STATEMENTS, box -> IGNORE_ASSERT_STATEMENTS = box.isSelected());
 
       JCheckBox reportConstantReferences = createCheckBoxWithHTML(
-        "Warn when reading a value guaranteed to be constant",
+        message("inspection.data.flow.warn.when.reading.a.value.guaranteed.to.be.constant"),
         REPORT_CONSTANT_REFERENCE_VALUES, box -> REPORT_CONSTANT_REFERENCE_VALUES = box.isSelected());
 
-      JCheckBox treatUnknownMembersAsNullable = createCheckBoxWithHTML(
-        "Treat non-annotated members and parameters as @Nullable",
-        TREAT_UNKNOWN_MEMBERS_AS_NULLABLE, box -> TREAT_UNKNOWN_MEMBERS_AS_NULLABLE = box.isSelected());
-
-      JCheckBox reportNullArguments = createCheckBoxWithHTML(
-        "Report not-null required parameter with null-literal argument usages",
-        REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER, box -> REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER = box.isSelected());
-
-      JCheckBox reportNullableMethodsReturningNotNull = createCheckBoxWithHTML(
-        "Report nullable methods that always return a non-null value",
-        REPORT_NULLABLE_METHODS_RETURNING_NOT_NULL, box -> REPORT_NULLABLE_METHODS_RETURNING_NOT_NULL = box.isSelected());
-
       JCheckBox reportUnsoundWarnings = createCheckBoxWithHTML(
-        "Report problems that happen only on some code paths",
+        message("inspection.data.flow.report.problems.that.happen.only.on.some.code.paths"),
         REPORT_UNSOUND_WARNINGS, box -> REPORT_UNSOUND_WARNINGS = box.isSelected());
 
       gc.insets = JBUI.emptyInsets();
@@ -277,15 +288,6 @@ public class DataFlowInspection extends DataFlowInspectionBase {
       gc.weighty = 1;
       gc.insets.left = 0;
       gc.gridy++;
-      add(dontReportTrueAsserts, gc);
-
-      gc.gridy++;
-      add(ignoreAssertions, gc);
-
-      gc.gridy++;
-      add(reportConstantReferences, gc);
-
-      gc.gridy++;
       add(treatUnknownMembersAsNullable, gc);
 
       gc.gridy++;
@@ -293,6 +295,15 @@ public class DataFlowInspection extends DataFlowInspectionBase {
 
       gc.gridy++;
       add(reportNullableMethodsReturningNotNull, gc);
+
+      gc.gridy++;
+      add(dontReportTrueAsserts, gc);
+
+      gc.gridy++;
+      add(ignoreAssertions, gc);
+
+      gc.gridy++;
+      add(reportConstantReferences, gc);
 
       gc.gridy++;
       add(reportUnsoundWarnings, gc);

@@ -5,6 +5,7 @@ import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -16,7 +17,7 @@ import com.intellij.util.WalkingState;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FactoryMap;
-import gnu.trove.THashSet;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,12 +34,12 @@ public abstract class SliceNullnessAnalyzerBase {
     myProvider = provider;
   }
 
-  private void groupByNullness(NullAnalysisResult result, SliceRootNode oldRoot, final Map<SliceNode, NullAnalysisResult> map) {
-    SliceRootNode root = createNewTree(result, oldRoot, map);
-
+  private static void groupByNullness(SliceRootNode oldRoot, SliceRootNode root) {
     SliceUsage rootUsage = oldRoot.getCachedChildren().get(0).getValue();
     SliceManager.getInstance(Objects.requireNonNull(root.getProject()))
-      .createToolWindow(true, root, true, SliceManager.getElementDescription(null, Objects.requireNonNull(rootUsage).getElement(), " Grouped by Nullness") );
+      .createToolWindow(true, root, true,
+                        SliceManager.getElementDescription(null, Objects.requireNonNull(rootUsage).getElement(),
+                                                           JavaBundle.message("tab.title.slices.grouped.by.nullness")));
   }
 
   public @NotNull SliceRootNode createNewTree(NullAnalysisResult result, SliceRootNode oldRoot, final Map<SliceNode, NullAnalysisResult> map) {
@@ -69,7 +70,7 @@ public abstract class SliceNullnessAnalyzerBase {
     }
     SliceLeafValueClassNode valueRoot = new SliceLeafValueClassNode(root.getProject(), root, nodeName);
 
-    Set<PsiElement> uniqueValues = new THashSet<>(groupedByValue, myLeafEquality);
+    Set<PsiElement> uniqueValues = new ObjectOpenCustomHashSet<>(groupedByValue, myLeafEquality);
     for (final PsiElement expression : uniqueValues) {
       SliceNode newRoot = SliceLeafAnalyzer.filterTree(oldRootStart, oldNode -> {
         if (oldNode.getDuplicate() != null) {
@@ -100,7 +101,7 @@ public abstract class SliceNullnessAnalyzerBase {
 
   public void startAnalyzeNullness(@NotNull AbstractTreeStructure treeStructure, @NotNull Runnable finish) {
     final SliceRootNode root = (SliceRootNode)treeStructure.getRootElement();
-    final Ref<NullAnalysisResult> leafExpressions = Ref.create(null);
+    final Ref<SliceRootNode> newRootRef = Ref.create(null);
     final Map<SliceNode, NullAnalysisResult> map = createMap();
 
     String encouragementPiece = " (may very well take the whole day)";
@@ -108,8 +109,9 @@ public abstract class SliceNullnessAnalyzerBase {
       root.getProject(), JavaRefactoringBundle.message("dataflow.to.here.expand.progress", encouragementPiece), true) {
       @Override
       public void run(final @NotNull ProgressIndicator indicator) {
-        NullAnalysisResult l = calcNullableLeaves(root, treeStructure, map);
-        leafExpressions.set(l);
+        NullAnalysisResult leaves = calcNullableLeaves(root, treeStructure, map);
+        SliceRootNode newRoot = ReadAction.compute(() -> createNewTree(leaves, root, map));
+        newRootRef.set(newRoot);
       }
 
       @Override
@@ -120,10 +122,10 @@ public abstract class SliceNullnessAnalyzerBase {
       @Override
       public void onSuccess() {
         try {
-          NullAnalysisResult leaves = leafExpressions.get();
-          if (leaves == null) return;  //cancelled
+          SliceRootNode newRoot = newRootRef.get();
+          if (newRoot == null) return;  //cancelled
 
-          groupByNullness(leaves, root, map);
+          groupByNullness(root, newRoot);
         }
         finally {
           finish.run();
@@ -148,7 +150,7 @@ public abstract class SliceNullnessAnalyzerBase {
                                                         @NotNull AbstractTreeStructure treeStructure,
                                                         final @NotNull Map<SliceNode, NullAnalysisResult> map) {
     final SliceLeafAnalyzer.SliceNodeGuide guide = new SliceLeafAnalyzer.SliceNodeGuide(treeStructure);
-    WalkingState<SliceNode> walkingState = new WalkingState<SliceNode>(guide) {
+    WalkingState<SliceNode> walkingState = new WalkingState<>(guide) {
       @Override
       public void visit(final @NotNull SliceNode element) {
         element.calculateDupNode();

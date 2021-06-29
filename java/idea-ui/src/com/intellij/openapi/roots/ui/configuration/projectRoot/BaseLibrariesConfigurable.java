@@ -7,12 +7,12 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.LibraryTablePresentation;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
 import com.intellij.openapi.roots.ui.configuration.libraries.LibraryEditingUtil;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.CreateNewLibraryAction;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.LibraryProjectStructureElement;
@@ -24,6 +24,7 @@ import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.openapi.ui.NonEmptyInputValidator;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.MultiMap;
@@ -46,17 +47,18 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
   @NotNull
   protected final String myLevel;
 
-  protected BaseLibrariesConfigurable(final @NotNull Project project, @NotNull String libraryTableLevel) {
-    super(project);
+  protected BaseLibrariesConfigurable(@NotNull ProjectStructureConfigurable projectStructureConfigurable,
+                                      @NotNull String libraryTableLevel) {
+    super(projectStructureConfigurable);
     myLevel = libraryTableLevel;
   }
 
-  public static BaseLibrariesConfigurable getInstance(@NotNull Project project, @NotNull String tableLevel) {
+  public static BaseLibrariesConfigurable getInstance(@NotNull ProjectStructureConfigurable projectStructureConfigurable, @NotNull String tableLevel) {
     if (tableLevel.equals(LibraryTablesRegistrar.PROJECT_LEVEL)) {
-      return ProjectLibrariesConfigurable.getInstance(project);
+      return projectStructureConfigurable.getProjectLibrariesConfigurable();
     }
     else {
-      return GlobalLibrariesConfigurable.getInstance(project);
+      return projectStructureConfigurable.getGlobalLibrariesConfigurable();
     }
   }
 
@@ -85,7 +87,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     for (LibraryConfigurable configurable : getLibraryConfigurables()) {
       if (configurable.getDisplayName().isEmpty()) {
         ((LibraryProjectStructureElement)configurable.getProjectStructureElement()).navigate();
-        throw new ConfigurationException("Library name is not specified");
+        throw new ConfigurationException(JavaUiBundle.message("library.name.is.not.specified"));
       }
     }
   }
@@ -200,7 +202,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     };
   }
 
-  protected abstract String getAddText();
+  protected abstract @NlsActions.ActionText String getAddText();
 
   public abstract StructureLibraryTableModifiableModelProvider getModelProvider();
 
@@ -305,7 +307,8 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
         if (librariesWithUsages > 0) {
           String message;
           if (librariesWithUsages == 1) {
-            message = firstLibraryUsageDescription + ".\nAre you sure you want to delete this library?";
+            message = firstLibraryUsageDescription + ".\n" +
+                      JavaUiBundle.message("dialog.message.are.you.sure.you.want.to.delete.this.library");
           }
           else {
             message = JavaUiBundle.message("libraries.remove.confirmation.text", firstLibraryWithUsageName, librariesWithUsages-1);

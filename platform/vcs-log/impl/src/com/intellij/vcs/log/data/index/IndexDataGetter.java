@@ -19,12 +19,12 @@ import com.intellij.vcs.log.history.EdgeData;
 import com.intellij.vcs.log.history.FileHistoryData;
 import com.intellij.vcs.log.history.VcsDirectoryRenamesProvider;
 import com.intellij.vcs.log.impl.FatalErrorHandler;
-import com.intellij.vcs.log.util.TroveUtil;
+import com.intellij.vcs.log.util.IntCollectionUtil;
 import com.intellij.vcs.log.util.VcsLogUtil;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
 import com.intellij.vcs.log.visible.filters.VcsLogMultiplePatternsTextFilter;
 import com.intellij.vcsUtil.VcsFileUtil;
 import com.intellij.vcsUtil.VcsUtil;
-import gnu.trove.TIntObjectHashMap;
 import it.unimi.dsi.fastutil.ints.*;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -32,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.IntConsumer;
 
 import static com.intellij.vcs.log.history.FileHistoryKt.FILE_PATH_HASHING_STRATEGY;
 
@@ -164,7 +165,7 @@ public final class IndexDataGetter {
       filteredByPath = filterPaths(pathFilter.getFiles());
     }
 
-    IntSet filteredByUserAndPath = TroveUtil.intersect(filteredByUser, filteredByPath, candidates);
+    IntSet filteredByUserAndPath = IntCollectionUtil.intersect(filteredByUser, filteredByPath, candidates);
     if (textFilter == null) {
       return filteredByUserAndPath == null ? IntSets.EMPTY_SET : filteredByUserAndPath;
     }
@@ -188,82 +189,66 @@ public final class IndexDataGetter {
   }
 
   @NotNull
-  private IntSet filterMessages(@NotNull VcsLogTextFilter filter, @Nullable IntIterable candidates) {
-    if (!filter.isRegex() || filter instanceof VcsLogMultiplePatternsTextFilter) {
-      IntSet resultByTrigrams = executeAndCatch(() -> {
-        List<String> trigramSources = filter instanceof VcsLogMultiplePatternsTextFilter ?
-                                      ((VcsLogMultiplePatternsTextFilter)filter).getPatterns() :
-                                      Collections.singletonList(filter.getText());
-        IntCollection commitsForSearch = new IntOpenHashSet();
-        for (String string : trigramSources) {
-          IntSet commits = myIndexStorage.trigrams.getCommitsForSubstring(string);
-          if (commits == null) {
-            return null;
-          }
-
-          if (candidates == null) {
-            commitsForSearch.addAll(commits);
-          }
-          else {
-            for (IntIterator iterator = candidates.iterator(); iterator.hasNext(); ) {
-              int v = iterator.nextInt();
-              if (commits.contains(v)) {
-                commitsForSearch.add(v);
-              }
-            }
-          }
-        }
-        IntSet result = new IntOpenHashSet();
-        for (IntIterator iterator = commitsForSearch.iterator(); iterator.hasNext(); ) {
-          int commit = iterator.nextInt();
-          try {
-            String value = myIndexStorage.messages.get(commit);
-            if (value != null && filter.matches(value)) {
-              result.add(commit);
-            }
-          }
-          catch (IOException e) {
-            myFatalErrorsConsumer.consume(this, e);
-            break;
-          }
-        }
-        return result;
-      });
-
-      if (resultByTrigrams != null) {
-        return resultByTrigrams;
-      }
-    }
-
-    return filter(myIndexStorage.messages, candidates, filter::matches);
-  }
-
-  @NotNull
-  private <T> IntSet filter(@NotNull PersistentMap<Integer, T> map, @Nullable IntIterable candidates,
-                            @NotNull Condition<? super T> condition) {
+  private IntSet filterMessages(@NotNull VcsLogTextFilter filter, @Nullable IntSet candidates) {
     IntSet result = new IntOpenHashSet();
-    if (candidates == null) {
-      return executeAndCatch(() -> {
-        processKeys(map, commit -> filterCommit(map, commit, condition, result));
-        return result;
-      }, result);
-    }
-
-    for (IntIterator iterator = candidates.iterator(); iterator.hasNext(); ) {
-      if (!filterCommit(map, iterator.nextInt(), condition, result)) {
-        break;
-      }
-    }
+    filterMessages(filter, candidates, result::add);
     return result;
   }
 
+  public void filterMessages(@NotNull VcsLogTextFilter filter, @NotNull IntConsumer consumer) {
+    filterMessages(filter, null, consumer);
+  }
+
+  private void filterMessages(@NotNull VcsLogTextFilter filter, @Nullable IntSet candidates, @NotNull IntConsumer consumer) {
+    if (!filter.isRegex() || filter instanceof VcsLogMultiplePatternsTextFilter) {
+      executeAndCatch(() -> {
+        List<String> trigramSources = filter instanceof VcsLogMultiplePatternsTextFilter ?
+                                      ((VcsLogMultiplePatternsTextFilter)filter).getPatterns() :
+                                      Collections.singletonList(filter.getText());
+        List<String> noTrigramSources = new ArrayList<>();
+        for (String string : trigramSources) {
+          IntSet commits = myIndexStorage.trigrams.getCommitsForSubstring(string);
+          if (commits == null) {
+            noTrigramSources.add(string);
+          }
+          else {
+            filter(myIndexStorage.messages, IntCollectionUtil.intersect(candidates, commits), filter::matches, consumer);
+          }
+        }
+        if (noTrigramSources.isEmpty()) return;
+
+        VcsLogTextFilter noTrigramFilter = VcsLogFilterObject.fromPatternsList(noTrigramSources, filter.matchesCase());
+        filter(myIndexStorage.messages, candidates, noTrigramFilter::matches, consumer);
+      });
+    }
+    else {
+      executeAndCatch(() -> {
+        filter(myIndexStorage.messages, candidates, filter::matches, consumer);
+      });
+    }
+  }
+
+  private <T> void filter(@NotNull PersistentMap<Integer, T> map, @Nullable IntIterable candidates,
+                          @NotNull Condition<? super T> condition, @NotNull IntConsumer consumer) throws IOException {
+    if (candidates == null) {
+      processKeys(map, commit -> filterCommit(map, commit, condition, consumer));
+    }
+    else {
+      for (IntIterator iterator = candidates.iterator(); iterator.hasNext(); ) {
+        if (!filterCommit(map, iterator.nextInt(), condition, consumer)) {
+          break;
+        }
+      }
+    }
+  }
+
   private <T> boolean filterCommit(@NotNull PersistentMap<Integer, T> map, int commit,
-                                   @NotNull Condition<? super T> condition, @NotNull IntSet result) {
+                                   @NotNull Condition<? super T> condition, @NotNull IntConsumer consumer) {
     try {
       T value = map.get(commit);
       if (value != null) {
         if (condition.value(value)) {
-          result.add(commit);
+          consumer.accept(commit);
         }
       }
     }
@@ -279,8 +264,8 @@ public final class IndexDataGetter {
   //
 
   @NotNull
-  private TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
-    TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> affectedCommits = new TIntObjectHashMap<>();
+  private Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
+    Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> affectedCommits = new Int2ObjectOpenHashMap<>();
 
     VirtualFile root = VcsLogUtil.getActualRoot(myProject, path);
     if (myRoots.contains(root) && root != null) {
@@ -291,7 +276,7 @@ public final class IndexDataGetter {
             throw new CorruptedDataException("No parents for commit " + commit);
           }
 
-          TIntObjectHashMap<VcsLogPathsIndex.ChangeKind> changesMap = new TIntObjectHashMap<>();
+          Int2ObjectMap<VcsLogPathsIndex.ChangeKind> changesMap = new Int2ObjectOpenHashMap<>();
           if (parents.size() == 0 && !changes.isEmpty()) {
             changesMap.put(commit, ContainerUtil.getFirstItem(changes));
           }
@@ -301,7 +286,7 @@ public final class IndexDataGetter {
                                                " parents, but " + changes.size() + " changes.");
             }
             for (Pair<Integer, VcsLogPathsIndex.ChangeKind> parentAndChanges : ContainerUtil.zip(parents, changes)) {
-              changesMap.put(parentAndChanges.first, parentAndChanges.second);
+              changesMap.put((int)parentAndChanges.first, parentAndChanges.second);
             }
           }
 
@@ -339,7 +324,7 @@ public final class IndexDataGetter {
 
     @NotNull
     @Override
-    public TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
+    public Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
       return IndexDataGetter.this.getAffectedCommits(path);
     }
 
@@ -374,25 +359,35 @@ public final class IndexDataGetter {
 
     @NotNull
     @Override
-    public TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
-      TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> affectedCommits = super.getAffectedCommits(path);
+    public Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> getAffectedCommits(@NotNull FilePath path) {
+      Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> affectedCommits = super.getAffectedCommits(path);
       if (!path.isDirectory()) return affectedCommits;
       hackAffectedCommits(path, affectedCommits);
       return affectedCommits;
     }
 
     private void hackAffectedCommits(@NotNull FilePath path,
-                                     @NotNull TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> affectedCommits) {
+                                     @NotNull Int2ObjectMap<Int2ObjectMap<VcsLogPathsIndex.ChangeKind>> affectedCommits) {
       for (Map.Entry<EdgeData<Integer>, EdgeData<FilePath>> entry : renamesMap.entrySet()) {
         int childCommit = entry.getKey().getChild();
         if (affectedCommits.containsKey(childCommit)) {
           EdgeData<FilePath> rename = entry.getValue();
+
+          VcsLogPathsIndex.ChangeKind newKind;
           if (FILE_PATH_HASHING_STRATEGY.equals(rename.getChild(), path)) {
-            affectedCommits.get(childCommit).transformValues(value -> VcsLogPathsIndex.ChangeKind.ADDED);
+            newKind = VcsLogPathsIndex.ChangeKind.ADDED;
           }
           else if (FILE_PATH_HASHING_STRATEGY.equals(rename.getParent(), path)) {
-            affectedCommits.get(childCommit).transformValues(value -> VcsLogPathsIndex.ChangeKind.REMOVED);
+            newKind = VcsLogPathsIndex.ChangeKind.REMOVED;
           }
+          else {
+            continue;
+          }
+
+          Int2ObjectMap<VcsLogPathsIndex.ChangeKind> changesMap = affectedCommits.get(childCommit);
+          changesMap.keySet().forEach(key -> {
+            changesMap.put(key, newKind);
+          });
         }
       }
     }
@@ -421,13 +416,21 @@ public final class IndexDataGetter {
     return myLogStorage;
   }
 
-  private static <T> void processKeys(@NotNull PersistentMap<Integer, T> map, @NotNull Processor<Integer> processor) throws IOException {
+  private static <T> void processKeys(@NotNull PersistentMap<Integer, T> map, @NotNull Processor<? super Integer> processor)
+    throws IOException {
     if (map instanceof PersistentHashMap) {
       ((PersistentHashMap<Integer, T>)map).processKeysWithExistingMapping(processor);
     }
     else {
       map.processKeys(processor);
     }
+  }
+
+  private void executeAndCatch(@NotNull Throwable2Runnable<IOException, StorageException> runnable) {
+    executeAndCatch(() -> {
+      runnable.run();
+      return null;
+    }, null);
   }
 
   @Nullable
@@ -467,5 +470,10 @@ public final class IndexDataGetter {
     CorruptedDataException(@NotNull String message) {
       super(message);
     }
+  }
+
+  @FunctionalInterface
+  private interface Throwable2Runnable<E1 extends Throwable, E2 extends Throwable> {
+    void run() throws E1, E2;
   }
 }

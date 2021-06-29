@@ -2,7 +2,9 @@
 package com.intellij.util.io
 
 import com.intellij.util.lazyPub
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
+import java.io.InputStream
 import java.math.BigInteger
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -32,47 +34,36 @@ object DigestUtil {
   private val sha256 by lazyPub { getMessageDigest("SHA-256") }
 
   @JvmStatic
+  fun sha512(): MessageDigest = sha512.cloneDigest()
+  private val sha512 by lazyPub { getMessageDigest("SHA-512") }
+
+  @JvmStatic
+  fun digestToHash(digest: MessageDigest) = bytesToHex(digest.digest())
+
+  @JvmStatic
   fun sha256Hex(input: ByteArray): String = bytesToHex(sha256().digest(input))
 
   @JvmStatic
   fun sha1Hex(input: ByteArray): String = bytesToHex(sha1().digest(input))
 
-  @Deprecated(message = "Current implementation is very specific: it mixes length of the array to the hash." +
-                        "In general, it is enough to hash only bytes of the array. " +
-                        "Implement the hashing yourself. " +
-                        "Also make sure that you create new or reset the MessageDigest")
-  @JvmStatic
-  fun calculateContentHash(digest: MessageDigest, bytes: ByteArray): ByteArray {
-    // Preserve contract compatibility: make sure the digest is reset.
-    val resetDigest = digest.cloneDigest()
-    resetDigest.update(bytes.size.toString().toByteArray())
-    resetDigest.update("\u0000".toByteArray())
-    resetDigest.update(bytes)
-    return resetDigest.digest()
-  }
-
   /**
    * Digest cloning is faster than requesting a new one from [MessageDigest.getInstance].
    * This approach is used in Guava as well.
    */
-  private fun MessageDigest.cloneDigest(): MessageDigest =
-    try {
+  private fun MessageDigest.cloneDigest(): MessageDigest {
+    return try {
       clone() as MessageDigest
     }
     catch (e: CloneNotSupportedException) {
       throw IllegalArgumentException("Message digest is not cloneable: ${this}")
     }
+  }
 
   @JvmStatic
   fun updateContentHash(digest: MessageDigest, path: Path) {
     try {
-      val buff = ByteArray(512 * 1024)
-      path.inputStream().use { iz ->
-        while (true) {
-          val sz = iz.read(buff)
-          if (sz <= 0) break
-          digest.update(buff, 0, sz)
-        }
+      path.inputStream().use {
+        updateContentHash(digest, it)
       }
     }
     catch (e: IOException) {
@@ -80,9 +71,24 @@ object DigestUtil {
     }
   }
 
-  private fun getMessageDigest(algorithm: String): MessageDigest =
-    MessageDigest.getInstance(algorithm, sunSecurityProvider)
+  @JvmStatic
+  fun updateContentHash(digest: MessageDigest, inputStream: InputStream) {
+    val buff = ByteArray(512 * 1024)
+    try {
+      while (true) {
+        val sz = inputStream.read(buff)
+        if (sz <= 0) break
+        digest.update(buff, 0, sz)
+      }
+    }
+    catch (e: IOException) {
+      throw RuntimeException("Failed to read stream. ${e.message}", e)
+    }
+  }
 
+  private fun getMessageDigest(algorithm: String): MessageDigest {
+    return MessageDigest.getInstance(algorithm, sunSecurityProvider)
+  }
 }
 
 private fun bytesToHex(data: ByteArray): String {

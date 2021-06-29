@@ -1,12 +1,14 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.filters;
 
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -19,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author gregsh
@@ -27,14 +30,20 @@ public final class ExceptionExFilterFactory implements ExceptionFilterFactory {
   @NotNull
   @Override
   public Filter create(@NotNull GlobalSearchScope searchScope) {
-    return new MyFilter(searchScope);
+    return new MyFilter(Objects.requireNonNull(searchScope.getProject()), searchScope);
+  }
+
+  @Override
+  public Filter create(@NotNull Project project,
+                       @NotNull GlobalSearchScope searchScope) {
+    return new MyFilter(project, searchScope);
   }
 
   private static class MyFilter implements Filter, FilterMixin {
     private final ExceptionInfoCache myCache;
 
-    MyFilter(@NotNull final GlobalSearchScope scope) {
-      myCache = new ExceptionInfoCache(scope);
+    MyFilter(@NotNull Project project, @NotNull final GlobalSearchScope scope) {
+      myCache = new ExceptionInfoCache(project, scope);
     }
 
     @Override
@@ -108,7 +117,7 @@ public final class ExceptionExFilterFactory implements ExceptionFilterFactory {
     @NotNull
     @Override
     public String getUpdateMessage() {
-      return "Highlighting try blocks...";
+      return JavaAnalysisBundle.message("highlighting.try.blocks");
     }
   }
 }

@@ -1,11 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.VcsAnnotationRefresher;
 import org.jetbrains.annotations.NotNull;
@@ -14,7 +16,7 @@ import org.jetbrains.idea.svn.api.Depth;
 import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.auth.*;
 import org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager;
-import org.jetbrains.idea.svn.config.SvnServerFileKeys;
+import org.jetbrains.idea.svn.config.SvnIniFile;
 import org.jetbrains.idea.svn.diff.DiffOptions;
 import org.jetbrains.idea.svn.update.MergeRootInfo;
 import org.jetbrains.idea.svn.update.UpdateRootInfo;
@@ -24,10 +26,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import static org.jetbrains.idea.svn.IdeaSVNConfigFile.CONFIG_FILE_NAME;
-import static org.jetbrains.idea.svn.IdeaSVNConfigFile.SERVERS_FILE_NAME;
-import static org.jetbrains.idea.svn.SvnUtil.SYSTEM_CONFIGURATION_PATH;
 import static org.jetbrains.idea.svn.SvnUtil.USER_CONFIGURATION_PATH;
+import static org.jetbrains.idea.svn.config.ServersFileKeys.GLOBAL_SERVER_GROUP;
+import static org.jetbrains.idea.svn.config.ServersFileKeys.TIMEOUT;
+import static org.jetbrains.idea.svn.config.SvnIniFile.CONFIG_FILE_NAME;
+import static org.jetbrains.idea.svn.config.SvnIniFile.SERVERS_FILE_NAME;
 
 @State(name = "SvnConfiguration", storages = @Storage(StoragePathMacros.WORKSPACE_FILE), reportStatistic = false)
 public class SvnConfiguration implements PersistentStateComponent<SvnConfigurationState>, Disposable {
@@ -50,8 +53,8 @@ public class SvnConfiguration implements PersistentStateComponent<SvnConfigurati
   private final Map<File, MergeRootInfo> myMergeRootInfos = new HashMap<>();
   private final Map<File, UpdateRootInfo> myUpdateRootInfos = new HashMap<>();
   private SvnInteractiveAuthenticationProvider myInteractiveProvider;
-  private IdeaSVNConfigFile myServersFile;
-  private IdeaSVNConfigFile myConfigFile;
+  private SvnIniFile myServersFile;
+  private SvnIniFile myConfigFile;
 
   @NotNull
   @Override
@@ -79,9 +82,9 @@ public class SvnConfiguration implements PersistentStateComponent<SvnConfigurati
   }
 
   @NotNull
-  private IdeaSVNConfigFile getServersFile() {
+  public SvnIniFile getServersFile() {
     if (myServersFile == null) {
-      myServersFile = new IdeaSVNConfigFile(getConfigurationPath().resolve(SERVERS_FILE_NAME));
+      myServersFile = new SvnIniFile(getConfigurationPath().resolve(SERVERS_FILE_NAME));
     }
     myServersFile.updateGroups();
 
@@ -89,9 +92,9 @@ public class SvnConfiguration implements PersistentStateComponent<SvnConfigurati
   }
 
   @NotNull
-  public IdeaSVNConfigFile getConfigFile() {
+  public SvnIniFile getConfigFile() {
     if (myConfigFile == null) {
-      myConfigFile = new IdeaSVNConfigFile(getConfigurationPath().resolve(CONFIG_FILE_NAME));
+      myConfigFile = new SvnIniFile(getConfigurationPath().resolve(CONFIG_FILE_NAME));
     }
 
     return myConfigFile;
@@ -111,12 +114,12 @@ public class SvnConfiguration implements PersistentStateComponent<SvnConfigurati
   // uses configuration directory property - it should be saved first
   public void setHttpTimeout(final long value) {
     long cut = value / 1000;
-    getServersFile().setValue("global", SvnServerFileKeys.TIMEOUT, String.valueOf(cut));
+    getServersFile().setValue(GLOBAL_SERVER_GROUP, TIMEOUT, String.valueOf(cut));
     getServersFile().save();
   }
 
   public static SvnConfiguration getInstance(final Project project) {
-    return ServiceManager.getService(project, SvnConfiguration.class);
+    return project.getService(SvnConfiguration.class);
   }
 
   public SvnConfiguration(final Project project) {
@@ -354,11 +357,6 @@ public class SvnConfiguration implements PersistentStateComponent<SvnConfigurati
       myInteractiveManager.setAuthenticationProvider(myInteractiveProvider);
     }
     return myInteractiveManager;
-  }
-
-  public void getServerFilesManagers(final Ref<SvnServerFileManager> systemManager, final Ref<SvnServerFileManager> userManager) {
-    systemManager.set(new SvnServerFileManagerImpl(new IdeaSVNConfigFile(SYSTEM_CONFIGURATION_PATH.getValue().resolve(SERVERS_FILE_NAME))));
-    userManager.set(new SvnServerFileManagerImpl(getServersFile()));
   }
 
   public boolean isAutoUpdateAfterCommit() {

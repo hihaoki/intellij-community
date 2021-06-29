@@ -1,11 +1,14 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl;
 
 import com.intellij.codeInsight.CodeSmellInfo;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInsight.daemon.ProblemHighlightFilter;
 import com.intellij.codeInsight.daemon.impl.*;
+import com.intellij.codeInspection.InspectionProfile;
+import com.intellij.codeInspection.ex.InspectionProfileWrapper;
 import com.intellij.ide.errorTreeView.NewErrorTreeViewPanel;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
@@ -27,8 +30,11 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vcs.AbstractVcsHelper;
 import com.intellij.openapi.vcs.CodeSmellDetector;
 import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.vcs.VcsConfiguration;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
+import com.intellij.profile.codeInspection.InspectionProfileManager;
+import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
@@ -38,9 +44,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-/**
- * @author yole
- */
+import static com.intellij.openapi.project.ProjectUtil.calcRelativeToProjectPath;
+
 public class CodeSmellDetectorImpl extends CodeSmellDetector {
   private final Project myProject;
   private static final Logger LOG = Logger.getInstance(CodeSmellDetectorImpl.class);
@@ -133,7 +138,7 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
 
       final VirtualFile file = files.get(i);
 
-      progress.setText(VcsBundle.message("searching.for.code.smells.processing.file.progress.text", file.getPresentableUrl()));
+      progress.setText(calcRelativeToProjectPath(file, myProject));
       progress.setFraction((double)i / (double)files.size());
 
       result.addAll(findCodeSmells(file, progress));
@@ -153,7 +158,7 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
     });
     final PsiFile psiFile = ReadAction.compute(() -> PsiManager.getInstance(myProject).findFile(file));
     final Document document = ReadAction.compute(() -> FileDocumentManager.getInstance().getDocument(file));
-    if (psiFile == null || document == null) {
+    if (psiFile == null || document == null || !ReadAction.compute(() -> ProblemHighlightFilter.shouldProcessFileInBatch(psiFile))) {
       return Collections.emptyList();
     }
 
@@ -177,6 +182,18 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
     for (int i = 0; i < retries; i++) {
       int oldDelay = settings.getAutoReparseDelay();
       try {
+        InspectionProfile currentProfile;
+        VcsConfiguration vcsConfiguration = VcsConfiguration.getInstance(myProject);
+        String codeSmellProfile = vcsConfiguration.CODE_SMELLS_PROFILE;
+        if (codeSmellProfile != null) {
+          currentProfile = (vcsConfiguration.CODE_SMELLS_PROFILE_LOCAL ? InspectionProfileManager.getInstance() : InspectionProjectProfileManager.getInstance(myProject)).getProfile(codeSmellProfile);
+        }
+        else {
+          currentProfile = null;
+        }
+        if (currentProfile != null) {
+          psiFile.putUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY, p -> new InspectionProfileWrapper(currentProfile, p.getProfileManager()));
+        }
         settings.setAutoReparseDelay(0);
         return dumbService.runReadActionInSmartMode(() -> codeAnalyzer.runMainPasses(psiFile, document, daemonIndicator));
       }
@@ -190,6 +207,7 @@ public class CodeSmellDetectorImpl extends CodeSmellDetector {
         exception = e;
       }
       finally {
+        psiFile.putUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY, null);
         settings.setAutoReparseDelay(oldDelay);
       }
     }

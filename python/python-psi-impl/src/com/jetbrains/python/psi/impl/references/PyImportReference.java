@@ -18,6 +18,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ProcessingContext;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.PyPsiBundle;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
@@ -35,8 +36,6 @@ import java.util.*;
 /**
  * Reference in an import statement:<br/>
  * <code>import <u>foo.name</u></code>
- *
- * @author yole
  */
 public class PyImportReference extends PyReferenceImpl {
   protected final PyReferenceExpressionImpl myElement;
@@ -61,7 +60,7 @@ public class PyImportReference extends PyReferenceImpl {
   public String getUnresolvedDescription() {
     final PyImportStatement importStatement = PsiTreeUtil.getParentOfType(myElement, PyImportStatement.class);
     if (importStatement != null) {
-      return "No module named " + myElement.getReferencedName();
+      return PyPsiBundle.message("unresolved.import.reference", myElement.getReferencedName());
     }
     return super.getUnresolvedDescription();
   }
@@ -214,6 +213,7 @@ public class PyImportReference extends PyReferenceImpl {
             }
           }
         }
+        fillFromRootsIfNotRelative(relativeLevel, insertHandler);
       }
       else { // in "import _" or "from _ import"
         PsiElement prevElem = PyPsiUtils.getPrevNonWhitespaceSibling(myElement);
@@ -234,26 +234,41 @@ public class PyImportReference extends PyReferenceImpl {
             addImportedNames(importStatement.getImportElements());
           }
         }
+        final PsiDirectory containingDirectory = myCurrentFile.getContainingDirectory();
         // look at dir by level
-        if ((relativeLevel >= 0 || !ResolveImportUtil.isAbsoluteImportEnabledFor(myCurrentFile))) {
-          final PsiDirectory containingDirectory = myCurrentFile.getContainingDirectory();
-          if (containingDirectory != null) {
-            QualifiedName thisQName = QualifiedNameFinder.findShortestImportableQName(containingDirectory);
-            if (thisQName == null || thisQName.getComponentCount() == relativeLevel) {
-              fillFromDir(ResolveImportUtil.stepBackFrom(myCurrentFile, relativeLevel), insertHandler);
-            }
-            else if (thisQName.getComponentCount() > relativeLevel) {
-              thisQName = thisQName.removeTail(relativeLevel);
-              fillFromQName(thisQName, insertHandler);
-            }
-          }
+        if (LanguageLevel.forElement(myCurrentFile).isPy3K() && containingDirectory != null &&
+            PyUtil.isExplicitPackage(containingDirectory)) {
+          fillFromRootsIfNotRelative(relativeLevel, insertHandler);
+          fillFromSameDirectoryOrRelative(relativeLevel, insertHandler);
         }
-      }
-      if (relativeLevel == -1) {
-        fillFromQName(QualifiedName.fromComponents(), insertHandler);
+        else {
+          fillFromSameDirectoryOrRelative(relativeLevel, insertHandler);
+          fillFromRootsIfNotRelative(relativeLevel, insertHandler);
+        }
       }
 
       return ArrayUtil.toObjectArray(myObjects);
+    }
+
+    private void fillFromRootsIfNotRelative(int relativeLevel, @Nullable InsertHandler<LookupElement> insertHandler) {
+      if (relativeLevel == -1) {
+        fillFromQName(QualifiedName.fromComponents(), insertHandler);
+      }
+    }
+
+    private void fillFromSameDirectoryOrRelative(int relativeLevel, @Nullable InsertHandler<LookupElement> insertHandler) {
+      if (relativeLevel < 0 && ResolveImportUtil.isAbsoluteImportEnabledFor(myCurrentFile)) return;
+      final PsiDirectory containingDirectory = myCurrentFile.getContainingDirectory();
+      if (containingDirectory != null) {
+        QualifiedName thisQName = QualifiedNameFinder.findShortestImportableQName(containingDirectory);
+        if (thisQName == null || thisQName.getComponentCount() == relativeLevel) {
+          fillFromDir(ResolveImportUtil.stepBackFrom(myCurrentFile, relativeLevel), insertHandler);
+        }
+        else if (thisQName.getComponentCount() > relativeLevel) {
+          thisQName = thisQName.removeTail(relativeLevel);
+          fillFromQName(thisQName, insertHandler);
+        }
+      }
     }
 
     private void fillFromQName(QualifiedName thisQName, InsertHandler<LookupElement> insertHandler) {

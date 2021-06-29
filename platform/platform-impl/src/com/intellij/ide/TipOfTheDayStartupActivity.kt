@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal class TipOfTheDayStartupActivity : StartupActivity.DumbAware {
   init {
-    if (ApplicationManager.getApplication().isUnitTestMode || PlatformUtils.isRider() || !GeneralSettings.getInstance().isShowTipsOnStartup) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment || PlatformUtils.isRider() || !GeneralSettings.getInstance().isShowTipsOnStartup) {
       throw ExtensionNotApplicableException.INSTANCE
     }
   }
@@ -26,8 +26,8 @@ internal class TipOfTheDayStartupActivity : StartupActivity.DumbAware {
       val disposable = disposableRef.getAndSet(null) ?: return@schedule
       Disposer.dispose(disposable)
 
-      if (!project.isDisposed && TipDialog.canBeShownAutomaticallyNow()) {
-        TipsOfTheDayUsagesCollector.DIALOG_SHOWN.log(TipsOfTheDayUsagesCollector.DialogType.automatically)
+      if (!project.isDisposed && TipDialog.canBeShownAutomaticallyNow(project)) {
+        TipsOfTheDayUsagesCollector.triggerDialogShown(TipsOfTheDayUsagesCollector.DialogType.automatically)
         TipDialog.showForProject(project)
       }
     }, 5, TimeUnit.SECONDS)

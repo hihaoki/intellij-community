@@ -143,22 +143,4 @@ public interface PsiElementProcessor<T extends PsiElement> {
       return setFound(element);
     }
   }
-
-  /**
-   * @deprecated use {@link com.intellij.psi.SyntaxTraverser} API instead. E.g.
-   * {@code SyntaxTraverser.psiTraverser(root).filter(ElementType.class).filter(additionalFilter).first()}
-   */
-  @Deprecated
-  class FindFilteredElement<T extends PsiElement> extends FindElement<T> {
-    private final PsiElementFilter myFilter;
-
-    public FindFilteredElement(@NotNull PsiElementFilter filter) {
-      myFilter = filter;
-    }
-
-    @Override
-    public boolean execute(@NotNull T element) {
-      return !myFilter.isAccepted(element) || super.execute(element);
-    }
-  }
 }

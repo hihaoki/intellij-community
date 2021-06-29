@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testDiscovery.actions;
 
 import com.intellij.codeInsight.actions.VcsFacadeImpl;
@@ -25,6 +25,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -37,9 +38,9 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.PopupChooserBuilder;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
@@ -83,8 +84,7 @@ import java.util.stream.Collectors;
 import static com.intellij.openapi.actionSystem.CommonDataKeys.*;
 import static com.intellij.openapi.util.Pair.pair;
 
-public class ShowAffectedTestsAction extends AnAction {
-  private static final String RUN_ALL_ACTION_TEXT = "Run All Affected Tests";
+public class ShowAffectedTestsAction extends AnAction implements UpdateInBackground {
 
   @Override
   public void update(@NotNull AnActionEvent e) {
@@ -128,7 +128,7 @@ public class ShowAffectedTestsAction extends AnAction {
   private static void showDiscoveredTestsByFile(@NotNull Project project, @NotNull List<? extends VirtualFile> files, @NotNull AnActionEvent e) {
     VirtualFile projectBasePath = getBasePathAsVirtualFile(project);
     if (projectBasePath == null) return;
-    DiscoveredTestsTree tree = showTree(project, e.getDataContext(), createTitle(files));
+    DiscoveredTestsTree tree = showTree(project, e.getDataContext(), createTitle(files), e.getPlace());
     FeatureUsageTracker.getInstance().triggerFeatureUsed("test.discovery");
 
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -158,7 +158,7 @@ public class ShowAffectedTestsAction extends AnAction {
     DataContext dataContext = DataManager.getInstance().getDataContext(e.getRequiredData(EDITOR).getContentComponent());
     FeatureUsageTracker.getInstance().triggerFeatureUsed("test.discovery");
     String presentableName = PsiFormatUtil.formatClass(psiClass, PsiFormatUtilBase.SHOW_NAME);
-    DiscoveredTestsTree tree = showTree(project, dataContext, presentableName);
+    DiscoveredTestsTree tree = showTree(project, dataContext, presentableName, e.getPlace());
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
       if (DumbService.isDumb(project)) return;
       String className = ReadAction.compute(() -> DiscoveredTestsTreeModel.getClassName(psiClass));
@@ -175,7 +175,7 @@ public class ShowAffectedTestsAction extends AnAction {
     DataContext dataContext = DataManager.getInstance().getDataContext(e.getRequiredData(EDITOR).getContentComponent());
     FeatureUsageTracker.getInstance().triggerFeatureUsed("test.discovery");
     String presentableName = PsiFormatUtil.formatMethod(method, PsiSubstitutor.EMPTY, PsiFormatUtilBase.SHOW_CONTAINING_CLASS | PsiFormatUtilBase.SHOW_NAME, 0);
-    DiscoveredTestsTree tree = showTree(project, dataContext, presentableName);
+    DiscoveredTestsTree tree = showTree(project, dataContext, presentableName, e.getPlace());
     processMethodsAsync(project, new PsiMethod[]{method}, Collections.emptyList(), createTreeProcessor(tree), () -> tree.setPaintBusy(false));
   }
 
@@ -198,7 +198,7 @@ public class ShowAffectedTestsAction extends AnAction {
                                                   Change @NotNull [] changes,
                                                   @NotNull String title,
                                                   @NotNull DataContext dataContext) {
-    DiscoveredTestsTree tree = showTree(project, dataContext, title);
+    DiscoveredTestsTree tree = showTree(project, dataContext, title, ActionPlaces.UNKNOWN);
     FeatureUsageTracker.getInstance().triggerFeatureUsed("test.discovery.selected.changes");
 
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -257,7 +257,7 @@ public class ShowAffectedTestsAction extends AnAction {
     }
     return virtualFiles == null
            ? Collections.emptyList()
-           : Arrays.stream(virtualFiles).filter(v -> v.isInLocalFileSystem()).collect(Collectors.toList());
+           : ContainerUtil.filter(virtualFiles, v -> v.isInLocalFileSystem());
   }
 
   @Nullable
@@ -289,27 +289,27 @@ public class ShowAffectedTestsAction extends AnAction {
   @NotNull
   private static DiscoveredTestsTree showTree(@NotNull Project project,
                                               @NotNull DataContext dataContext,
-                                              @NotNull String title) {
+                                              @NotNull String title,
+                                              @Nullable String place) {
     DiscoveredTestsTree tree = new DiscoveredTestsTree(title);
-    String initTitle = "Tests for " + title;
+    String initTitle = JavaCompilerBundle.message("test.discovery.tests.tab.title", title);
 
     Ref<JBPopup> ref = new Ref<>();
 
-    ConfigurationContext context = ConfigurationContext.getFromContext(dataContext);
+    ConfigurationContext context = ConfigurationContext.getFromContext(dataContext, place);
 
     ActiveComponent runButton =
-      createButton(RUN_ALL_ACTION_TEXT, AllIcons.Actions.Execute, () -> runAllDiscoveredTests(project, tree, ref, context, initTitle), tree);
+      createButton(JavaCompilerBundle.message("action.run.all.affected.tests.text"), AllIcons.Actions.Execute, () -> runAllDiscoveredTests(project, tree, ref, context, initTitle), tree);
 
     Runnable pinActionListener = () -> {
       UsageView view = FindUtil.showInUsageView(null, tree.getTestMethods(), param -> param, initTitle, p -> {
         p.setCodeUsages(false); // don't show r/w, imports filtering actions
-        p.setUsagesWord("test");
         p.setMergeDupLinesAvailable(false);
         p.setUsageTypeFilteringAvailable(false);
         p.setExcludeAvailable(false);
       }, project);
       if (view != null) {
-        view.addButtonToLowerPane(new AbstractAction(RUN_ALL_ACTION_TEXT, AllIcons.Actions.Execute) {
+        view.addButtonToLowerPane(new AbstractAction(JavaCompilerBundle.message("action.run.all.affected.tests.text"), AllIcons.Actions.Execute) {
           @Override
           public void actionPerformed(ActionEvent e) {
             runAllDiscoveredTests(project, tree, ref, context, initTitle);
@@ -328,7 +328,7 @@ public class ShowAffectedTestsAction extends AnAction {
       (findUsageKeyStroke == null ? "" : " " + KeymapUtil.getKeystrokeText(findUsageKeyStroke));
     ActiveComponent pinButton = createButton(pinTooltip, AllIcons.General.Pin_tab, pinActionListener, tree);
 
-    PopupChooserBuilder builder =
+    PopupChooserBuilder<?> builder =
       new PopupChooserBuilder(tree)
         .setTitle(initTitle)
         .setMovable(true)
@@ -351,11 +351,7 @@ public class ShowAffectedTestsAction extends AnAction {
       protected void process(@NotNull TreeModelEvent event, @NotNull EventType type) {
         int testsCount = tree.getTestCount();
         int classesCount = tree.getTestClassesCount();
-        popup.setCaption("Found " + testsCount + " " +
-                         StringUtil.pluralize("Test", testsCount) +
-                         " in " + classesCount + " " +
-                         StringUtil.pluralize("Class", classesCount) +
-                         " for " + title);
+        popup.setCaption(JavaCompilerBundle.message("popup.title.affected.tests.counts", testsCount, testsCount == 1 ? 0 : 1, classesCount, classesCount == 1 ? 0 : 1, title));
       }
     });
 
@@ -415,7 +411,7 @@ public class ShowAffectedTestsAction extends AnAction {
   }
 
   @NotNull
-  private static ActiveComponent createButton(@NotNull String text,
+  private static ActiveComponent createButton(@NotNull @NlsActions.ActionText String text,
                                               @NotNull Icon icon,
                                               @NotNull Runnable listener,
                                               @NotNull DiscoveredTestsTree tree) {

@@ -1,6 +1,8 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.meta.model;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.codeInsight.completion.InsertionContext;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
@@ -11,6 +13,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.*;
 import org.jetbrains.yaml.YAMLBundle;
+import org.jetbrains.yaml.formatter.YAMLCodeStyleSettings;
 import org.jetbrains.yaml.psi.*;
 
 import javax.swing.*;
@@ -208,13 +211,15 @@ public abstract class YamlMetaType {
     private final String myTabSymbol;
     private int myLevel;
     private boolean myCaretAppended;
+    private final YAMLCodeStyleSettings mySettings;
 
-    public YamlInsertionMarkup() {
-      this("  ");
+    public YamlInsertionMarkup(@NotNull InsertionContext context) {
+      this(getTabSymbol(context), CodeStyle.getCustomSettings(context.getFile(), YAMLCodeStyleSettings.class));
     }
 
-    public YamlInsertionMarkup(@NotNull String tabSymbol) {
+    public YamlInsertionMarkup(@NotNull String tabSymbol, YAMLCodeStyleSettings settings) {
       myTabSymbol = tabSymbol;
+      mySettings = settings;
     }
 
     public void append(@NotNull String text) {
@@ -233,11 +238,34 @@ public abstract class YamlMetaType {
       append(CRLF_MARKUP);
       if (withSequenceItemMark) {
         append(tabs(myLevel - 1));
-        append(SEQUENCE_ITEM_MARKUP);
+        append(sequenceItemPrefix());
       }
       else {
         append(tabs(myLevel));
       }
+    }
+
+    @NotNull
+    private String sequenceItemPrefix() {
+      String result = SEQUENCE_ITEM_MARKUP;
+      if (myTabSymbol.length() > result.length()) {
+        result += myTabSymbol.substring(result.length());
+      }
+      return result;
+    }
+
+    public void doTabbedBlockForSequenceItem(Runnable doWhenTabbed) {
+      var indent = mySettings.INDENT_SEQUENCE_VALUE ? 2 : 1;
+
+      doTabbedBlock(indent, () -> {
+        newLineAndTabs(true);
+        doWhenTabbed.run();
+      });
+    }
+
+    public void doTabbedBlockForSequenceItem() {
+      doTabbedBlockForSequenceItem(() -> {
+      });
     }
 
     public void appendCaret() {
@@ -278,6 +306,11 @@ public abstract class YamlMetaType {
 
     private String tabs(int level) {
       return StringUtil.repeat(myTabSymbol, level);
+    }
+
+    @NotNull
+    private static String getTabSymbol(@NotNull InsertionContext context) {
+      return StringUtil.repeatSymbol(' ', CodeStyle.getIndentSize(context.getFile()));
     }
 
     public void insertStringAndCaret(Editor editor, String commonPadding) {

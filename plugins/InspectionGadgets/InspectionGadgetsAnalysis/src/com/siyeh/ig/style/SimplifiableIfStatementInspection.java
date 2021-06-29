@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.*;
@@ -6,6 +6,7 @@ import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
@@ -66,9 +67,14 @@ public class SimplifiableIfStatementInspection extends AbstractBaseJavaLocalInsp
     PsiElement[] elements = declaration.getDeclaredElements();
     if (elements.length != 1) return;
     PsiLocalVariable var = tryCast(elements[0], PsiLocalVariable.class);
-    if (var == null || var.getInitializer() != null || !ref.isReferenceTo(var)) return;
+    if (var == null || !ref.isReferenceTo(var)) return;
+    final PsiExpression rhs = assignment.getRExpression();
+    assert rhs != null;
+    final ReadBeforeWrittenVisitor visitor = new ReadBeforeWrittenVisitor(var);
+    rhs.acceptChildren(visitor);
+    if (visitor.isReadBeforeWritten()) return;
     CommentTracker ct = new CommentTracker();
-    var.setInitializer(ct.markUnchanged(assignment.getRExpression()));
+    var.setInitializer(ct.markUnchanged(rhs));
     ct.deleteAndRestoreComments(result);
   }
 
@@ -101,11 +107,34 @@ public class SimplifiableIfStatementInspection extends AbstractBaseJavaLocalInsp
       CommentTracker commentTracker = new CommentTracker();
       String conditional = generator.generate(commentTracker);
       commentTracker.replace(model.getThenExpression(), conditional);
-      if (!PsiTreeUtil.isAncestor(ifStatement, model.getElseBranch(), true)) {
-        commentTracker.delete(model.getElseBranch());
+      PsiStatement branch = model.getElseBranch();
+      if (!PsiTreeUtil.isAncestor(ifStatement, branch, true) && !(branch instanceof PsiDeclarationStatement)) {
+        commentTracker.delete(branch);
       }
       PsiElement result = commentTracker.replaceAndRestoreComments(ifStatement, model.getThenBranch());
       tryJoinDeclaration(result);
+    }
+  }
+
+  private static class ReadBeforeWrittenVisitor extends JavaRecursiveElementWalkingVisitor {
+    private final PsiLocalVariable myVariable;
+    private boolean myReadBeforeWritten;
+
+    ReadBeforeWrittenVisitor(PsiLocalVariable variable) {
+      myVariable = variable;
+    }
+
+    @Override
+    public void visitReferenceExpression(PsiReferenceExpression expression) {
+      super.visitReferenceExpression(expression);
+      if (expression.isReferenceTo(myVariable)) {
+        myReadBeforeWritten = PsiUtil.isAccessedForReading(expression);
+        stopWalking();
+      }
+    }
+
+    public boolean isReadBeforeWritten() {
+      return myReadBeforeWritten;
     }
   }
 }

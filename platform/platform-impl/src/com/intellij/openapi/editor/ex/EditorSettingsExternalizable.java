@@ -1,12 +1,17 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex;
 
 import com.intellij.ide.ui.UINumericRange;
 import com.intellij.lang.Language;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.editor.actions.CaretStopOptions;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.serviceContainer.NonInjectable;
@@ -25,15 +30,20 @@ import java.util.Map;
 import java.util.Set;
 
 @State(name = "EditorSettings", storages = @Storage("editor.xml"))
-public final class EditorSettingsExternalizable implements PersistentStateComponent<EditorSettingsExternalizable.OptionSet> {
+public class EditorSettingsExternalizable implements PersistentStateComponent<EditorSettingsExternalizable.OptionSet> {
   @NonNls
   public static final String PROP_VIRTUAL_SPACE = "VirtualSpace";
+  @NonNls
+  public static final String PROP_BREADCRUMBS_PER_LANGUAGE = "BreadcrumbsPerLanguage";
+
+  @NonNls
+  public static final String PROP_DOC_COMMENT_RENDERING = "DocCommentRendering";
 
   public static final UINumericRange BLINKING_RANGE = new UINumericRange(500, 10, 1500);
   public static final UINumericRange TOOLTIPS_DELAY_RANGE = new UINumericRange(500, 1, 5000);
 
   private static final String SOFT_WRAP_FILE_MASKS_ENABLED_DEFAULT = "*";
-  private static final String SOFT_WRAP_FILE_MASKS_DISABLED_DEFAULT = "*.md; *.txt; *.rst; *.adoc";
+  @NonNls private static final String SOFT_WRAP_FILE_MASKS_DISABLED_DEFAULT = "*.md; *.txt; *.rst; *.adoc";
 
   //Q: make it interface?
   public static final class OptionSet {
@@ -131,10 +141,6 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
   private final Map<String, Boolean> myDefaultBreadcrumbVisibility = new HashMap<>();
 
   private int myBlockIndent;
-  //private int myTabSize = 4;
-  //private boolean myUseTabCharacter = false;
-
-  private int myAdditionalLinesCount = 10;
 
   @NonNls public static final String STRIP_TRAILING_SPACES_NONE = "None";
   @NonNls public static final String STRIP_TRAILING_SPACES_CHANGED = "Changed";
@@ -157,16 +163,13 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
       return new EditorSettingsExternalizable(new OsSpecificState());
     }
     else {
-      return ServiceManager.getService(EditorSettingsExternalizable.class);
+      return ApplicationManager.getApplication().getService(EditorSettingsExternalizable.class);
     }
   }
 
-  public void addPropertyChangeListener(PropertyChangeListener listener){
+  public void addPropertyChangeListener(@NotNull PropertyChangeListener listener, @NotNull Disposable disposable) {
     myPropertyChangeSupport.addPropertyChangeListener(listener);
-  }
-
-  public void removePropertyChangeListener(PropertyChangeListener listener){
-    myPropertyChangeSupport.removePropertyChangeListener(listener);
+    Disposer.register(disposable, () -> myPropertyChangeSupport.removePropertyChangeListener(listener));
   }
 
   @NotNull
@@ -240,24 +243,6 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
 
   public void setGutterIconsShown(boolean val) {
     myOptions.ARE_GUTTER_ICONS_SHOWN = val;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2021.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public int getAdditionalLinesCount() {
-    return myAdditionalLinesCount;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2021.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
-  public void setAdditionalLinesCount(int additionalLinesCount) {
-    myAdditionalLinesCount = additionalLinesCount;
   }
 
   public boolean isFoldingOutlineShown() {
@@ -338,7 +323,11 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
    */
   public boolean setBreadcrumbsShownFor(String languageID, boolean value) {
     Boolean visible = myOptions.mapLanguageBreadcrumbs.put(languageID, value);
-    return (visible == null || visible) != value;
+    boolean newValue = (visible == null || visible) != value;
+    if (newValue) {
+      myPropertyChangeSupport.firePropertyChange(PROP_BREADCRUMBS_PER_LANGUAGE, visible, (Boolean)value);
+    }
+    return newValue;
   }
 
   public boolean isDocCommentRenderingEnabled() {
@@ -346,7 +335,11 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
   }
 
   public void setDocCommentRenderingEnabled(boolean value) {
+    boolean oldValue = myOptions.ENABLE_RENDERED_DOC;
     myOptions.ENABLE_RENDERED_DOC = value;
+    if (oldValue != value) {
+      myPropertyChangeSupport.firePropertyChange(PROP_DOC_COMMENT_RENDERING, oldValue, value);
+    }
   }
 
   public boolean isBlockCursor() {
@@ -402,7 +395,9 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
       myPlacesToUseSoftWraps.remove(place);
     }
     storeRawSoftWraps();
-    if (place == SoftWrapAppliancePlaces.MAIN_EDITOR) setSoftWrapFileMasks(getSoftWrapFileMasks());
+    if (place == SoftWrapAppliancePlaces.MAIN_EDITOR) {
+      setSoftWrapFileMasks(getSoftWrapFileMasks());
+    }
   }
 
   public boolean isUseCustomSoftWrapIndent() {
@@ -686,6 +681,7 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
    * @deprecated use {@link com.intellij.codeInsight.hints.HintUtilsKt#isParameterHintsEnabledForLanguage(Language)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public boolean isShowParameterNameHints() {
     return myOptions.SHOW_PARAMETER_NAME_HINTS;
   }
@@ -694,6 +690,7 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
    * @deprecated use {@link com.intellij.codeInsight.hints.HintUtilsKt#setShowParameterHintsForLanguage(boolean, Language)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setShowParameterNameHints(boolean value) {
     myOptions.SHOW_PARAMETER_NAME_HINTS = value;
   }
@@ -709,7 +706,9 @@ public final class EditorSettingsExternalizable implements PersistentStateCompon
   @NotNull
   public String getSoftWrapFileMasks() {
     String storedValue = myOptions.SOFT_WRAP_FILE_MASKS;
-    if (storedValue != null) return storedValue;
+    if (storedValue != null) {
+      return storedValue;
+    }
     return isUseSoftWraps() ? SOFT_WRAP_FILE_MASKS_ENABLED_DEFAULT : SOFT_WRAP_FILE_MASKS_DISABLED_DEFAULT;
   }
 

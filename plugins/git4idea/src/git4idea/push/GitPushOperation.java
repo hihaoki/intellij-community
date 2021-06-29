@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.push;
 
 import com.intellij.dvcs.DvcsUtil;
@@ -8,6 +8,7 @@ import com.intellij.history.Label;
 import com.intellij.history.LocalHistory;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -15,7 +16,6 @@ import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.update.UpdatedFiles;
@@ -35,6 +35,7 @@ import git4idea.commands.GitStandardProgressAnalyzer;
 import git4idea.config.GitVcsSettings;
 import git4idea.config.UpdateMethod;
 import git4idea.history.GitHistoryUtils;
+import git4idea.i18n.GitBundle;
 import git4idea.merge.MergeChangeCollector;
 import git4idea.push.GitPushParamsImpl.ForceWithLeaseReference;
 import git4idea.repo.GitBranchTrackInfo;
@@ -94,7 +95,7 @@ public class GitPushOperation {
 
   @NotNull
   private static ForceMode getForceMode(boolean force) {
-    if (force) return Registry.is("git.use.push.force.with.lease") ? ForceMode.FORCE_WITH_LEASE : ForceMode.FORCE;
+    if (force) return AdvancedSettings.getBoolean("git.use.push.force.with.lease") ? ForceMode.FORCE_WITH_LEASE : ForceMode.FORCE;
     return ForceMode.NONE;
   }
 
@@ -160,7 +161,8 @@ public class GitPushOperation {
           }
 
           if (beforePushLabel == null) { // put the label only before the very first update
-            beforePushLabel = LocalHistory.getInstance().putSystemLabel(myProject, "Before push");
+            beforePushLabel = LocalHistory.getInstance().putSystemLabel(myProject,
+                                                                        GitBundle.message("push.local.history.system.label.before"));
           }
           Collection<GitRepository> rootsToUpdate = getRootsToUpdate(updateSettings, result.rejected.keySet());
           LOG.debug("roots to update: " + rootsToUpdate);
@@ -177,7 +179,7 @@ public class GitPushOperation {
     }
     finally {
       if (beforePushLabel != null) {
-        afterPushLabel = LocalHistory.getInstance().putSystemLabel(myProject, "After push");
+        afterPushLabel = LocalHistory.getInstance().putSystemLabel(myProject, GitBundle.message("push.local.history.system.label.after"));
       }
       for (GitRepository repository : myPushSpecs.keySet()) {
         repository.update();

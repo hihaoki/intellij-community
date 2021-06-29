@@ -8,6 +8,8 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.ProjectExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.Promise;
@@ -23,18 +25,19 @@ public abstract class BeforeRunTaskProvider<T extends BeforeRunTask<?>> {
    * @deprecated Use {@link #EP_NAME}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static final ExtensionPointName<BeforeRunTaskProvider<BeforeRunTask<?>>> EXTENSION_POINT_NAME =
     new ExtensionPointName<>("com.intellij.stepsBeforeRunProvider");
 
   public abstract Key<T> getId();
 
-  public abstract String getName();
+  public abstract @Nls(capitalization = Nls.Capitalization.Title) String getName();
 
   public @Nullable Icon getIcon() {
     return null;
   }
 
-  public String getDescription(T task) {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getDescription(T task) {
     return getName();
   }
 

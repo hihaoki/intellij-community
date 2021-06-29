@@ -1,8 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.application.PermanentInstallationID;
-import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -10,10 +9,12 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public final class LicensingFacade {
   public String licensedTo;
-  public List<String> restrictions;
+  public String licenseeEmail;
+  public Supplier<List<String>> restrictions;
   public boolean isEvaluation;
   public Date expirationDate;
   public Date perpetualFallbackDate;
@@ -33,9 +34,14 @@ public final class LicensingFacade {
     return licensedTo;
   }
 
+  @Nullable
+  public String getLicenseeEmail() {
+    return licenseeEmail;
+  }
+
   @NotNull
   public List<String> getLicenseRestrictionsMessages() {
-    return restrictions == null? Collections.emptyList() : Collections.unmodifiableList(restrictions);
+    return restrictions == null ? Collections.emptyList() : Collections.unmodifiableList(restrictions.get());
   }
 
   public boolean isEvaluationLicense() {
@@ -78,7 +84,7 @@ public final class LicensingFacade {
    *  <pre>
    *  confirmationStamp := key:'license-key' | stamp:'license-server-stamp' | eval:'eval-key'
    *  <br><br>
-   *  licenseKey := 'licensId'-'licenseJsonBase64'-'signatureBase64'-'certificateBase64'  <br>
+   *  licenseKey := 'licenseId'-'licenseJsonBase64'-'signatureBase64'-'certificateBase64'  <br>
    *    the signed part is licenseJson
    *  <br><br>
    *  license-server-stamp := 'timestampLong':'machineId':'signatureType':'signatureBase64':'certificateBase64'[:'intermediate-certificateBase64']
@@ -87,6 +93,8 @@ public final class LicensingFacade {
    *    machineId should be the same as {@link PermanentInstallationID#get()} returns
    *   <br><br>
    *  eval-key := 'expiration-date-long'
+   *
+   * @see <a href="https://plugins.jetbrains.com/docs/marketplace/add-marketplace-license-verification-calls-to-the-plugin-code.html">JetBrains Marketplace online documentation</a> for more information
    *  </pre>
    */
   @Nullable
@@ -94,7 +102,4 @@ public final class LicensingFacade {
     return confirmationStamps == null? null : confirmationStamps.get(productCode);
   }
 
-  public boolean isEA2Product(@NotNull String productCodeOrPluginId) {
-    return ArrayUtil.contains(productCodeOrPluginId, "DPN", "DC", "DPA", "PDB", "PWS", "PGO", "PPS", "PPC", "PRB", "PSW", "Pythonid");
-  }
 }

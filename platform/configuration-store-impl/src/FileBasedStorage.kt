@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.notification.Notification
@@ -10,25 +10,28 @@ import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.StateStorageOperation
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.diagnostic.debug
-import com.intellij.openapi.diagnostic.debugOrInfoIfTestMode
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.SafeStAXStreamBuilder
+import com.intellij.openapi.util.createXmlStreamReader
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.openapi.vfs.CharsetToolkit
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ArrayUtil
 import com.intellij.util.LineSeparator
-import com.intellij.util.io.inputStreamSkippingBom
 import com.intellij.util.io.readCharSequence
 import com.intellij.util.io.systemIndependentPath
 import org.jdom.Element
 import org.jdom.JDOMException
+import org.jetbrains.annotations.NonNls
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
+import javax.xml.stream.XMLStreamException
 
 open class FileBasedStorage(file: Path,
                             fileSpec: String,
@@ -115,7 +118,7 @@ open class FileBasedStorage(file: Path,
         }
         else -> {
           val file = storage.file
-          LOG.debugOrInfoIfTestMode { "Save $file" }
+          LOG.debug { "Save $file" }
           try {
             dataWriter.writeTo(file, this, lineSeparator.separatorString)
           }
@@ -144,6 +147,9 @@ open class FileBasedStorage(file: Path,
       return task()
     }
     catch (e: JDOMException) {
+      processReadException(e)
+    }
+    catch (e: XMLStreamException) {
       processReadException(e)
     }
     catch (e: IOException) {
@@ -195,10 +201,16 @@ open class FileBasedStorage(file: Path,
     if (isUseUnixLineSeparator) {
       // do not load the whole data into memory if no need to detect line separator
       lineSeparator = LineSeparator.LF
-      return JDOMUtil.load(file.inputStreamSkippingBom().reader())
+      val xmlStreamReader = createXmlStreamReader(Files.newInputStream(file))
+      try {
+        return SafeStAXStreamBuilder.build(xmlStreamReader, true, false, SafeStAXStreamBuilder.FACTORY)
+      }
+      finally {
+        xmlStreamReader.close()
+      }
     }
     else {
-      val data = file.inputStreamSkippingBom().reader().readCharSequence(attributes.size().toInt())
+      val data = CharsetToolkit.inputStreamSkippingBOM(Files.newInputStream(file)).reader().readCharSequence(attributes.size().toInt())
       lineSeparator = detectLineSeparators(data, if (isUseXmlProlog) null else LineSeparator.LF)
       return JDOMUtil.load(data)
     }
@@ -243,11 +255,13 @@ open class FileBasedStorage(file: Path,
 
     val app = ApplicationManager.getApplication()
     if (!app.isUnitTestMode && !app.isHeadlessEnvironment) {
-      val reason = if (contentTruncated) "content truncated" else e!!.message
-      val action = if (blockSaving != null) "Please correct the file content" else "File content will be recreated"
+      val reason = if (contentTruncated) ConfigurationStoreBundle.message("notification.load.settings.error.reason.truncated") else e!!.message
+      val action = if (blockSaving == null)
+        ConfigurationStoreBundle.message("notification.load.settings.action.content.will.be.recreated")
+        else ConfigurationStoreBundle.message("notification.load.settings.action.please.correct.file.content")
       Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID,
-                   "Load Settings",
-                   "Cannot load settings from file '$file': $reason\n$action",
+                   ConfigurationStoreBundle.message("notification.load.settings.title"),
+                   "${ConfigurationStoreBundle.message("notification.load.settings.content", file)}: $reason\n$action",
                    NotificationType.WARNING)
         .notify(null)
     }
@@ -306,7 +320,7 @@ private fun isEqualContent(result: VirtualFile,
 }
 
 private fun doWrite(requestor: StorageManagerFileWriteRequestor, file: VirtualFile, dataWriterOrByteArray: Any, lineSeparator: LineSeparator, prependXmlProlog: Boolean) {
-  LOG.debugOrInfoIfTestMode { "Save ${file.presentableUrl}" }
+  LOG.debug { "Save ${file.presentableUrl}" }
 
   if (!file.isWritable) {
     // may be element is not long-lived, so, we must write it to byte array
@@ -375,4 +389,4 @@ private fun deleteFile(file: Path, requestor: StorageManagerFileWriteRequestor, 
 
 internal class ReadOnlyModificationException(val file: VirtualFile, val session: SaveSession?) : RuntimeException("File is read-only: $file")
 
-private data class BlockSaving(val reason: String)
+private data class BlockSaving(@NonNls val reason: String)

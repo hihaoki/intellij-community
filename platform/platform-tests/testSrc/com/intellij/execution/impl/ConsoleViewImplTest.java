@@ -3,12 +3,12 @@ package com.intellij.execution.impl;
 
 import com.intellij.concurrency.JobScheduler;
 import com.intellij.execution.ConsoleFolding;
-import com.intellij.execution.filters.ConsoleInputFilterProvider;
-import com.intellij.execution.filters.InputFilter;
+import com.intellij.execution.filters.*;
 import com.intellij.execution.process.AnsiEscapeDecoderTest;
 import com.intellij.execution.process.NopProcessHandler;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.process.ProcessOutputType;
+import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.ui.UISettings;
@@ -16,10 +16,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.FoldRegion;
-import com.intellij.openapi.editor.LogicalPosition;
-import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -27,6 +24,7 @@ import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.extensions.ExtensionPoint;
+import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
@@ -81,6 +79,26 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
     console.waitAllRequests();
     UIUtil.dispatchAllInvocationEvents();
     assertEquals(2, console.getContentSize());
+  }
+
+  public void testTypeBeforeSelectionMustNotLeadToInvalidOffset() {
+    ConsoleViewImpl console = myConsole;
+    console.print("Initial", ConsoleViewContentType.USER_INPUT);
+    console.flushDeferredText();
+    console.clear();
+    console.print("Hi", ConsoleViewContentType.USER_INPUT);
+    console.waitAllRequests();
+    UIUtil.dispatchAllInvocationEvents();
+    assertEquals(2, console.getContentSize());
+    assertEquals(2, console.getEditor().getCaretModel().getOffset());
+    console.getEditor().getCaretModel().setCaretsAndSelections(Collections.singletonList(new CaretState(new LogicalPosition(0,0),
+                                                                                                        new LogicalPosition(0,0),
+                                                                                                        new LogicalPosition(0,2))));
+    assertEquals(0, console.getEditor().getCaretModel().getOffset());
+    typeIn(console.getEditor(), 'x');
+    console.waitAllRequests();
+    UIUtil.dispatchAllInvocationEvents();
+    assertEquals(1, console.getContentSize());
   }
 
   public void testConsolePrintsSomethingAfterDoubleClear() throws Exception {
@@ -150,7 +168,7 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
   public void testTypeInEmptyConsole() {
     ConsoleViewImpl console = myConsole;
     console.clear();
-    EditorActionManager actionManager = EditorActionManager.getInstance();
+    EditorActionManager.getInstance();
     DataContext dataContext = DataManager.getInstance().getDataContext(console.getComponent());
     TypedAction action = TypedAction.getInstance();
     action.actionPerformed(console.getEditor(), 'h', dataContext);
@@ -158,12 +176,11 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
   }
 
   public void testTypingAfterMultipleCR() {
-    final EditorActionManager actionManager = EditorActionManager.getInstance();
     final TypedAction typedAction = TypedAction.getInstance();
-    final TestDataProvider dataContext = new TestDataProvider(getProject());
 
     final ConsoleViewImpl console = myConsole;
     final Editor editor = console.getEditor();
+    final DataContext dataContext = ((EditorEx)editor).getDataContext();
     console.print("System output\n", ConsoleViewContentType.SYSTEM_OUTPUT);
     console.print("\r\r\r\r\r\r\r", ConsoleViewContentType.NORMAL_OUTPUT);
     console.flushDeferredText();
@@ -227,7 +244,7 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
   }
 
   @NotNull
-  static ConsoleViewImpl createConsole(boolean usePredefinedMessageFilter, Project project) {
+  public static ConsoleViewImpl createConsole(boolean usePredefinedMessageFilter, Project project) {
     ConsoleViewImpl console = new ConsoleViewImpl(project,
                                                   GlobalSearchScope.allScope(project),
                                                   false,
@@ -237,6 +254,15 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
     processHandler.startNotify();
     console.attachToProcess(processHandler);
     return console;
+  }
+
+  public void testDoNotRemoveEverythingWhenOneCharIsPrintedAfterLargeText() {
+    withCycleConsoleNoFolding(1, console -> {
+      console.print(StringUtil.repeat("a", 5000), ConsoleViewContentType.NORMAL_OUTPUT);
+      console.print("\n", ConsoleViewContentType.NORMAL_OUTPUT);
+      console.waitAllRequests();
+      assertEquals(StringUtil.repeat("a", 1023) + "\n", console.getText());
+    });
   }
 
   public void testPerformance() {
@@ -281,8 +307,6 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
   }
 
   private void withCycleConsoleNoFolding(int capacityKB, Consumer<? super ConsoleViewImpl> runnable) {
-    ExtensionPoint<ConsoleFolding> point = ConsoleFolding.EP_NAME.getPoint();
-
     UISettings uiSettings = UISettings.getInstance();
     boolean oldUse = uiSettings.getOverrideConsoleCycleBufferSize();
     int oldSize = uiSettings.getConsoleCycleBufferSizeKb();
@@ -291,6 +315,11 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
     uiSettings.setConsoleCycleBufferSizeKb(capacityKB);
     // create new to reflect changed buffer size
     ConsoleViewImpl console = createConsole(true, getProject());
+
+    ExtensionPoint<ConsoleFolding> point = ConsoleFolding.EP_NAME.getPoint();
+    ((ExtensionPointImpl<ConsoleFolding>)point).maskAll(Collections.emptyList(), console, false);
+    assertEmpty(point.getExtensions());
+
     try {
       runnable.consume(console);
     }
@@ -298,11 +327,6 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
       Disposer.dispose(console);
       uiSettings.setOverrideConsoleCycleBufferSize(oldUse);
       uiSettings.setConsoleCycleBufferSizeKb(oldSize);
-
-
-      for (ConsoleFolding extension : point.getExtensions()) {
-        point.registerExtension(extension, getTestRootDisposable());
-      }
     }
   }
 
@@ -518,6 +542,57 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
     myConsole.waitAllRequests();
     assertEquals(expectedText.toString(), myConsole.getText());
     assertEquals(expectedRegisteredTokens, registered);
+  }
+
+  public void testConsoleDependentInputFilter() {
+    Disposer.dispose(myConsole); // have to re-init extensions
+    ConsoleDependentInputFilterProvider filterProvider = new ConsoleDependentInputFilterProvider() {
+      @Override
+      public @NotNull List<InputFilter> getDefaultFilters(@NotNull ConsoleView consoleView,
+                                                          @NotNull Project project,
+                                                          @NotNull GlobalSearchScope scope) {
+        return List.of((text, contentType) -> Collections.singletonList(Pair.create("!" + text + "!", contentType)));
+      }
+    };
+    ExtensionTestUtil.maskExtensions(
+      ConsoleInputFilterProvider.INPUT_FILTER_PROVIDERS,
+      ContainerUtil.newArrayList(filterProvider),
+      getTestRootDisposable());
+
+    myConsole = createConsole(true, getProject());
+    myConsole.print("Foo", ConsoleViewContentType.USER_INPUT);
+    myConsole.print("Bar", ConsoleViewContentType.NORMAL_OUTPUT);
+    myConsole.print("Baz", ConsoleViewContentType.ERROR_OUTPUT);
+    myConsole.flushDeferredText();
+    myConsole.waitAllRequests();
+    assertEquals("!Foo!!Bar!!Baz!", myConsole.getText());
+  }
+
+  public void testCustomFiltersPrecedence() {
+    HyperlinkInfo predefinedHyperlink = project -> {};
+    Filter predefinedFilter = (line, entireLength) ->  new Filter.Result(0, 1, predefinedHyperlink);
+    HyperlinkInfo customHyperlink = project -> {};
+    Filter customFilter = (line, entireLength) ->  new Filter.Result(0, 10, customHyperlink);
+
+    Disposer.dispose(myConsole); // have to re-init extensions
+
+    ConsoleFilterProvider predefinedProvider = project -> new Filter[] { predefinedFilter };
+    ExtensionTestUtil.maskExtensions(
+      ConsoleFilterProvider.FILTER_PROVIDERS,
+      ContainerUtil.newArrayList(predefinedProvider),
+      getTestRootDisposable());
+
+    myConsole = createConsole(true, getProject());
+    myConsole.addMessageFilter(customFilter);
+    myConsole.print("foo bar buz test", ConsoleViewContentType.NORMAL_OUTPUT);
+    myConsole.flushDeferredText();
+    myConsole.waitAllRequests();
+
+    EditorHyperlinkSupport hyperlinks = myConsole.getHyperlinks();
+    assertNotNull(hyperlinks.getHyperlinkAt(0));
+    assertEquals(customHyperlink, hyperlinks.getHyperlinkAt(0));
+    assertNotNull(hyperlinks.getHyperlinkAt(10));
+    assertEquals(customHyperlink, hyperlinks.getHyperlinkAt(10));
   }
 
   public void testBackspaceDeletesPreviousOutput() {
@@ -748,6 +823,20 @@ public class ConsoleViewImplTest extends LightPlatformTestCase {
     assertSize(2, regions);
     assertTrue(regions[0].isExpanded());
     assertFalse(regions[1].isExpanded());
+  }
+
+  public void testClearPrintConsoleSizeConsistency() {
+    withCycleConsoleNoFolding(1000, consoleView -> {
+      String text = "long text";
+      consoleView.print(text, ConsoleViewContentType.SYSTEM_OUTPUT);
+      consoleView.waitAllRequests();
+      //editor contains `text`
+      assertEquals(text.length(), consoleView.getEditor().getDocument().getTextLength());
+      consoleView.clear();
+      consoleView.print(text, ConsoleViewContentType.SYSTEM_OUTPUT);
+      //assert console's editor text which is about to be cleared is not added
+      assertEquals(text.length(), consoleView.getContentSize());
+    });
   }
 
   public void testSubsequentExpandedNonAttachedFoldsAreCombined() {

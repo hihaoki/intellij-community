@@ -15,14 +15,12 @@ import com.intellij.remote.RemoteSshProcess;
 import com.intellij.terminal.JBTerminalWidget;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.util.execution.ParametersListUtil;
 import com.jediterm.terminal.ProcessTtyConnector;
 import com.pty4j.unix.UnixPtyProcess;
 import com.pty4j.windows.WinPtyProcess;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jvnet.winp.WinProcess;
-import org.jvnet.winp.WinpException;
 
 import java.io.IOException;
 import java.util.StringTokenizer;
@@ -33,6 +31,11 @@ public final class TerminalUtil {
 
   private TerminalUtil() {}
 
+  /**
+   * @deprecated use {@link AbstractTerminalRunner#createTerminalWidget(Disposable, String, boolean)} 
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @Deprecated
   @NotNull
   public static JBTerminalWidget createTerminal(@NotNull AbstractTerminalRunner terminalRunner,
                                                 @Nullable TerminalTabState tabState,
@@ -41,7 +44,7 @@ public final class TerminalUtil {
     if (parentDisposable == null) {
       parentDisposable = Disposer.newDisposable();
     }
-    return terminalRunner.createTerminalWidget(parentDisposable, currentWorkingDir);
+    return terminalRunner.createTerminalWidget(parentDisposable, currentWorkingDir, true);
   }
 
   @Nullable
@@ -73,7 +76,7 @@ public final class TerminalUtil {
     if (SystemInfo.isWindows && process instanceof WinPtyProcess) {
       WinPtyProcess winPty = (WinPtyProcess)process;
       try {
-        String executable = FileUtil.toSystemIndependentName(StringUtil.notNullize(getExecutable(winPty.getChildProcessId())));
+        String executable = FileUtil.toSystemIndependentName(StringUtil.notNullize(getExecutable(winPty)));
         int consoleProcessCount = winPty.getConsoleProcessCount();
         if (executable.endsWith("/Git/bin/bash.exe")) {
           return consoleProcessCount > 3;
@@ -88,17 +91,7 @@ public final class TerminalUtil {
     return false;
   }
 
-  @Nullable
-  private static String getExecutable(int pid) {
-    WinProcess winProcess = new WinProcess(pid);
-    String commandLine;
-    try {
-      commandLine = winProcess.getCommandLine();
-    }
-    catch (WinpException e) {
-      LOG.error(e);
-      return null;
-    }
-    return ContainerUtil.getFirstItem(ParametersListUtil.parse(commandLine));
+  private static @Nullable String getExecutable(@NotNull WinPtyProcess process) {
+    return ContainerUtil.getFirstItem(process.getCommand());
   }
 }

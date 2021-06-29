@@ -2,6 +2,8 @@
 package com.jetbrains.python.tools
 
 import com.intellij.util.io.delete
+import com.intellij.util.text.nullize
+import com.jetbrains.python.psi.LanguageLevel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -9,10 +11,8 @@ import java.nio.file.Paths
 /**
  * This script was implemented to sync local copy of `typeshed` with bundled `typeshed`.
  *
- * As a result it leaves top-level modules and packages that are listed in `whiteList`.
+ * As a result it skips top-level modules and packages that are listed in `blacklist`.
  * It allows us to reduce the size of bundled `typeshed` and do not run indexing and other analyzing processes on disabled stubs.
- *
- * @see [com.jetbrains.python.tools.splitBuiltins]
  */
 
 val repo: Path = Paths.get("../../../../../../../../../typeshed").abs().normalize()
@@ -25,10 +25,8 @@ println("Syncing")
 sync(repo, bundled)
 
 val blacklist = sequenceOf(
-  "_ast", // leads to broken tests but could be enabled
   "_collections",
   "_decimal",
-  "_dummy_thread",
   "_functools",
   "_hotshot",
   "_markupbase",
@@ -67,24 +65,19 @@ val blacklist = sequenceOf(
   "codeop",
   "colorsys",
   "commands",
-  "contextlib",
   "cookie",
   "cookielib",
   "copy",
   "copy_reg",
   "copyreg",
-  "cprofile",
   "croniter",
   "cstringio",
   "dataclasses",
   "dateparser",
-  "datetimerange", // leads to broken tests but could be enabled
   "decorator",
   "dircache",
   "dis",
   "docutils",
-  "dummy_thread",
-  "dummy_threading",
   "emoji",
   "encodings",
   "ensurepip",
@@ -95,14 +88,12 @@ val blacklist = sequenceOf(
   "first",
   "flask",
   "fnmatch",
-  "formatter", // leads to broken tests but could be enabled
-  "fractions",
   "future_builtins",
   "geoip2",
   "getopt",
   "getpass",
   "glob",
-  "google",
+  "protobuf",
   "grp",
   "gzip",
   "html",
@@ -112,9 +103,7 @@ val blacklist = sequenceOf(
   "imp",
   "itsdangerous",
   "jinja2",
-  "jwt",
   "kazoo",
-  "keyword",
   "lib2to3",
   "linecache",
   "macurl2path",
@@ -127,17 +116,14 @@ val blacklist = sequenceOf(
   "mimetools",
   "msvcrt",
   "mutex",
-  "mypy_extensions",
+  "mypy-extensions",
   "netrc",
   "nis",
   "nntplib",
   "nturl2path",
-  "openssl",
+  "openssl-python",
   "optparse", // deprecated
   "pickletools",
-  "pipes",
-  "pkgutil",
-  "platform", // leads to broken tests but could be enabled
   "popen2",
   "poplib",
   "profile",
@@ -147,8 +133,6 @@ val blacklist = sequenceOf(
   "pycurl",
   "pymssql",
   "pymysql",
-  "pynamodb",
-  "pyre_extensions",
   "pytz",
   "pyvmomi",
   "quopri",
@@ -178,7 +162,6 @@ val blacklist = sequenceOf(
   "spwd",
   "sre_compile",
   "stat",
-  "string", // leads to broken tests but could be enabled
   "stringio",
   "stringold",
   "stringprep",
@@ -191,7 +174,6 @@ val blacklist = sequenceOf(
   "tabulate",
   "telnetlib",
   "termcolor",
-  "thread",
   "timeit",
   "tkinter",
   "toaiff",
@@ -200,7 +182,6 @@ val blacklist = sequenceOf(
   "trace",
   "traceback",
   "tty",
-  "typed_ast",
   "ujson",
   "unicodedata",
   "urllib2",
@@ -212,15 +193,15 @@ val blacklist = sequenceOf(
   "whichdb",
   "xdrlib",
   "xmlrpclib",
-  "yaml",
-  "zoneinfo"
+  "xxlimited", // not available in runtime
+  "PyYAML"
 ).mapTo(hashSetOf()) { it.toLowerCase() }
 
 println("Cleaning")
 cleanTopLevelPackages(bundled, blacklist)
 
-println("Splitting builtins")
-splitBuiltins(bundled)
+println("Processing stdlib/VERSIONS")
+printStdlibNamesAvailableOnlyInSubsetOfSupportedLanguageLevels(bundled, blacklist)
 
 fun sync(repo: Path, bundled: Path) {
   if (!Files.exists(repo)) throw IllegalArgumentException("Not found: ${repo.abs()}")
@@ -230,22 +211,12 @@ fun sync(repo: Path, bundled: Path) {
     println("Removed: ${bundled.abs()}")
   }
 
-  val whiteList = setOf("stdlib",
-                        "tests",
-                        "third_party",
-                        ".flake8",
-                        ".gitignore",
-                        ".travis.yml",
-                        "CONTRIBUTING.md",
-                        "LICENSE",
-                        "pyproject.toml",
-                        "README.md",
-                        "requirements-tests-py3.txt")
+  val exclude = setOf(".git", ".idea")
 
   Files
     .newDirectoryStream(repo)
     .forEach {
-      if (it.name() in whiteList) {
+      if (it.name() !in exclude) {
         val target = bundled.resolve(it.fileName)
 
         it.copyRecursively(target)
@@ -261,8 +232,7 @@ fun cleanTopLevelPackages(typeshed: Path, blackList: Set<String>) {
   val whiteList = hashSetOf<String>()
 
   sequenceOf(typeshed)
-    .flatMap { sequenceOf(it.resolve("stdlib"), it.resolve("third_party")) }
-    .flatMap { Files.newDirectoryStream(it).asSequence() }
+    .flatMap { sequenceOf(it.resolve("stdlib"), it.resolve("stdlib/@python2"), it.resolve("stubs")) }
     .flatMap { Files.newDirectoryStream(it).asSequence() }
     .filter {
       val name = it.nameWithoutExtension().toLowerCase()
@@ -279,6 +249,29 @@ fun cleanTopLevelPackages(typeshed: Path, blackList: Set<String>) {
 
   println("White list size: ${whiteList.size}")
   println("Black list size: ${blackList.size}")
+}
+
+fun printStdlibNamesAvailableOnlyInSubsetOfSupportedLanguageLevels(repo: Path, blackList: Set<String>) {
+  val lowestPython3 = LanguageLevel.SUPPORTED_LEVELS.filter { it.isPy3K }.minOrNull()!!
+  val latestPython = LanguageLevel.SUPPORTED_LEVELS.maxOrNull()!!
+
+  val lines = Files
+    .readAllLines(repo.resolve("stdlib/VERSIONS"))
+    .map { it.substringBefore('#') }
+    .filterNot { it.isBlank() }
+    .map { it.split(": ", limit = 2) }
+
+  lines.filter { it.size == 2 }
+    .filter { it.first() !in blackList }
+    .filter {
+      val bounds = it.last()
+      val lowerBound = LanguageLevel.fromPythonVersion(bounds.substringBefore('-'))!!
+      val upperBound = LanguageLevel.fromPythonVersion(bounds.substringAfter('-').nullize(true)) ?: latestPython
+      lowestPython3.isOlderThan(lowerBound) || upperBound.isOlderThan(latestPython)
+    }
+    .forEach { println("${it.first()}, ${it.last()}") }
+
+  lines.filter { it.size != 2 }.forEach { println("WARN: malformed line: ${it.first()}") }
 }
 
 fun Path.abs() = toAbsolutePath()

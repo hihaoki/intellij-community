@@ -28,6 +28,9 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.InputMethodEvent;
+import java.awt.font.TextHitInfo;
+import java.text.AttributedString;
 import java.util.Collections;
 
 public class EditorImplTest extends AbstractEditorTest {
@@ -717,5 +720,42 @@ public class EditorImplTest extends AbstractEditorTest {
     EditorTestUtil.setEditorVisibleSize(getEditor(), 100, 100);
     mouse().doubleClickNoReleaseAt(0, 4).dragTo(0, 12).release();
     checkResultByText("((<selection>some (text)<caret></selection>))");
+  }
+
+  public void testSurrogatePairInputInOverwriteMode() {
+    initText("ab<caret>cd");
+    ((EditorEx)getEditor()).setInsertMode(false);
+    JComponent component = getEditor().getContentComponent();
+    component.dispatchEvent(new InputMethodEvent(component, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                                                 new AttributedString("\uD83D\uDE00" /* 'GRINNING FACE' emoji (U+1F600) */).getIterator(),
+                                                 2, null, null));
+    checkResultByText("ab\uD83D\uDE00d");
+  }
+
+  public void testInputMethodComposing() {
+    initText("hello<caret>");
+    JComponent component = getEditor().getContentComponent();
+    component.dispatchEvent(new InputMethodEvent(component, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                                                 new AttributedString("\u3145" /* ㅅ */).getIterator(),
+                                                 0, TextHitInfo.afterOffset(0),
+                                                 TextHitInfo.afterOffset(-1)));
+    component.dispatchEvent(new InputMethodEvent(component, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                                                 new AttributedString("\u3146" /* ㅆ */).getIterator(),
+                                                 0, TextHitInfo.afterOffset(0),
+                                                 TextHitInfo.afterOffset(-1)));
+    checkResultByText("hello\u3146");
+  }
+
+  public void testInputMethodCaretMove() {
+    initText("hello<caret>");
+    JComponent component = getEditor().getContentComponent();
+    component.dispatchEvent(new InputMethodEvent(component, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                                                 new AttributedString("\u3145" /* ㅅ */).getIterator(),
+                                                 0, null, null));
+    component.dispatchEvent(new InputMethodEvent(component, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                                                 new AttributedString("\u3146" /* ㅆ */).getIterator(),
+                                                 0, null, null));
+    mouse().clickAtXY(0, getEditor().getLineHeight() / 2);
+    checkResultByText("<caret>hello\u3146");
   }
 }

@@ -1,13 +1,14 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.stubs;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.Forceable;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ShutDownTracker;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.IStubFileElementType;
 import com.intellij.psi.tree.StubFileElementType;
+import com.intellij.serviceContainer.NonInjectable;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.io.*;
 import org.jetbrains.annotations.ApiStatus;
@@ -18,6 +19,7 @@ import java.io.DataOutputStream;
 import java.io.*;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -29,33 +31,34 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
   private final Path myFile;
   private final boolean myUnmodifiable;
   private final AtomicBoolean myShutdownPerformed = new AtomicBoolean(false);
-  private DataEnumeratorEx<String> myNameStorage;
-  private volatile StubSerializationHelper myStubSerializationHelper;
 
+  private volatile StubSerializationHelper myStubSerializationHelper;
+  private volatile StubSerializerEnumerator mySerializerEnumerator;
   private volatile boolean mySerializersLoaded;
 
-  @SuppressWarnings("unused") // used from componentSets/Lang.xml:14
   public SerializationManagerImpl() {
-    this(FileBasedIndex.USE_IN_MEMORY_INDEX ? null : new File(PathManager.getIndexRoot(), "rep.names").toPath(), false);
+    this(FileBasedIndex.USE_IN_MEMORY_INDEX ? null : PathManager.getIndexRoot().resolve("rep.names"), false);
   }
 
+  @NonInjectable
   public SerializationManagerImpl(@Nullable Path nameStorageFile, boolean unmodifiable) {
     myFile = nameStorageFile;
     myUnmodifiable = unmodifiable;
     try {
       // we need to cache last id -> String mappings due to StringRefs and stubs indexing that initially creates stubs (doing enumerate on String)
       // and then index them (valueOf), also similar string items are expected to be enumerated during stubs processing
-      myNameStorage = openNameStorage();
-      myStubSerializationHelper = new StubSerializationHelper(myNameStorage, unmodifiable, this);
+      StubSerializerEnumerator enumerator = new StubSerializerEnumerator(openNameStorage(), unmodifiable);
+      mySerializerEnumerator = enumerator;
+      myStubSerializationHelper = new StubSerializationHelper(enumerator);
     }
     catch (IOException e) {
       nameStorageCrashed();
       LOG.info(e);
-      repairNameStorage(); // need this in order for myNameStorage not to be null
-      nameStorageCrashed();
     }
     finally {
-      ShutDownTracker.getInstance().registerShutdownTask(this::performShutdown);
+      if (!unmodifiable) {
+        ShutDownTracker.getInstance().registerShutdownTask(this::performShutdown, this);
+      }
     }
 
     StubElementTypeHolderEP.EP_NAME.addChangeListener(this::dropSerializerData, this);
@@ -80,29 +83,37 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
     }
   }
 
+  @ApiStatus.Internal
+  public Map<String, Integer> dumpNameStorage() {
+    return mySerializerEnumerator.dump();
+  }
+
   @Override
   public boolean isNameStorageCorrupted() {
     return myNameStorageCrashed.get();
   }
 
   @Override
-  public void repairNameStorage() {
+  public void repairNameStorage(@NotNull Exception corruptionCause) {
     if (myNameStorageCrashed.getAndSet(false)) {
       try {
-        LOG.info("Name storage is repaired");
-        closeNameStorage();
-
-        StubSerializationHelper prevHelper = myStubSerializationHelper;
         if (myUnmodifiable) {
           LOG.error("Data provided by unmodifiable serialization manager can be invalid after repair");
         }
+        LOG.info("Name storage is repaired");
 
+        StubSerializerEnumerator enumerator = mySerializerEnumerator;
+        if (enumerator != null) {
+          try {
+            enumerator.close();
+          }
+          catch (Exception ignored) {}
+        }
         if (myFile != null) {
           IOUtil.deleteAllFilesStartingWith(myFile.toFile());
         }
-        myNameStorage = openNameStorage();
-        myStubSerializationHelper = new StubSerializationHelper(myNameStorage, myUnmodifiable, this);
-        myStubSerializationHelper.copyFrom(prevHelper);
+        mySerializerEnumerator = new StubSerializerEnumerator(openNameStorage(), myUnmodifiable);
+        myStubSerializationHelper = new StubSerializationHelper(mySerializerEnumerator);
       }
       catch (IOException e) {
         LOG.info(e);
@@ -112,23 +123,18 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
   }
 
   @Override
-  public void flushNameStorage() {
-    if (myNameStorage instanceof Forceable) {
-      if (((Forceable)myNameStorage).isDirty()) {
-        ((Forceable)myNameStorage).force();
-      }
-    }
+  public void flushNameStorage() throws IOException {
+    mySerializerEnumerator.flush();
   }
 
-  @Override
-  public String internString(String string) {
-    return myStubSerializationHelper.intern(string);
+  private void registerSerializer(ObjectStubSerializer<?, ? extends Stub> serializer) {
+    registerSerializer(serializer.getExternalId(), () -> serializer);
   }
 
   @Override
   public void reinitializeNameStorage() {
     nameStorageCrashed();
-    repairNameStorage();
+    repairNameStorage(new Exception("Indexes are requested to rebuild"));
   }
 
   private void nameStorageCrashed() {
@@ -145,26 +151,23 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
       return; // already shut down
     }
     String name = myFile != null ? myFile.toString() : "in-memory storage";
-    LOG.info("Start shutting down " + name);
+    if (!myUnmodifiable) {
+      LOG.info("Start shutting down " + name);
+    }
     try {
-      closeNameStorage();
-      LOG.info("Finished shutting down " + name);
+      mySerializerEnumerator.close();
+      if (!myUnmodifiable) {
+        LOG.info("Finished shutting down " + name);
+      }
     }
     catch (IOException e) {
       LOG.error(e);
     }
   }
 
-  private void closeNameStorage() throws IOException {
-    if (myNameStorage instanceof Closeable) {
-      ((Closeable)myNameStorage).close();
-    }
-  }
-
-  @Override
-  protected void registerSerializer(@NotNull String externalId, Supplier<ObjectStubSerializer<?, Stub>> lazySerializer) {
+  private void registerSerializer(@NotNull String externalId, @NotNull Supplier<ObjectStubSerializer<?, ? extends Stub>> lazySerializer) {
     try {
-      myStubSerializationHelper.assignId(lazySerializer, externalId);
+      mySerializerEnumerator.assignId(lazySerializer, externalId);
     }
     catch (IOException e) {
       LOG.info(e);
@@ -202,9 +205,9 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
   @Override
   public void reSerialize(@NotNull InputStream inStub,
                           @NotNull OutputStream outStub,
-                          @NotNull SerializationManagerEx newSerializationManager) throws IOException {
+                          @NotNull StubTreeSerializer newSerializationManager) throws IOException {
     initSerializers();
-    newSerializationManager.initSerializers();
+    ((SerializationManagerEx)newSerializationManager).initSerializers();
     myStubSerializationHelper.reSerializeStub(new DataInputStream(inStub),
                                               new DataOutputStream(outStub),
                                               ((SerializationManagerImpl)newSerializationManager).myStubSerializationHelper);
@@ -214,17 +217,20 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
   protected void initSerializers() {
     //noinspection SynchronizeOnThis
     synchronized (this) {
-      if (mySerializersLoaded) return;
+      if (mySerializersLoaded) {
+        return;
+      }
+
       registerSerializer(PsiFileStubImpl.TYPE);
       List<StubFieldAccessor> lazySerializers = IStubElementType.loadRegisteredStubElementTypes();
       final IElementType[] stubElementTypes = IElementType.enumerate(type -> type instanceof StubSerializer);
       for (IElementType type : stubElementTypes) {
         if (type instanceof StubFileElementType &&
-            StubFileElementType.DEFAULT_EXTERNAL_ID.equals(((StubFileElementType)type).getExternalId())) {
+            StubFileElementType.DEFAULT_EXTERNAL_ID.equals(((StubFileElementType<?>)type).getExternalId())) {
           continue;
         }
 
-        registerSerializer((StubSerializer)type);
+        registerSerializer((StubSerializer<?>)type);
       }
       for (StubFieldAccessor lazySerializer : lazySerializers) {
         registerSerializer(lazySerializer.externalId, lazySerializer);
@@ -233,13 +239,23 @@ public final class SerializationManagerImpl extends SerializationManagerEx imple
     }
   }
 
+  @NotNull ObjectStubSerializer<?, ? extends Stub> getSerializer(@NotNull String name) throws SerializerNotFoundException {
+    return mySerializerEnumerator.getSerializer(name);
+  }
+
+  @Nullable
+  public String getSerializerName(@NotNull ObjectStubSerializer<?, ? extends Stub> serializer) {
+    return mySerializerEnumerator.getSerializerName(serializer);
+  }
+
   public void dropSerializerData() {
     //noinspection SynchronizeOnThis
     synchronized (this) {
       IStubElementType.dropRegisteredTypes();
-      StubSerializationHelper helper = myStubSerializationHelper;
-      if (helper != null) {
-        helper.dropRegisteredSerializers();
+      IStubFileElementType.dropTemplateStubBaseVersion();
+      StubSerializerEnumerator enumerator = mySerializerEnumerator;
+      if (enumerator != null) {
+        enumerator.dropRegisteredSerializers();
       }
       else {
         // has been corrupted previously

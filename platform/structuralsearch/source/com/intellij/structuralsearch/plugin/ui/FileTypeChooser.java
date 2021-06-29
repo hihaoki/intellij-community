@@ -1,6 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.plugin.ui;
 
+import com.intellij.core.CoreBundle;
+import com.intellij.icons.AllIcons;
 import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -30,13 +32,13 @@ import java.util.function.Consumer;
 /**
  * @author Bas Leijdekkers
  */
-public class FileTypeChooser extends ComboBoxAction implements DumbAware {
+class FileTypeChooser extends ComboBoxAction implements DumbAware {
 
   private final List<FileTypeInfo> myFileTypeInfos;
   private FileTypeInfo mySelectedItem;
   private Consumer<? super FileTypeInfo> myConsumer;
 
-  public FileTypeChooser() {
+  FileTypeChooser() {
     myFileTypeInfos = createFileTypeInfos();
     mySelectedItem = myFileTypeInfos.get(0);
     setSmallVariant(false);
@@ -81,11 +83,16 @@ public class FileTypeChooser extends ComboBoxAction implements DumbAware {
     return infos;
   }
 
-  public void setSelectedItem(@NotNull LanguageFileType type, @Nullable Language dialect, @Nullable PatternContext context) {
-    for (FileTypeInfo info : myFileTypeInfos) {
-      if (info.isEqualTo(type, dialect, context)) {
-        setSelectedItem(info);
-        return;
+  public void setSelectedItem(@Nullable LanguageFileType type, @Nullable Language dialect, @Nullable PatternContext context) {
+    if (type == null) {
+      setSelectedItem(null);
+    }
+    else {
+      for (FileTypeInfo info : myFileTypeInfos) {
+        if (info.isEqualTo(type, dialect, context)) {
+          setSelectedItem(info);
+          return;
+        }
       }
     }
   }
@@ -105,8 +112,24 @@ public class FileTypeChooser extends ComboBoxAction implements DumbAware {
   public void update(@NotNull AnActionEvent e) {
     super.update(e);
     final Presentation presentation = e.getPresentation();
-    presentation.setIcon(mySelectedItem.getFileType().getIcon());
-    presentation.setText(mySelectedItem.getText());
+    if (mySelectedItem == null) {
+      presentation.setIcon(AllIcons.FileTypes.Unknown);
+      presentation.setText(CoreBundle.message("filetype.unknown.description"));
+    }
+    else {
+      presentation.setIcon(mySelectedItem.getFileType().getIcon());
+      presentation.setText(mySelectedItem.getText());
+    }
+  }
+
+  @Override
+  protected @NotNull ComboBoxButton createComboBoxButton(@NotNull Presentation presentation) {
+    return new ComboBoxButton(presentation) {
+      @Override
+      public int getDisplayedMnemonicIndex() {
+        return -1;
+      }
+    };
   }
 
   @NotNull
@@ -114,11 +137,10 @@ public class FileTypeChooser extends ComboBoxAction implements DumbAware {
   public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
     final JPanel panel = new JPanel(new BorderLayout(1, 0));
     final ComboBoxButton button = createComboBoxButton(presentation);
-    final TextWithMnemonic textWithMnemonic = TextWithMnemonic.parse(SSRBundle.message("search.dialog.file.type.label"));
-    final JLabel label = new JBLabel(textWithMnemonic.getText());
+    final String text = SSRBundle.message("search.dialog.file.type.label");
+    final JLabel label = new JBLabel(text);
     label.setLabelFor(button);
-    final int mnemonic = textWithMnemonic.getMnemonic();
-    button.setMnemonic(mnemonic);
+    button.setMnemonic(TextWithMnemonic.parse(text).getMnemonic());
 
     panel.add(label, BorderLayout.WEST);
     panel.add(button, BorderLayout.CENTER);

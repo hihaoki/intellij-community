@@ -23,14 +23,7 @@ internal class GHPRSearchQuery(private val terms: List<Term<*>>) {
 
   fun isEmpty() = terms.isEmpty()
 
-  override fun toString(): String {
-    val builder = StringBuilder()
-    for (term in terms) {
-      builder.append(term.toString())
-      if (builder.isNotEmpty()) builder.append(" ")
-    }
-    return builder.toString()
-  }
+  override fun toString(): String = terms.joinToString(" ")
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
@@ -46,18 +39,19 @@ internal class GHPRSearchQuery(private val terms: List<Term<*>>) {
 
   companion object {
     val DEFAULT = GHPRSearchQuery(listOf(Term.Qualifier.Enum(QualifierName.state, GithubIssueState.open)))
+    val EMPTY = GHPRSearchQuery(listOf())
 
     private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd")
 
     fun parseFromString(string: String): GHPRSearchQuery {
       val result = mutableListOf<Term<*>>()
-      val terms = string.split(' ')
+      val terms = string.trim().split(' ')
       for (term in terms) {
         if (term.isEmpty()) continue
 
         val colonIdx = term.indexOf(':')
         if (colonIdx < 0) {
-          result.add(Term.QueryPart(term))
+          result.add(Term.QueryPart(term.replace("#", "")))
         }
         else {
           try {
@@ -83,11 +77,24 @@ internal class GHPRSearchQuery(private val terms: List<Term<*>>) {
     author("author") {
       override fun createTerm(value: String) = Term.Qualifier.Simple(this, value)
     },
+    label("label") {
+      override fun createTerm(value: String) = Term.Qualifier.Simple(this, value)
+    },
     after("created") {
       override fun createTerm(value: String) = Term.Qualifier.Date.After.from(this, value)
     },
     before("created") {
       override fun createTerm(value: String) = Term.Qualifier.Date.Before.from(this, value)
+    },
+    reviewedBy("reviewed-by") {
+      override fun createTerm(value: String) = Term.Qualifier.Simple(this, value)
+
+      override fun toString() = apiName
+    },
+    reviewRequested("review-requested") {
+      override fun createTerm(value: String) = Term.Qualifier.Simple(this, value)
+
+      override fun toString() = apiName
     },
     sortBy("sort") {
       override fun createTerm(value: String) = Term.Qualifier.Enum.from<GithubIssueSearchSort>(this, value)

@@ -122,7 +122,7 @@ public class ExceptionWorkerTest extends LightJavaCodeInsightFixtureTestCase {
     PsiClass psiClass = myFixture.addClass("package p; public class A {\n" +
                                            "  public void foo() {}\n" +
                                            "}");
-    ExceptionWorker worker = new ExceptionWorker(new ExceptionInfoCache(GlobalSearchScope.projectScope(getProject())));
+    ExceptionWorker worker = new ExceptionWorker(new ExceptionInfoCache(getProject(), GlobalSearchScope.projectScope(getProject())));
     worker.execute(line, line.length());
     PsiClass aClass = worker.getPsiClass();
     assertNotNull(aClass);
@@ -133,6 +133,11 @@ public class ExceptionWorkerTest extends LightJavaCodeInsightFixtureTestCase {
     String line = "2016-12-20 10:58:36,617 [   5740]   INFO - llij.ide.plugins.PluginManager - Loaded bundled plugins: Android Support (10.2.2), Ant Support (1.0), Application Servers View (0.2.0), AspectJ Support (1.2), CFML Support (3.53), CSS Support (163.7743.44), CVS Integration (11), Cloud Foundry integration (1.0), CloudBees integration (1.0), Copyright (8.1), Coverage (163.7743.44), DSM Analysis (1.0.0), Database Tools and SQL (1.0), Eclipse Integration (3.0), EditorConfig (163.7743.44), Emma (163.7743.44), Flash/Flex Support (163.7743.44)";
     assertNull(ExceptionWorker.parseExceptionLine(line));
     assertNull(ExceptionWorker.parseExceptionLine(line + "\n"));
+  }
+
+  public void testNativeMethod() {
+    assertParsed("at java.base/java.security.AccessController.doPrivileged(Native Method)\n",
+                 "java.security.AccessController", "doPrivileged", null, -1);
   }
 
   public void testColumnFinder() {
@@ -657,6 +662,27 @@ public class ExceptionWorkerTest extends LightJavaCodeInsightFixtureTestCase {
     List<Trinity<String, Integer, Integer>> traceAndPositions = Arrays.asList(
       Trinity.create("java.lang.NullPointerException\n", null, null),
       Trinity.create("\tat MainTest.main(MainTest.java:4)\n", 4, 20));
+    checkColumnFinder(classText, traceAndPositions);
+  }
+  
+  public void testInternalFrames() {
+    @Language("JAVA") String classText =
+      "import java.util.stream.Collectors;\n" +
+      "\n" +
+      "public class InternalFrames {\n" +
+      "  public static void main(String[] args) {\n" +
+      "    Runnable r = () -> {\n" +
+      "      String frames = StackWalker.getInstance(StackWalker.Option.SHOW_HIDDEN_FRAMES)\n" +
+      "          .walk(s -> s.map(sf -> \"\\tat \" + sf.toStackTraceElement() + \"\\n\").collect(Collectors.joining()));\n" +
+      "      System.out.println(frames);\n" +
+      "    };\n" +
+      "    r.run();\n" +
+      "  }\n" +
+      "}\n";
+    List<Trinity<String, Integer, Integer>> traceAndPositions = List.of(
+      Trinity.create("\tat InternalFrames.lambda$main$2(InternalFrames.java:7)\n", 7, 1),
+      Trinity.create("\tat InternalFrames$$Lambda$14/0x0000000800c01200.run(Unknown Source)\n", null, null),
+      Trinity.create("\tat InternalFrames.main(InternalFrames.java:10)\n", 10, 7));
     checkColumnFinder(classText, traceAndPositions);
   }
   

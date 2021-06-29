@@ -1,14 +1,18 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("GradleExecutionUtil")
+
 package org.jetbrains.plugins.gradle.service.execution
 
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListenerAdapter
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.EXECUTE_TASK
+import com.intellij.openapi.externalSystem.service.execution.ExternalSystemExecutionAware.Companion.getExtensions
+import com.intellij.openapi.externalSystem.service.execution.ExternalSystemExecutionAware.Companion.setEnvironmentConfigurationProvider
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkProvider
 import com.intellij.openapi.externalSystem.service.internal.AbstractExternalSystemTask
 import com.intellij.openapi.externalSystem.service.remote.ExternalSystemProgressNotificationManagerImpl
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -58,6 +62,14 @@ private class EnsureInstalledWrapperExecutionTask(
     )
     val jdkProvider = ExternalSystemJdkProvider.getInstance()
     executionSettings.javaHome = jdkProvider.internalJdk.homePath
+
+    for (executionAware in getExtensions(externalSystemId)) {
+      val environmentConfigurationProvider = executionAware.getEnvironmentConfigurationProvider(externalProjectPath, false, ideProject)
+      if (environmentConfigurationProvider != null) {
+        executionSettings.setEnvironmentConfigurationProvider(environmentConfigurationProvider)
+        break
+      }
+    }
     return executionSettings
   }
 
@@ -94,6 +106,10 @@ private class EnsureInstalledWrapperExecutionTask(
       progressNotificationManager.onStart(id, externalProjectPath)
       ensureInstalledWrapper(progressNotificationListener)
       progressNotificationManager.onSuccess(id)
+    }
+    catch (e: ProcessCanceledException) {
+      progressNotificationManager.onCancel(id)
+      throw e
     }
     catch (e: Exception) {
       progressNotificationManager.onFailure(id, e)

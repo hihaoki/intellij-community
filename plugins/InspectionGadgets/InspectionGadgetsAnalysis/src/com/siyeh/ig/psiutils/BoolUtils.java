@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.psiutils;
 
+import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.codeInspection.dataFlow.value.RelationType;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
@@ -102,10 +103,10 @@ public final class BoolUtils {
     );
 
   private static final class PredicatedReplacement {
-    Predicate<PsiMethodCallExpression> predicate;
+    Predicate<? super PsiMethodCallExpression> predicate;
     String name;
 
-    private PredicatedReplacement(Predicate<PsiMethodCallExpression> predicate, String name) {
+    private PredicatedReplacement(@NonNls String name, Predicate<? super PsiMethodCallExpression> predicate) {
       this.predicate = predicate;
       this.name = name;
     }
@@ -113,10 +114,10 @@ public final class BoolUtils {
 
   private static final List<PredicatedReplacement> ourReplacements = new ArrayList<>();
   static {
-    ourReplacements.add(new PredicatedReplacement(OPTIONAL_IS_EMPTY, "isPresent"));
-    ourReplacements.add(new PredicatedReplacement(OPTIONAL_IS_PRESENT.withLanguageLevelAtLeast(LanguageLevel.JDK_11), "isEmpty"));
-    ourReplacements.add(new PredicatedReplacement(STREAM_ANY_MATCH, "noneMatch"));
-    ourReplacements.add(new PredicatedReplacement(STREAM_NONE_MATCH, "anyMatch"));
+    ourReplacements.add(new PredicatedReplacement("isPresent", OPTIONAL_IS_EMPTY));
+    ourReplacements.add(new PredicatedReplacement("isEmpty", OPTIONAL_IS_PRESENT.withLanguageLevelAtLeast(LanguageLevel.JDK_11)));
+    ourReplacements.add(new PredicatedReplacement("noneMatch", STREAM_ANY_MATCH));
+    ourReplacements.add(new PredicatedReplacement("anyMatch", STREAM_NONE_MATCH));
   }
 
   private static String findSmartMethodNegation(PsiExpression expression) {
@@ -306,8 +307,8 @@ public final class BoolUtils {
     if (expression1 instanceof PsiBinaryExpression && expression2 instanceof PsiBinaryExpression) {
       PsiBinaryExpression binOp1 = (PsiBinaryExpression)expression1;
       PsiBinaryExpression binOp2 = (PsiBinaryExpression)expression2;
-      RelationType rel1 = RelationType.fromElementType(binOp1.getOperationTokenType());
-      RelationType rel2 = RelationType.fromElementType(binOp2.getOperationTokenType());
+      RelationType rel1 = DfaPsiUtil.getRelationByToken(binOp1.getOperationTokenType());
+      RelationType rel2 = DfaPsiUtil.getRelationByToken(binOp2.getOperationTokenType());
       if (rel1 == null || rel2 == null) return false;
       PsiType type = binOp1.getLOperand().getType();
       // a > b and a <= b are not strictly opposite due to NaN semantics

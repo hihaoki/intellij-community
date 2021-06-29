@@ -11,10 +11,10 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkModificator;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.roots.impl.ContentEntryImpl;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
@@ -48,41 +48,23 @@ import java.util.function.Consumer;
 public final class PsiTestUtil {
   @NotNull
   public static VirtualFile createTestProjectStructure(@NotNull Project project,
-                                                       @NotNull Module module,
-                                                       String rootPath,
-                                                       @NotNull Collection<Path> filesToDelete) {
-    return createTestProjectStructure(project, module, rootPath, filesToDelete, true);
-  }
-
-  @NotNull
-  public static VirtualFile createTestProjectStructure(@NotNull Project project, @NotNull Module module, @NotNull Collection<Path> filesToDelete) {
-    return createTestProjectStructure(project, module, null, filesToDelete, true);
-  }
-
-  @NotNull
-  public static VirtualFile createTestProjectStructure(@NotNull Project project,
                                                        @Nullable Module module,
                                                        String rootPath,
-                                                       @NotNull Collection<Path> filesToDelete,
+                                                       @NotNull Collection<? super Path> filesToDelete,
                                                        boolean addProjectRoots) {
-    VirtualFile vDir = createTestProjectStructure("unitTest", module, rootPath, filesToDelete, addProjectRoots);
+    Path dir = HeavyTestHelper.createTempDirectoryForTempDirTestFixture(null, "unitTest");
+    filesToDelete.add(dir);
+    VirtualFile vDir = HeavyTestHelper.createTestProjectStructure(module, rootPath, dir, addProjectRoots);
     PsiDocumentManager.getInstance(project).commitAllDocuments();
     return vDir;
-  }
-
-  public static @NotNull VirtualFile createTestProjectStructure(@NotNull String tempName,
-                                                                @Nullable Module module,
-                                                                String rootPath,
-                                                                @NotNull Collection<Path> filesToDelete,
-                                                                boolean addProjectRoots) {
-    Path dir = HeavyTestHelper.createTempDirectoryForTempDirTestFixture(null, tempName);
-    filesToDelete.add(dir);
-    return HeavyTestHelper.createTestProjectStructure(module, rootPath, dir, addProjectRoots);
   }
 
   public static void removeAllRoots(@NotNull Module module, Sdk jdk) {
     ModuleRootModificationUtil.updateModel(module, model -> {
       model.clear();
+      if (jdk != null && ApplicationManager.getApplication().isUnitTestMode()) {
+        WriteAction.runAndWait(() -> ProjectJdkTable.getInstance().addJdk(jdk, module.getProject()));
+      }
       model.setSdk(jdk);
     });
   }
@@ -143,9 +125,6 @@ public final class PsiTestUtil {
 
     for (ContentEntry entry : ModuleRootManager.getInstance(module).getContentEntries()) {
       if (Comparing.equal(entry.getFile(), vDir)) {
-        if (entry instanceof ContentEntryImpl) {
-          Assert.assertFalse(((ContentEntryImpl)entry).isDisposed());
-        }
         return entry;
       }
     }
@@ -218,7 +197,7 @@ public final class PsiTestUtil {
   }
 
   public static void checkFileStructure(@NotNull PsiFile file) {
-    compareFromAllRoots(file, f -> DebugUtil.psiTreeToString(f, false));
+    compareFromAllRoots(file, f -> DebugUtil.psiTreeToString(f, true));
   }
 
   private static void compareFromAllRoots(@NotNull PsiFile file, @NotNull Function<? super PsiFile, String> fun) {

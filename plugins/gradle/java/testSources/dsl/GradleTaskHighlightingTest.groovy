@@ -1,9 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.dsl
 
 import com.intellij.testFramework.RunAll
 import groovy.transform.CompileStatic
-import org.jetbrains.plugins.gradle.highlighting.GradleHighlightingBaseTest
+import org.jetbrains.plugins.gradle.importing.highlighting.GradleHighlightingBaseTest
 import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilityCheckInspection
 import org.jetbrains.plugins.groovy.codeInspection.bugs.GroovyAccessibilityInspection
 import org.jetbrains.plugins.groovy.codeInspection.untypedUnresolvedAccess.GrUnresolvedAccessInspection
@@ -21,11 +21,10 @@ class GradleTaskHighlightingTest extends GradleHighlightingBaseTest {
   void test() {
     importProject("")
     fixture.enableInspections(GrUnresolvedAccessInspection, GroovyAssignabilityCheckInspection, GroovyAccessibilityInspection)
-    new RunAll().append {
-      'task declaration'()
-    } append {
-      'task declaration invalid'()
-    } run()
+    new RunAll(
+      { 'task declaration'() },
+      { 'task declaration invalid'() }
+    ).run()
   }
 
   void 'task declaration'() {
@@ -57,7 +56,8 @@ task id14 << {}
   }
 
   void 'task declaration invalid'() {
-    testHighlighting '''\
+    def voidGeneric = isGradleNewerOrSameAs("7.0") ? "" : "<java.lang.Void>"
+    testHighlighting """\
 task <warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(java.lang.String, java.lang.Integer)'">id1, 42</warning>
 task <warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(java.lang.Integer, ?)'">42, <warning descr="Cannot resolve symbol 'id2'">id2</warning></warning>
 task <warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(java.lang.String, java.lang.Integer, java.lang.Integer)'">id3, 42, 43</warning>
@@ -66,12 +66,12 @@ task <warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '([
 task <warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(['description':java.lang.String], ?, java.lang.Integer, java.lang.Integer)'"><warning descr="Cannot resolve symbol 'id6'">id6</warning>, description: 'a', 43, 69</warning>
 
 task <weak_warning descr="Cannot infer argument types"><warning descr="Cannot resolve symbol 'id7'">id7</warning>(42)</weak_warning>
-task<warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(groovy.lang.Closure<java.lang.Void>, ?)'">({}, <warning descr="Cannot resolve symbol 'id8'">id8</warning>)</warning>
+task<warning descr="'task' in 'org.gradle.api.Project' cannot be applied to '(groovy.lang.Closure${voidGeneric}, ?)'">({}, <warning descr="Cannot resolve symbol 'id8'">id8</warning>)</warning>
 
 task id9 + {}
 
 task <weak_warning descr="Cannot infer argument types"><warning descr="Cannot resolve symbol 'mid11'">mid11</warning>([type: Copy])</weak_warning>
 task <weak_warning descr="Cannot infer argument types"><warning descr="Cannot resolve symbol 'emid11'">emid11</warning>([:])</weak_warning>                             
-'''
+"""
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.paths
 
 import com.intellij.codeInsight.highlighting.HyperlinkAnnotator
@@ -8,18 +8,19 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.lang.annotation.AnnotationBuilder
 import com.intellij.model.Pointer
 import com.intellij.model.Symbol
-import com.intellij.model.SymbolResolveResult
 import com.intellij.model.presentation.PresentableSymbol
 import com.intellij.model.presentation.SymbolPresentation
 import com.intellij.navigation.NavigatableSymbol
 import com.intellij.navigation.NavigationTarget
-import com.intellij.navigation.TargetPopupPresentation
+import com.intellij.navigation.TargetPresentation
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 
+@Suppress("NonDefaultConstructor")
 class UrlReference(private val element: PsiElement,
                    private val rangeInElement: TextRange,
                    val url: String) : PsiHighlightedReference {
@@ -28,17 +29,18 @@ class UrlReference(private val element: PsiElement,
 
   override fun getRangeInElement(): TextRange = rangeInElement
 
-  override fun resolveReference(): Collection<SymbolResolveResult> = listOf(SymbolResolveResult.fromSymbol(UrlSymbol(url)))
+  override fun resolveReference(): Collection<Symbol> = listOf(UrlSymbol(url))
 
-  override fun highlightMessage(): String? = HyperlinkAnnotator.getMessage()
+  override fun highlightMessage() = HyperlinkAnnotator.getMessage()
 
   override fun highlightReference(annotationBuilder: AnnotationBuilder): AnnotationBuilder {
     return annotationBuilder.textAttributes(CodeInsightColors.INACTIVE_HYPERLINK_ATTRIBUTES)
   }
 }
 
+@Suppress("NonDefaultConstructor")
 private class UrlSymbol(
-  private val url: String
+  @NlsSafe private val url: String
 ) : Pointer<UrlSymbol>,
     PresentableSymbol,
     NavigatableSymbol,
@@ -46,7 +48,7 @@ private class UrlSymbol(
 
   override fun createPointer(): Pointer<out Symbol> = this
 
-  override fun dereference(): UrlSymbol? = this
+  override fun dereference(): UrlSymbol = this
 
   override fun getSymbolPresentation(): SymbolPresentation = SymbolPresentation.create(AllIcons.General.Web, url, url)
 
@@ -54,9 +56,9 @@ private class UrlSymbol(
 
   override fun isValid(): Boolean = true
 
-  override fun getNavigatable(): Navigatable? = UrlNavigatable(url)
+  override fun getNavigatable(): Navigatable = UrlNavigatable(url)
 
-  override fun getTargetPresentation(): TargetPopupPresentation = TODO(
+  override fun getTargetPresentation(): TargetPresentation = TODO(
     "In all known cases the symbol doesn't appear in the disambiguation popup, " +
     "because this symbol is usually alone, so no popup required. Implement this method when needed."
   )

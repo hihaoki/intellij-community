@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.indices;
 
 import com.intellij.openapi.Disposable;
@@ -12,7 +12,6 @@ import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -85,7 +84,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
                                   NativeMavenProjectHolder nativeMavenProject) {
         scheduleUpdateIndicesList();
       }
-    });
+    }, this);
   }
 
   private void scheduleUpdateIndicesList() {
@@ -105,7 +104,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
         }
 
         List<MavenIndex> newProjectIndices;
-        MavenIndicesManager mavenIndicesManager = MavenIndicesManager.getInstance();
+        MavenIndicesManager mavenIndicesManager = MavenIndicesManager.getInstance(myProject);
         if (remoteRepositoriesIdsAndUrls.isEmpty()) {
           newProjectIndices = new ArrayList<>();
         }
@@ -134,7 +133,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
   }
 
   private Set<Pair<String, String>> collectRemoteRepositoriesIdsAndUrls() {
-    Set<Pair<String, String>> result = new THashSet<>();
+    Set<Pair<String, String>> result = new HashSet<>();
     Set<MavenRemoteRepository> remoteRepositories = new HashSet<>(getMavenProjectManager().getRemoteRepositories());
     for (MavenRepositoryProvider repositoryProvider : MavenRepositoryProvider.EP_NAME.getExtensions()) {
       remoteRepositories.addAll(repositoryProvider.getRemoteRepositories(myProject));
@@ -152,20 +151,21 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
    * @deprecated use {@link #getOfflineSearchService()}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public List<MavenIndex> getIndices() {
     return new ArrayList<>(myProjectIndices);
   }
 
   public void scheduleUpdateAll() {
-    MavenIndicesManager.getInstance().scheduleUpdate(myProject, myProjectIndices);
+    MavenIndicesManager.getInstance(myProject).scheduleUpdate(myProject, myProjectIndices);
   }
 
   public void scheduleUpdate(List<MavenIndex> indices) {
-    MavenIndicesManager.getInstance().scheduleUpdate(myProject, indices);
+    MavenIndicesManager.getInstance(myProject).scheduleUpdate(myProject, indices);
   }
 
   public MavenIndicesManager.IndexUpdatingState getUpdatingState(MavenSearchIndex index) {
-    return MavenIndicesManager.getInstance().getUpdatingState(index);
+    return MavenIndicesManager.getInstance(myProject).getUpdatingState(index);
   }
 
   private MavenProjectsManager getMavenProjectManager() {
@@ -188,6 +188,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
    * @deprecated use {@link OfflineSearchService#findGroupCandidates} or{@link OfflineSearchService#findByTemplate} instead
    **/
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public Set<String> getGroupIds() {
     return getGroupIds("");
   }
@@ -212,6 +213,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
    * @deprecated use {@link OfflineSearchService#findArtifactCandidates} or {@link OfflineSearchService#findByTemplate} instead
    **/
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public Set<String> getArtifactIds(String groupId) {
     ProgressIndicatorProvider.checkCanceled();
     Set<String> result = new HashSet<>();
@@ -229,6 +231,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
    * @deprecated use {@link OfflineSearchService#findAllVersions or {@link OfflineSearchService#findByTemplate} instead
    **/
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public Set<String> getVersions(String groupId, String artifactId) {
     ProgressIndicatorProvider.checkCanceled();
     Set<String> result = new HashSet<>();
@@ -281,7 +284,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
   }
 
   private Set<String> getProjectGroupIds() {
-    Set<String> result = new THashSet<>();
+    Set<String> result = new HashSet<>();
     for (MavenId each : getProjectsIds()) {
       result.add(each.getGroupId());
     }
@@ -289,7 +292,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
   }
 
   private Set<String> getProjectArtifactIds(String groupId) {
-    Set<String> result = new THashSet<>();
+    Set<String> result = new HashSet<>();
     for (MavenId each : getProjectsIds()) {
       if (groupId.equals(each.getGroupId())) {
         result.add(each.getArtifactId());
@@ -299,7 +302,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
   }
 
   private Set<String> getProjectVersions(String groupId, String artifactId) {
-    Set<String> result = new THashSet<>();
+    Set<String> result = new HashSet<>();
     for (MavenId each : getProjectsIds()) {
       if (groupId.equals(each.getGroupId()) && artifactId.equals(each.getArtifactId())) {
         result.add(each.getVersion());
@@ -321,7 +324,7 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
   }
 
   private Set<MavenId> getProjectsIds() {
-    Set<MavenId> result = new THashSet<>();
+    Set<MavenId> result = new HashSet<>();
     for (MavenProject each : MavenProjectsManager.getInstance(myProject).getProjects()) {
       result.add(each.getMavenId());
     }

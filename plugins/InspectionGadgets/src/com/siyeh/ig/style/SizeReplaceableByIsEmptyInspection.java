@@ -1,10 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.ListTable;
 import com.intellij.codeInspection.ui.ListWrappingTableModel;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
@@ -13,7 +14,6 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.OrderedSet;
-import com.intellij.util.ui.CheckBox;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -30,7 +30,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.List;
 
 public class SizeReplaceableByIsEmptyInspection extends BaseInspection {
@@ -48,15 +47,16 @@ public class SizeReplaceableByIsEmptyInspection extends BaseInspection {
   @Override
   @Nullable
   public JComponent createOptionsPanel() {
-    final JComponent panel = new JPanel(new BorderLayout());
+    final var panel = new MultipleCheckboxOptionsPanel(this);
     final ListTable table =
-      new ListTable(new ListWrappingTableModel(ignoredTypes, InspectionGadgetsBundle.message("ignored.classes.table")));
-    JPanel tablePanel =
-      UiUtils.createAddRemoveTreeClassChooserPanel(table, InspectionGadgetsBundle.message("choose.class.type.to.ignore"));
-    final CheckBox checkBox = new CheckBox(InspectionGadgetsBundle.message(
-      "size.replaceable.by.isempty.negation.ignore.option"), this, "ignoreNegations");
-    panel.add(tablePanel, BorderLayout.CENTER);
-    panel.add(checkBox, BorderLayout.SOUTH);
+      new ListTable(new ListWrappingTableModel(ignoredTypes, InspectionGadgetsBundle.message("options.title.ignored.classes")));
+    JPanel tablePanel = UiUtils.createAddRemoveTreeClassChooserPanel(
+      InspectionGadgetsBundle.message("choose.class.type.to.ignore"),
+      InspectionGadgetsBundle.message("options.label.ignored.classes"),
+      table,
+      true);
+    panel.addGrowing(tablePanel);
+    panel.addCheckbox(InspectionGadgetsBundle.message("size.replaceable.by.isempty.negation.ignore.option"), "ignoreNegations");
     return panel;
   }
 
@@ -69,7 +69,8 @@ public class SizeReplaceableByIsEmptyInspection extends BaseInspection {
     if (aClass != null) {
       final String name = aClass.getQualifiedName();
       if (name != null) {
-        result.add(new IgnoreClassFix(name, ignoredTypes, "Ignore '." + methodName + "()' calls on type '" + name + "'"));
+        result.add(new IgnoreClassFix(name, ignoredTypes,
+                                      InspectionGadgetsBundle.message("size.replaceable.by.isempty.fix.ignore.calls", methodName, name)));
       }
     }
     result.add(new SizeReplaceableByIsEmptyFix());
@@ -138,7 +139,7 @@ public class SizeReplaceableByIsEmptyInspection extends BaseInspection {
         return;
       }
       final PsiMethodCallExpression callExpression = (PsiMethodCallExpression)(flipped ? rhs : lhs);
-      String isEmptyCall = null;
+      @NonNls String isEmptyCall = null;
       final PsiReferenceExpression methodExpression = callExpression.getMethodExpression();
       final String referenceName = methodExpression.getReferenceName();
       if (!HardcodedMethodConstants.SIZE.equals(referenceName) && !HardcodedMethodConstants.LENGTH.equals(referenceName)) {

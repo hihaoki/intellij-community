@@ -24,6 +24,7 @@ import com.intellij.psi.impl.file.impl.FileManagerImpl;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -53,7 +54,7 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
   public static final Topic<AnyPsiChangeListener> ANY_PSI_CHANGE_TOPIC = new Topic<>(AnyPsiChangeListener.class, Topic.BroadcastDirection.TO_PARENT);
 
   public PsiManagerImpl(@NotNull Project project) {
-    // we need to initialize PsiBuilderFactory service so it won't initialize under PsiLock from ChameleonTransform
+    // we need to initialize PsiBuilderFactory service, so it won't initialize under PsiLock from ChameleonTransform
     PsiBuilderFactory.getInstance();
 
     myProject = project;
@@ -113,7 +114,7 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
   @Override
   @TestOnly
   public void setAssertOnFileLoadingFilter(@NotNull VirtualFileFilter filter, @NotNull Disposable parentDisposable) {
-    // Find something to ensure there's no changed files waiting to be processed in repository indices.
+    // Find something to ensure there are no changed files waiting to be processed in repository indices.
     myAssertOnFileLoadingFilter = filter;
     Disposer.register(parentDisposable, () -> myAssertOnFileLoadingFilter = VirtualFileFilter.NONE);
   }
@@ -187,7 +188,7 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
     myTreeChangeListeners.remove(listener);
   }
 
-  private static String logPsi(@Nullable PsiElement element) {
+  private static @NonNls String logPsi(@Nullable PsiElement element) {
     return element == null ? " null" : element.getClass().getName();
   }
 
@@ -413,36 +414,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
     catch (Throwable e) {
       LOG.error(e);
     }
-  }
-
-  @Override
-  public void registerRunnableToRunOnChange(@NotNull final Runnable runnable) {
-    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
-      @Override
-      public void beforePsiChanged(boolean isPhysical) {
-        if (isPhysical) runnable.run();
-      }
-    });
-  }
-
-  @Override
-  public void registerRunnableToRunOnAnyChange(@NotNull final Runnable runnable) { // includes non-physical changes
-    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
-      @Override
-      public void beforePsiChanged(boolean isPhysical) {
-        runnable.run();
-      }
-    });
-  }
-
-  @Override
-  public void registerRunnableToRunAfterAnyChange(@NotNull final Runnable runnable) { // includes non-physical changes
-    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
-      @Override
-      public void afterPsiChanged(boolean isPhysical) {
-        runnable.run();
-      }
-    });
   }
 
   @Override

@@ -1,14 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.predicates;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiElement;
-import com.intellij.structuralsearch.MatchOptions;
-import com.intellij.structuralsearch.MatchResult;
-import com.intellij.structuralsearch.StructuralSearchScriptException;
-import com.intellij.structuralsearch.StructuralSearchUtil;
+import com.intellij.structuralsearch.*;
 import com.intellij.structuralsearch.plugin.ui.Configuration;
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
@@ -29,11 +27,14 @@ import java.util.*;
  * @author Maxim.Mossienko
  */
 public class ScriptSupport {
+
+  private static final Logger LOG = Logger.getInstance(ScriptSupport.class);
   /**
    * Artificial filename without extension must be different from any variable name or the variable will get hidden by the script.
    * We use a randomly generated uuid for this, so the chance of accidental collision with an existing variable name is extremely small.
    * This also enables to filter out this uuid from Groovy error messages, to clarify for which SSR variable the script failed.
    */
+  @NlsSafe
   public static final String UUID = "a3cd264774bf4efb9ab609b250c5165c";
 
   private final Script script;
@@ -145,6 +146,11 @@ public class ScriptSupport {
     }
     catch (CompilationFailedException ex) {
       return ex.getLocalizedMessage();
+    }
+    catch (Throwable e) {
+      // to catch errors in groovy parsing
+      LOG.warn(e);
+      return SSRBundle.message("error.in.groovy.parser");
     }
   }
 }

@@ -2,6 +2,7 @@
 
 package com.intellij.util.indexing.impl.storage;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
@@ -21,7 +22,8 @@ import java.util.*;
  * @author Eugene Zhuravlev
  */
 public class TransientChangesIndexStorage<Key, Value> implements VfsAwareIndexStorage<Key, Value> {
-  private final Map<Key, ChangeTrackingValueContainer<Value>> myMap = new HashMap<>();
+  private static final Logger LOG = Logger.getInstance(TransientChangesIndexStorage.class);
+  private final Map<Key, TransientChangeTrackingValueContainer<Value>> myMap = new HashMap<>();
   @NotNull
   private final VfsAwareIndexStorage<Key, Value> myBackendStorage;
   private final List<BufferingStateListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
@@ -35,7 +37,7 @@ public class TransientChangesIndexStorage<Key, Value> implements VfsAwareIndexSt
     void memoryStorageCleared();
   }
 
-  public TransientChangesIndexStorage(@NotNull IndexStorage<Key, Value> backend, @NotNull ID<?, ?> indexId) {
+  public TransientChangesIndexStorage(@NotNull IndexStorage<Key, Value> backend, @NotNull ID<Key, Value> indexId) {
     myBackendStorage = (VfsAwareIndexStorage<Key, Value>)backend;
     myIndexId = indexId;
   }
@@ -51,12 +53,9 @@ public class TransientChangesIndexStorage<Key, Value> implements VfsAwareIndexSt
 
   public void setBufferingEnabled(boolean enabled) {
     final boolean wasEnabled = myBufferingEnabled;
-    assert wasEnabled != enabled;
+    LOG.assertTrue(wasEnabled != enabled);
 
     myBufferingEnabled = enabled;
-    if (FileBasedIndexImpl.DO_TRACE_STUB_INDEX_UPDATE) {
-      FileBasedIndexImpl.LOG.info("buffering state changed: " + myIndexId + "; enabled = " + enabled);
-    }
     for (BufferingStateListener listener : myListeners) {
       listener.bufferingStateChanged(enabled);
     }
@@ -69,7 +68,7 @@ public class TransientChangesIndexStorage<Key, Value> implements VfsAwareIndexSt
   }
 
   public boolean clearMemoryMapForId(Key key, int fileId) {
-    ChangeTrackingValueContainer<Value> container = myMap.get(key);
+    TransientChangeTrackingValueContainer<Value> container = myMap.get(key);
     if (container != null) {
       container.dropAssociatedValue(fileId);
       return true;
@@ -169,27 +168,16 @@ public class TransientChangesIndexStorage<Key, Value> implements VfsAwareIndexSt
   }
 
   private UpdatableValueContainer<Value> getMemValueContainer(final Key key) {
-    ChangeTrackingValueContainer<Value> valueContainer = myMap.get(key);
-    if (valueContainer == null) {
-      valueContainer = new ChangeTrackingValueContainer<>(new ChangeTrackingValueContainer.Initializer<Value>() {
-        @Override
-        public Object getLock() {
-          return this;
+    return myMap.computeIfAbsent(key, k -> {
+      return new TransientChangeTrackingValueContainer<>(() -> {
+        try {
+          return myBackendStorage.read(key);
         }
-
-        @Override
-        public ValueContainer<Value> compute() {
-          try {
-            return myBackendStorage.read(key);
-          }
-          catch (StorageException e) {
-            throw new RuntimeException(e);
-          }
+        catch (StorageException e) {
+          throw new RuntimeException(e);
         }
       });
-      myMap.put(key, valueContainer);
-    }
-    return valueContainer;
+    });
   }
 
   @Override

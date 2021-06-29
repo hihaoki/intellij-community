@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInsight;
 
 import com.intellij.codeInsight.daemon.DaemonBundle;
@@ -9,6 +9,8 @@ import com.intellij.codeInsight.daemon.impl.PsiElementListNavigator;
 import com.intellij.codeInsight.navigation.BackgroundUpdaterTask;
 import com.intellij.ide.util.MethodCellRenderer;
 import com.intellij.ide.util.PsiElementListCellRenderer;
+import com.intellij.ide.util.PsiElementRenderingInfo;
+import com.intellij.ide.util.PsiMethodRenderingInfo;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadActionProcessor;
@@ -25,9 +27,10 @@ import com.intellij.util.CommonProcessors;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.Processor;
 import com.intellij.util.Processors;
-import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrAccessorMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
@@ -115,7 +118,7 @@ public final class GroovyMarkerTypes {
     PsiMethod[] overridings = processor.toArray(new PsiMethod[processor.getCollection().size()]);
     if (overridings.length == 0) return null;
 
-    Comparator<PsiMethod> comparator = new MethodCellRenderer(false).getComparator();
+    Comparator<PsiMethod> comparator = PsiElementRenderingInfo.getComparator(new PsiMethodRenderingInfo(false));
     Arrays.sort(overridings, comparator);
 
     String start = DaemonBundle.message("method.is.overriden.header");
@@ -127,20 +130,22 @@ public final class GroovyMarkerTypes {
       PsiElement parent = element.getParent();
       if (!(parent instanceof GrField)) return;
       if (DumbService.isDumb(element.getProject())) {
-        DumbService.getInstance(element.getProject()).showDumbModeNotification("Navigation to overriding classes is not possible during index update");
+        DumbService.getInstance(element.getProject()).showDumbModeNotification(
+          GroovyBundle.message("popup.content.navigation.to.overriding.classes.unavailable")
+        );
         return;
       }
 
       final GrField field = (GrField)parent;
 
 
-      Set<PsiMethod> result = new THashSet<>();
+      Set<PsiMethod> result = new HashSet<>();
       Processor<PsiMethod> collectProcessor = Processors.cancelableCollectProcessor(result);
       if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> ApplicationManager.getApplication().runReadAction(() -> {
         for (GrAccessorMethod method : GroovyPropertyUtils.getFieldAccessors(field)) {
           OverridingMethodsSearch.search(method).forEach(collectProcessor);
         }
-      }), "Searching for overriding methods", true, field.getProject(), (JComponent)e.getComponent())) {
+      }), JavaAnalysisBundle.message("searching.for.overriding.methods"), true, field.getProject(), (JComponent)e.getComponent())) {
         return;
       }
 
@@ -150,7 +155,7 @@ public final class GroovyMarkerTypes {
       boolean showMethodNames = !PsiUtil.allMethodsHaveSameSignature(overridings);
       MethodCellRenderer renderer = new MethodCellRenderer(showMethodNames);
       Arrays.sort(overridings, renderer.getComparator());
-      PsiElementListNavigator.openTargets(e, overridings, title, "Overriding Methods of " + field.getName(), renderer);
+      PsiElementListNavigator.openTargets(e, overridings, title, GroovyBundle.message("overriding.methods.of.0",field.getName()) , renderer);
     }
   }
   );
@@ -193,49 +198,51 @@ public final class GroovyMarkerTypes {
 
       }
     });
-  public static final MarkerType GR_OVERRIDDEN_METHOD = new MarkerType("GR_OVERRIDEN_METHOD",
-                                                                       (NullableFunction<PsiElement, String>)element -> {
-                                                                        PsiElement parent = element.getParent();
-                                                                        if (!(parent instanceof GrMethod)) return null;
-                                                                        GrMethod method = (GrMethod)parent;
+  public static final MarkerType GR_OVERRIDDEN_METHOD =
+    new MarkerType("GR_OVERRIDEN_METHOD", (NullableFunction<PsiElement, String>)element -> {
+      PsiElement parent = element.getParent();
+      if (!(parent instanceof GrMethod)) return null;
+      GrMethod method = (GrMethod)parent;
 
-                                                                        final PsiElementProcessor.CollectElementsWithLimit<PsiMethod> processor =
-                                                                          new PsiElementProcessor.CollectElementsWithLimit<>(5);
+      final PsiElementProcessor.CollectElementsWithLimit<PsiMethod> processor =
+        new PsiElementProcessor.CollectElementsWithLimit<>(5);
 
-                                                                        for (GrMethod m : PsiImplUtil.getMethodOrReflectedMethods(method)) {
-                                                                          OverridingMethodsSearch.search(m).forEach(new ReadActionProcessor<PsiMethod>() {
-                                                                            @Override
-                                                                            public boolean processInReadAction(PsiMethod method) {
-                                                                              if (method instanceof GrTraitMethod) {
-                                                                                return true;
-                                                                              }
-                                                                              return processor.execute(method);
-                                                                            }
-                                                                          });
-                                                                        }
+      for (GrMethod m : PsiImplUtil.getMethodOrReflectedMethods(method)) {
+        OverridingMethodsSearch.search(m).forEach(
+          new ReadActionProcessor<>() {
+            @Override
+            public boolean processInReadAction(PsiMethod method) {
+              if (method instanceof GrTraitMethod) {
+                return true;
+              }
+              return processor.execute(method);
+            }
+          });
+      }
 
-                                                                        boolean isAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
+      boolean isAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
 
-                                                                        if (processor.isOverflow()){
-                                                                          return isAbstract ? DaemonBundle.message("method.is.implemented.too.many") : DaemonBundle.message("method.is.overridden.too.many");
-                                                                        }
+      if (processor.isOverflow()) {
+        return isAbstract ? DaemonBundle.message("method.is.implemented.too.many") : DaemonBundle.message("method.is.overridden.too.many");
+      }
 
-                                                                        PsiMethod[] overridings = processor.toArray(new PsiMethod[processor.getCollection().size()]);
-                                                                        if (overridings.length == 0) return null;
+      PsiMethod[] overridings = processor.toArray(new PsiMethod[processor.getCollection().size()]);
+      if (overridings.length == 0) return null;
 
-                                                                        Comparator<PsiMethod> comparator = new MethodCellRenderer(false).getComparator();
-                                                                        Arrays.sort(overridings, comparator);
+      Comparator<PsiMethod> comparator = PsiElementRenderingInfo.getComparator(new PsiMethodRenderingInfo(false));
+      Arrays.sort(overridings, comparator);
 
-                                                                        String start = isAbstract ? DaemonBundle.message("method.is.implemented.header") : DaemonBundle.message("method.is.overriden.header");
-                                                                        @NonNls String pattern = "&nbsp;&nbsp;&nbsp;&nbsp;{1}";
-                                                                        return GutterIconTooltipHelper.composeText(overridings, start, pattern);
-                                                                      }, new LineMarkerNavigator(){
+      String start = isAbstract ? DaemonBundle.message("method.is.implemented.header") : DaemonBundle.message("method.is.overriden.header");
+      @NonNls String pattern = "&nbsp;&nbsp;&nbsp;&nbsp;{1}";
+      return GutterIconTooltipHelper.composeText(overridings, start, pattern);
+    }, new LineMarkerNavigator() {
       @Override
       public void browse(MouseEvent e, PsiElement element) {
         PsiElement parent = element.getParent();
         if (!(parent instanceof GrMethod)) return;
         if (DumbService.isDumb(element.getProject())) {
-          DumbService.getInstance(element.getProject()).showDumbModeNotification("Navigation to overriding classes is not possible during index update");
+          DumbService.getInstance(element.getProject()).showDumbModeNotification(
+            GroovyBundle.message("popup.content.navigation.to.overriding.classes.unavailable"));
           return;
         }
 
@@ -243,10 +250,10 @@ public final class GroovyMarkerTypes {
         //collect all overrings (including fields with implicit accessors and method with default parameters)
         final GrMethod method = (GrMethod)parent;
         final PsiElementProcessor.CollectElementsWithLimit<PsiMethod> collectProcessor =
-          new PsiElementProcessor.CollectElementsWithLimit<>(2, new THashSet<>());
+          new PsiElementProcessor.CollectElementsWithLimit<>(2, new HashSet<>());
         if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> ApplicationManager.getApplication().runReadAction(() -> {
           for (GrMethod m : PsiImplUtil.getMethodOrReflectedMethods(method)) {
-            OverridingMethodsSearch.search(m).forEach(new ReadActionProcessor<PsiMethod>() {
+            OverridingMethodsSearch.search(m).forEach(new ReadActionProcessor<>() {
               @Override
               public boolean processInReadAction(PsiMethod psiMethod) {
                 if (psiMethod instanceof GrReflectedMethod) {
@@ -267,9 +274,8 @@ public final class GroovyMarkerTypes {
         Arrays.sort(overridings, renderer.getComparator());
         final OverridingMethodsUpdater methodsUpdater = new OverridingMethodsUpdater(method, renderer);
         PsiElementListNavigator.openTargets(e, overridings, methodsUpdater.getCaption(overridings.length),
-                                            "Overriding Methods of " + method.getName(),
+                                            GroovyBundle.message("overriding.methods.of.0", method.getName()),
                                             renderer, methodsUpdater);
-
       }
     });
 
@@ -317,7 +323,7 @@ public final class GroovyMarkerTypes {
     }
 
     @Override
-    public String getCaption(int size) {
+    public @Nls String getCaption(int size) {
       return myMethod.hasModifierProperty(PsiModifier.ABSTRACT) ?
              DaemonBundle.message("navigation.title.implementation.method", myMethod.getName(), size) :
              DaemonBundle.message("navigation.title.overrider.method", myMethod.getName(), size);
@@ -328,7 +334,7 @@ public final class GroovyMarkerTypes {
       super.run(indicator);
       for (PsiMethod method : PsiImplUtil.getMethodOrReflectedMethods(myMethod)) {
         OverridingMethodsSearch.search(method).forEach(
-          new CommonProcessors.CollectProcessor<PsiMethod>() {
+          new CommonProcessors.CollectProcessor<>() {
             @Override
             public boolean process(PsiMethod psiMethod) {
               if (!updateComponent(com.intellij.psi.impl.PsiImplUtil.handleMirror(psiMethod))) {

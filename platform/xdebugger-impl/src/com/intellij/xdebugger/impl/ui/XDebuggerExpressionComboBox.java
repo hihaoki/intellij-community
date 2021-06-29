@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
@@ -44,7 +44,7 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
   public XDebuggerExpressionComboBox(@NotNull Project project, @NotNull XDebuggerEditorsProvider debuggerEditorsProvider, @Nullable @NonNls String historyId,
                                      @Nullable XSourcePosition sourcePosition, boolean showEditor, boolean languageInside) {
     super(project, debuggerEditorsProvider, EvaluationMode.EXPRESSION, historyId, sourcePosition);
-    myComboBox = new ComboBox<>(myModel, 100);
+    myComboBox = createComboBox(myModel, 100);
     myComboBox.setEditable(true);
     myExpression = XExpressionImpl.EMPTY_EXPRESSION;
     Dimension minimumSize = new Dimension(myComboBox.getMinimumSize());
@@ -54,6 +54,10 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
     fillComboBox();
     myComponent = JBUI.Panels.simplePanel().addToTop(myComboBox);
     setExpression(myExpression);
+  }
+
+  protected ComboBox<XExpression> createComboBox(CollectionComboBoxModel<XExpression> model, int width) {
+    return new ComboBox<>(model, width);
   }
 
   public ComboBox getComboBox() {
@@ -142,7 +146,7 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
   }
 
   @Override
-  protected void prepareEditor(Editor editor) {
+  protected void prepareEditor(EditorEx editor) {
     super.prepareEditor(editor);
     editor.getColorsScheme().setEditorFontSize(Math.min(myComboBox.getFont().getSize(), EditorUtil.getEditorFont().getSize()));
   }

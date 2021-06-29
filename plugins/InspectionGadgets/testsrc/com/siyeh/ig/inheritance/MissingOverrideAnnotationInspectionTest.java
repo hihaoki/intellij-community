@@ -15,7 +15,10 @@
  */
 package com.siyeh.ig.inheritance;
 
+import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
 import com.intellij.codeInspection.InspectionProfileEntry;
+import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
@@ -49,8 +52,8 @@ public class MissingOverrideAnnotationInspectionTest extends LightJavaInspection
     IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_1_7, this::doTest);
   }
   
-  public void testRecordAccessorJava14() {
-    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_14_PREVIEW, this::doTest);
+  public void _testRecordAccessorJava14() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_15_PREVIEW, this::doTest);
   }
   
   public void testRecordAccessorJava15() {
@@ -67,5 +70,23 @@ public class MissingOverrideAnnotationInspectionTest extends LightJavaInspection
   @Override
   protected InspectionProfileEntry getInspection() {
     return new MissingOverrideAnnotationInspection();
+  }
+
+  public static class MissingOverrideAnnotationInspectionFixTest extends LightQuickFixParameterizedTestCase {
+    @Override
+    protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
+      return new MissingOverrideAnnotationInspection[]{new MissingOverrideAnnotationInspection()};
+    }
+
+    @Override
+    protected String getBasePath() {
+      return "/com/siyeh/igtest/inheritance/missing_override_annotation";
+    }
+
+    @NotNull
+    @Override
+    protected String getTestDataPath() {
+      return PluginPathManager.getPluginHomePath("InspectionGadgets") + "/test";
+    }
   }
 }

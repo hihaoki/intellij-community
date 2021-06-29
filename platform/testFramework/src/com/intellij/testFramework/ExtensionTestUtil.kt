@@ -8,7 +8,9 @@ import com.intellij.openapi.extensions.impl.ExtensionPointImpl
 import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl
 import com.intellij.openapi.util.KeyedExtensionCollector
 import com.intellij.util.KeyedLazyInstance
+import org.jetbrains.annotations.TestOnly
 
+@TestOnly
 object ExtensionTestUtil {
   /**
    * @see ExtensionPointImpl.maskAll
@@ -21,6 +23,23 @@ object ExtensionTestUtil {
                          fireEvents: Boolean = true,
                          areaInstance: AreaInstance? = null) {
     (pointName.getPoint(areaInstance) as ExtensionPointImpl<T>).maskAll(newExtensions, parentDisposable, fireEvents)
+  }
+
+  /**
+   * Takes current extensions for the extension point,
+   * adds a given extensions and masks the extension point
+   * with the resulting list of extensions.
+   *
+   * @see ExtensionPointImpl.maskAll
+   */
+  @JvmStatic
+  @JvmOverloads
+  fun <T> addExtensions(pointName: ExtensionPointName<T>,
+                        extensionsToAdd: List<T>,
+                        parentDisposable: Disposable,
+                        fireEvents: Boolean = true,
+                        areaInstance: AreaInstance? = null) {
+    maskExtensions(pointName, pointName.extensionList + extensionsToAdd, parentDisposable, fireEvents, areaInstance)
   }
 
   @JvmStatic

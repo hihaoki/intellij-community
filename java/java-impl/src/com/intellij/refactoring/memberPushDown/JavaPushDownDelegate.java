@@ -7,6 +7,7 @@ import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.codeInsight.intention.impl.CreateClassDialog;
 import com.intellij.codeInsight.intention.impl.CreateSubclassAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.diagnostic.Logger;
@@ -96,7 +97,7 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
     }
     if (targetClass instanceof PsiAnonymousClass &&
         toMove.stream().map(MemberInfoBase::getOverrides).anyMatch(Objects::nonNull)) {
-      conflicts.putValue(targetClass, "Unable to push implements to anonymous class");
+      conflicts.putValue(targetClass, JavaBundle.message("push.down.anonymous.conflict"));
     }
     new PushDownConflicts((PsiClass)pushDownData.getSourceClass(), toMove.toArray(new MemberInfo[0]), conflicts)
       .checkTargetClassConflicts(targetClass, context);
@@ -191,8 +192,8 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
     }
     final PsiClass sourceClass = (PsiClass)pushDownData.getSourceClass();
     final PsiSubstitutor substitutor = TypeConversionUtil.getSuperClassSubstitutor(sourceClass, targetClass, PsiSubstitutor.EMPTY);
-    for (MemberInfoBase<? extends PsiElement> memberInfo : pushDownData.getMembersToMove()) {
-      PsiMember member = (PsiMember)memberInfo.getMember();
+    for (MemberInfo memberInfo : pushDownData.getMembersToMove()) {
+      PsiMember member = memberInfo.getMember();
       final List<PsiReference> refsToRebind = new ArrayList<>();
       final PsiModifierList list = member.getModifierList();
       LOG.assertTrue(list != null);
@@ -306,7 +307,7 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
           final PsiClass psiClass = (PsiClass)memberInfo.getMember();
           PsiClassType classType = null;
           if (!targetClass.isInheritor(psiClass, false)) {
-            final PsiClassType[] types = ((MemberInfo)memberInfo).getSourceReferenceList().getReferencedTypes();
+            final PsiClassType[] types = memberInfo.getSourceReferenceList().getReferencedTypes();
             for (PsiClassType type : types) {
               if (type.resolve() == psiClass) {
                 classType = (PsiClassType)substitutor.substitute(type);

@@ -21,6 +21,7 @@ public class SingleRowPassInfo extends LayoutPassInfo {
   public final List<TabInfo> toDrop;
   final int moreRectAxisSize;
   public Rectangle moreRect;
+  public Rectangle titleRect;
 
   public WeakReference<JComponent> hToolbar;
   public WeakReference<JComponent> vToolbar;
@@ -47,18 +48,6 @@ public class SingleRowPassInfo extends LayoutPassInfo {
   @Override
   public int getRowCount() {
     return 1;
-  }
-
-  @Deprecated
-  @Override
-  public int getColumnCount(final int row) {
-    return myVisibleInfos.size();
-  }
-
-  @Deprecated
-  @Override
-  public TabInfo getTabAt(final int row, final int column) {
-    return myVisibleInfos.get(column);
   }
 
   @Override

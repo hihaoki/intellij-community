@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic
 
 import com.intellij.CommonBundle
@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.util.ui.UIUtil
 import java.nio.file.Path
 
@@ -34,7 +35,7 @@ class WindowsDefenderCheckerActivity : StartupActivity.Background {
         nonExcludedPaths
       )
       notification.isImportant = true
-      notification.collapseActionsDirection = Notification.CollapseActionsDirection.KEEP_LEFTMOST
+      notification.collapseDirection = Notification.CollapseActionsDirection.KEEP_LEFTMOST
       windowsDefenderChecker.configureActions(project, notification)
 
       app.invokeLater {
@@ -44,7 +45,7 @@ class WindowsDefenderCheckerActivity : StartupActivity.Background {
   }
 }
 
-class WindowsDefenderNotification(title: String, text: String, val paths: Collection<Path>) :
+class WindowsDefenderNotification(@NlsContexts.NotificationTitle title: String, @NlsContexts.NotificationContent text: String, val paths: Collection<Path>) :
   Notification(NotificationGroup.createIdWithTitle("System Health", IdeBundle.message("notification.group.system.health")), title, text, NotificationType.WARNING), NotificationFullContent
 
 class WindowsDefenderFixAction(val paths: Collection<Path>) : NotificationAction(DiagnosticBundle.message("virus.scanning.fix.action")) {

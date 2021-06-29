@@ -11,6 +11,7 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.VcsDataKeys
@@ -30,6 +31,7 @@ import org.jetbrains.plugins.github.api.GHRepositoryCoordinates
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.action.GHPRActionKeys
 import org.jetbrains.plugins.github.util.GHProjectRepositoriesManager
+import org.jetbrains.plugins.github.util.GithubNotificationIdsHolder
 import org.jetbrains.plugins.github.util.GithubNotifications
 import org.jetbrains.plugins.github.util.GithubUtil
 
@@ -89,7 +91,7 @@ open class GHOpenInBrowserActionGroup
     val accessibleRepositories = project.service<GHProjectRepositoriesManager>().findKnownRepositories(repository)
     if (accessibleRepositories.isEmpty()) return null
 
-    return accessibleRepositories.map { Data.Revision(project, it.repository, fileRevision.revisionNumber.asString()) }
+    return accessibleRepositories.map { Data.Revision(project, it.ghRepositoryCoordinates, fileRevision.revisionNumber.asString()) }
   }
 
   private fun getDataFromLog(project: Project, dataContext: DataContext): List<Data>? {
@@ -107,7 +109,7 @@ open class GHOpenInBrowserActionGroup
     val accessibleRepositories = project.service<GHProjectRepositoriesManager>().findKnownRepositories(repository)
     if (accessibleRepositories.isEmpty()) return null
 
-    return accessibleRepositories.map { Data.Revision(project, it.repository, commit.hash.asString()) }
+    return accessibleRepositories.map { Data.Revision(project, it.ghRepositoryCoordinates, commit.hash.asString()) }
   }
 
   private fun getDataFromVirtualFile(project: Project, dataContext: DataContext): List<Data>? {
@@ -125,7 +127,7 @@ open class GHOpenInBrowserActionGroup
 
     val change = changeListManager.getChange(virtualFile)
     return if (change != null && change.type == Change.Type.NEW) null
-    else accessibleRepositories.map { Data.File(project, it.repository, repository.root, virtualFile) }
+    else accessibleRepositories.map { Data.File(project, it.ghRepositoryCoordinates, repository.root, virtualFile) }
   }
 
   protected sealed class Data(val project: Project) {
@@ -137,14 +139,22 @@ open class GHOpenInBrowserActionGroup
                val repository: GHRepositoryCoordinates,
                val gitRepoRoot: VirtualFile,
                val virtualFile: VirtualFile) : Data(project) {
-      override fun getName() = repository.toString().replace('_', ' ')
+      override fun getName(): String {
+        @NlsSafe
+        val formatted = repository.toString().replace('_', ' ')
+        return formatted
+      }
     }
 
     class Revision(project: Project, val repository: GHRepositoryCoordinates, val revisionHash: String) : Data(project) {
-      override fun getName() = repository.toString().replace('_', ' ')
+      override fun getName(): String {
+        @NlsSafe
+        val formatted = repository.toString().replace('_', ' ')
+        return formatted
+      }
     }
 
-    class URL(project: Project, val htmlUrl: String) : Data(project) {
+    class URL(project: Project, @NlsSafe val htmlUrl: String) : Data(project) {
       override fun getName() = htmlUrl
     }
   }
@@ -173,7 +183,8 @@ open class GHOpenInBrowserActionGroup
                                     editor: Editor?) {
         val relativePath = VfsUtilCore.getRelativePath(virtualFile, repositoryRoot)
         if (relativePath == null) {
-          GithubNotifications.showError(project, GithubBundle.message("cannot.open.in.browser"),
+          GithubNotifications.showError(project, GithubNotificationIdsHolder.OPEN_IN_BROWSER_FILE_IS_NOT_UNDER_REPO,
+                                        GithubBundle.message("cannot.open.in.browser"),
                                         GithubBundle.message("open.on.github.file.is.not.under.repository"),
                                         "Root: " + repositoryRoot.presentableUrl + ", file: " + virtualFile.presentableUrl)
           return
@@ -181,7 +192,9 @@ open class GHOpenInBrowserActionGroup
 
         val hash = getCurrentFileRevisionHash(project, virtualFile)
         if (hash == null) {
-          GithubNotifications.showError(project, GithubBundle.message("cannot.open.in.browser"),
+          GithubNotifications.showError(project,
+                                        GithubNotificationIdsHolder.OPEN_IN_BROWSER_CANNOT_GET_LAST_REVISION,
+                                        GithubBundle.message("cannot.open.in.browser"),
                                         GithubBundle.message("cannot.get.last.revision"))
           return
         }

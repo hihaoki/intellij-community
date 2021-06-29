@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.patterns;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -22,8 +23,12 @@ import static com.intellij.patterns.StandardPatterns.collection;
 import static com.intellij.patterns.StandardPatterns.not;
 
 /**
+ * Provides patterns to put conditions on {@link PsiElement}.
+ * <p>
+ * Please see the <a href="https://plugins.jetbrains.com/docs/intellij/element-patterns.html">IntelliJ Platform Docs</a>
+ * for a high-level overview.
+ *
  * @see PlatformPatterns#psiElement()
- * @author peter
  */
 public abstract class PsiElementPattern<T extends PsiElement, Self extends PsiElementPattern<T, Self>> extends TreeElementPattern<PsiElement, T, Self> {
   protected PsiElementPattern(final Class<T> aClass) {
@@ -58,7 +63,7 @@ public abstract class PsiElementPattern<T extends PsiElement, Self extends PsiEl
   }
 
   @NotNull
-  public Self afterLeaf(final String @NotNull ... withText) {
+  public Self afterLeaf(@NlsSafe final String @NotNull ... withText) {
     return afterLeaf(psiElement().withText(StandardPatterns.string().oneOf(withText)));
   }
 
@@ -68,7 +73,7 @@ public abstract class PsiElementPattern<T extends PsiElement, Self extends PsiEl
   }
 
   @NotNull
-  public Self beforeLeaf(final String @NotNull ... withText) {
+  public Self beforeLeaf(@NlsSafe final String @NotNull ... withText) {
     return beforeLeaf(psiElement().withText(StandardPatterns.string().oneOf(withText)));
   }
 
@@ -246,7 +251,7 @@ public abstract class PsiElementPattern<T extends PsiElement, Self extends PsiEl
       @Override
       public boolean processValues(T t,
                                    ProcessingContext context,
-                                   PairProcessor<Integer, ProcessingContext> integerProcessingContextPairProcessor) {
+                                   PairProcessor<? super Integer, ? super ProcessingContext> integerProcessingContextPairProcessor) {
         return integerProcessingContextPairProcessor.process(t.getTextLength(), context);
       }
     });
@@ -278,7 +283,7 @@ public abstract class PsiElementPattern<T extends PsiElement, Self extends PsiEl
       @Override
       public boolean processValues(T t,
                                    ProcessingContext context,
-                                   PairProcessor<String, ProcessingContext> processor) {
+                                   PairProcessor<? super String, ? super ProcessingContext> processor) {
         return processor.process(t.getText(), context);
       }
     };

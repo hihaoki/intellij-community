@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.ProjectTopics;
@@ -12,13 +12,16 @@ import com.intellij.idea.IdeaLogger;
 import com.intellij.lang.Language;
 import com.intellij.mock.MockApplication;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataProvider;
+import com.intellij.openapi.actionSystem.EmptyAction;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.command.impl.StartMarkAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
@@ -35,15 +38,14 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.project.impl.ProjectImpl;
-import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.impl.ProjectJdkTableImpl;
 import com.intellij.openapi.roots.AnnotationOrderRootType;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx;
 import com.intellij.openapi.roots.impl.ProjectRootManagerImpl;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
@@ -51,6 +53,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingManagerImpl;
+import com.intellij.openapi.roots.impl.libraries.LibraryTableTracker;
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
@@ -64,7 +67,6 @@ import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
 import com.intellij.psi.impl.PsiDocumentManagerImpl;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
-import com.intellij.refactoring.rename.inplace.InplaceRefactoring;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.ThrowableRunnable;
@@ -72,12 +74,9 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.PathKt;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
-import com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeProjectLifecycleListener;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.junit.Rule;
-import org.junit.rules.TestRule;
 
 import javax.swing.*;
 import java.io.IOException;
@@ -86,14 +85,12 @@ import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
-import static com.intellij.testFramework.RunAll.runAll;
 
-/**
- * @author yole
- */
 public abstract class LightPlatformTestCase extends UsefulTestCase implements DataProvider {
   private static Project ourProject;
   private static Module ourModule;
@@ -108,9 +105,10 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
   static {
     PlatformTestUtil.registerProjectCleanup(LightPlatformTestCase::closeAndDeleteProject);
   }
-
   private VirtualFilePointerTracker myVirtualFilePointerTracker;
+  private LibraryTableTracker myLibraryTableTracker;
   private CodeStyleSettingsTracker myCodeStyleSettingsTracker;
+  private Disposable mySdkParentDisposable = Disposer.newDisposable("sdk for project in light tests");
 
   /**
    * @return Project to be used in tests for example for project components retrieval.
@@ -239,7 +237,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
       testAppManager.setDataProvider(this);
       LightProjectDescriptor descriptor = getProjectDescriptor();
-      doSetup(descriptor, configureLocalInspectionTools(), getTestRootDisposable());
+      doSetup(descriptor, configureLocalInspectionTools(), getTestRootDisposable(), mySdkParentDisposable);
       InjectedLanguageManagerImpl.pushInjectors(getProject());
 
       myCodeStyleSettingsTracker = new CodeStyleSettingsTracker(
@@ -250,6 +248,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       myThreadTracker = new ThreadTracker();
       ModuleRootManager.getInstance(ourModule).orderEntries().getAllLibrariesAndSdkClassesRoots();
       myVirtualFilePointerTracker = new VirtualFilePointerTracker();
+      myLibraryTableTracker = new LibraryTableTracker();
     });
   }
 
@@ -260,7 +259,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
   public static @NotNull Pair.NonNull<Project, Module> doSetup(@NotNull LightProjectDescriptor descriptor,
                                                                LocalInspectionTool @NotNull [] localInspectionTools,
-                                                               @NotNull Disposable parentDisposable) {
+                                                               @NotNull Disposable parentDisposable, @NotNull Disposable sdkParentDisposable) {
     Application app = ApplicationManager.getApplication();
     Ref<Boolean> reusedProject = new Ref<>(true);
     app.invokeAndWait(() -> {
@@ -269,12 +268,12 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
       myOldSdks = new SdkLeakTracker();
 
+      descriptor.registerSdk(sdkParentDisposable);
+
       if (ourProject == null || ourProjectDescriptor == null || !ourProjectDescriptor.equals(descriptor)) {
         initProject(descriptor);
         reusedProject.set(false);
       }
-
-      descriptor.registerSdk(parentDisposable);
     });
 
     Project project = ourProject;
@@ -328,6 +327,8 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
         assertEmpty("There are unsaved documents", Arrays.asList(unsavedDocuments));
       }
+      ActionUtil.performActionDumbAwareWithCallbacks(
+        new EmptyAction(true), AnActionEvent.createFromDataContext("", null, DataContext.EMPTY_CONTEXT));
 
       // startup activities
       PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
@@ -360,7 +361,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
     // don't use method references here to make stack trace reading easier
     //noinspection Convert2MethodRef
-    runAll(
+    RunAll.runAll(
       () -> {
         if (ApplicationManager.getApplication() != null) {
           CodeStyle.dropTemporarySettings(project);
@@ -370,10 +371,6 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
         if (myCodeStyleSettingsTracker != null) {
           myCodeStyleSettingsTracker.checkForSettingsDamage();
         }
-      },
-      () -> {
-        StartMarkAction.checkCleared(project);
-        InplaceRefactoring.checkCleared();
       },
       () -> {
         if (project != null) {
@@ -388,14 +385,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       },
       () -> checkEditorsReleased(),
       () -> super.tearDown(),
-      () -> WriteAction.runAndWait(() -> {
-        if (project != null && LegacyBridgeProjectLifecycleListener.Companion.enabled(project)) {
-          ProjectJdkTableImpl jdkTable = (ProjectJdkTableImpl)ProjectJdkTable.getInstance();
-          for (Sdk jdk : jdkTable.getAllJdks()) {
-            jdkTable.removeTestJdk(jdk);
-          }
-        }
-      }),
+      () -> Disposer.dispose(mySdkParentDisposable),
       () -> myOldSdks.checkForJdkTableLeaks(),
       () -> {
         if (myThreadTracker != null) {
@@ -410,6 +400,11 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       () -> {
         if (myVirtualFilePointerTracker != null) {
           myVirtualFilePointerTracker.assertPointersAreDisposed();
+        }
+      },
+      () -> {
+        if (myLibraryTableTracker != null) {
+          myLibraryTableTracker.assertDisposed();
         }
       },
       () -> {
@@ -468,25 +463,22 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
   public static void checkEditorsReleased() {
     // don't use method references here to make stack trace reading easier
     //noinspection Convert2MethodRef
-    runAll(
+    RunAll.runAll(
       () -> UIUtil.dispatchAllInvocationEvents(),
       () -> {
-        Application app = ApplicationManager.getApplication();
         // getAllEditors() should be called only after dispatchAllInvocationEvents(), that's why separate RunAll is used
-        EditorFactory editorFactory = app == null ? null : app.getServiceIfCreated(EditorFactory.class);
-        if (editorFactory == null) {
-          return;
+        Application app = ApplicationManager.getApplication();
+        if (app != null) {
+          EditorFactory editorFactory = app.getServiceIfCreated(EditorFactory.class);
+          if (editorFactory != null) {
+            List<ThrowableRunnable<?>> actions = new ArrayList<>();
+            for (Editor editor : editorFactory.getAllEditors()) {
+              actions.add(() -> EditorFactoryImpl.throwNotReleasedError(editor));
+              actions.add(() -> editorFactory.releaseEditor(editor));
+            }
+            new RunAll(actions).run();
+          }
         }
-
-        RunAll runAll = new RunAll();
-        for (Editor editor : editorFactory.getAllEditors()) {
-          runAll = runAll
-            .append(
-              () -> EditorFactoryImpl.throwNotReleasedError(editor),
-              () -> editorFactory.releaseEditor(editor)
-            );
-        }
-        runAll.run();
       });
   }
 

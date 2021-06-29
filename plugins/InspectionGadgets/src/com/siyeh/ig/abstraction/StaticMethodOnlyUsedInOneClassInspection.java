@@ -177,6 +177,7 @@ public class StaticMethodOnlyUsedInOneClassInspection extends BaseGlobalInspecti
               @Override
               public boolean process(PsiReference reference) {
                 final PsiClass containingClass = ClassUtils.getContainingClass(reference.getElement());
+                if (containingClass == null) return false;
                 if (problemDescriptionsProcessor.getDescriptions(refEntity) != null) {
                   if (containingClass != ref.get()) {
                     problemDescriptionsProcessor.ignoreElement(refEntity);
@@ -373,7 +374,8 @@ public class StaticMethodOnlyUsedInOneClassInspection extends BaseGlobalInspecti
       @NotNull
       @Override
       public DataContext enhanceDataContext(DataContext context) {
-        return SimpleDataContext.getSimpleContext(LangDataKeys.TARGET_PSI_ELEMENT.getName(), myUsageClass.getElement(), context);
+        PsiClass element = myUsageClass.getElement();
+        return element == null ? context : SimpleDataContext.getSimpleContext(LangDataKeys.TARGET_PSI_ELEMENT, element, context);
       }
     }
 
@@ -389,7 +391,10 @@ public class StaticMethodOnlyUsedInOneClassInspection extends BaseGlobalInspecti
         super.visitField(field);
         if (!field.hasModifierProperty(PsiModifier.STATIC) || field.hasModifierProperty(PsiModifier.PRIVATE)) return;
         if (field instanceof PsiEnumConstant || isSingletonField(field)) return;
-        if (DeclarationSearchUtils.isTooExpensiveToSearch(field, true)) return;
+        if (DeclarationSearchUtils.isTooExpensiveToSearch(field, false)) {
+          registerPossibleProblem(field.getNameIdentifier());
+          return;
+        }
         final PsiClass usageClass = getUsageClass(field);
         if (usageClass == null) return;
         registerFieldError(field, field, usageClass);
@@ -406,7 +411,10 @@ public class StaticMethodOnlyUsedInOneClassInspection extends BaseGlobalInspecti
         if (MethodUtils.isFactoryMethod(method) || MethodUtils.isConvenienceOverload(method)) {
           return;
         }
-        if (DeclarationSearchUtils.isTooExpensiveToSearch(method, true)) return;
+        if (DeclarationSearchUtils.isTooExpensiveToSearch(method, false)) {
+          registerPossibleProblem(method.getNameIdentifier());
+          return;
+        }
         final PsiClass usageClass = getUsageClass(method);
         if (usageClass == null) return;
         registerMethodError(method, method, usageClass);

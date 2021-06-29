@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testGuiFramework.fixtures;
 
 import com.intellij.ide.OccurenceNavigatorSupport;
@@ -47,14 +47,14 @@ public class FindToolWindowFixture {
     public void findUsageGroup(@NotNull final String groupText) {
       final Tree tree = getContentsTree();
       final List<String> groupNames = Lists.newArrayList();
-      GroupNode foundGroup = execute(new GuiQuery<GroupNode>() {
+      GroupNode foundGroup = execute(new GuiQuery<>() {
         @Override
         @Nullable
         protected GroupNode executeInEDT() throws Throwable {
           GroupNode rootNode = (GroupNode)tree.getModel().getRoot();
           GroupNode found = null;
           for (GroupNode subGroup : rootNode.getSubGroups()) {
-            String subGroupText = subGroup.getGroup().getText(null);
+            String subGroupText = subGroup.getGroup().getPresentableGroupText();
             groupNames.add(subGroupText);
             if (groupText.equals(subGroupText)) {
               found = subGroup;

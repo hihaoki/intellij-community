@@ -1,7 +1,6 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ignore
 
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vcs.*
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtil.virtualToIoFile
@@ -58,7 +57,7 @@ internal class GitIgnoreChecker : VcsIgnoreChecker {
       }
 
       val gitIgnoreFile = VfsUtil.findRelativeFile(vcsRoot, *gitIgnoreRelPath.split("/").toTypedArray()) ?: continue
-      if (isPattern && path.equals(checkForIgnorePath, !SystemInfo.isFileSystemCaseSensitive)) {
+      if (isPattern && path.equals(checkForIgnorePath, !gitIgnoreFile.isCaseSensitive)) {
         return Ignored(virtualToIoFile(gitIgnoreFile), matchedPattern)
       }
       else if (!isPattern) {

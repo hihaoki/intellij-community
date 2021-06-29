@@ -5,13 +5,12 @@ import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkNo
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtilTestCase
 import com.intellij.openapi.externalSystem.service.execution.nonblockingResolveSdkBySdkName
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ui.configuration.SdkLookupProviderImpl
 import com.intellij.openapi.util.io.FileUtil
 import org.gradle.util.GradleVersion
+import org.jetbrains.plugins.gradle.settings.GradleLocalSettings
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
-import org.jetbrains.plugins.gradle.settings.GradleSystemSettings
 import java.io.File
 import java.util.*
 
@@ -51,11 +50,15 @@ abstract class GradleJdkResolutionTestCase : ExternalSystemJdkUtilTestCase() {
   }
 
   fun assertGradleJvmSuggestion(expected: () -> TestSdk, expectsSdkRegistration: Boolean = false) {
-    assertNewlyRegisteredSdks({ if (expectsSdkRegistration) expected() else null }) {
+    val lazyExpected by lazy { expected() }
+
+    assertNewlyRegisteredSdks({ if (expectsSdkRegistration) lazyExpected else null }) {
       val gradleJvm = suggestGradleJvm(project, externalProjectPath, gradleVersion)
       val gradleJdk = SdkLookupProviderImpl().nonblockingResolveSdkBySdkName(gradleJvm)
-      requireNotNull(gradleJdk) { "expected: ${expected()}" }
-      assertSdk(expected(), gradleJdk)
+      requireNotNull(gradleJdk) {
+        "expected: $lazyExpected ${if (expectsSdkRegistration) "to be registered" else "to be found"} but was null, gradleJvm = $gradleJvm "
+      }
+      assertSdk(lazyExpected, gradleJdk)
     }
   }
 
@@ -92,11 +95,10 @@ abstract class GradleJdkResolutionTestCase : ExternalSystemJdkUtilTestCase() {
   }
 
   fun assertGradleProperties(java: TestSdk?) {
-    assertEquals(java?.homePath, getGradleJavaHome(externalProjectPath))
+    assertEquals(java?.homePath, getGradleJavaHome(project, externalProjectPath))
   }
 
-  fun assertSuggestedGradleVersionFor(gradleVersionString: String?, javaVersionString: String) {
-    val gradleVersion = gradleVersionString?.let(GradleVersion::version)
+  fun assertSuggestedGradleVersionFor(gradleVersion: GradleVersion?, javaVersionString: String) {
     val testJdk = TestSdkGenerator.createNextSdk(javaVersionString)
     withRegisteredSdk(testJdk, isProjectSdk = true) {
       val actualGradleVersion = suggestGradleVersion(project)
@@ -107,14 +109,20 @@ abstract class GradleJdkResolutionTestCase : ExternalSystemJdkUtilTestCase() {
     }
   }
 
+  fun assertSuggestedGradleVersionFor(gradleVersionString: String, javaVersionString: String) {
+    val gradleVersion = GradleVersion.version(gradleVersionString)
+    assertSuggestedGradleVersionFor(gradleVersion, javaVersionString)
+  }
+
   fun withServiceGradleUserHome(action: () -> Unit) {
-    val systemSettings = GradleSystemSettings.getInstance()
-    val serviceDirectoryPath = systemSettings.serviceDirectoryPath
-    systemSettings.serviceDirectoryPath = gradleUserHome
+    val localSettings = GradleLocalSettings.getInstance(project)
+    val localGradleUserHome = localSettings.gradleUserHome
+    localSettings.gradleUserHome = gradleUserHome
     try {
       action()
-    } finally {
-      systemSettings.serviceDirectoryPath = serviceDirectoryPath
+    }
+    finally {
+      localSettings.gradleUserHome = localGradleUserHome
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl;
 
 import com.intellij.ProjectTopics;
@@ -13,6 +13,7 @@ import com.intellij.ide.util.treeView.AbstractTreeUpdater;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.AdditionalLibraryRootsListener;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.vcs.FileStatusListener;
@@ -32,10 +33,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.Set;
+import java.util.*;
 
 public class ProjectTreeBuilder extends BaseProjectTreeBuilder {
   public ProjectTreeBuilder(@NotNull Project project,
@@ -53,7 +51,7 @@ public class ProjectTreeBuilder extends BaseProjectTreeBuilder {
         queueUpdate();
       }
     });
-
+    connection.subscribe(AdditionalLibraryRootsListener.TOPIC, (presentableLibraryName, oldRoots, newRoots, libraryNameForDebug) -> queueUpdate());
     connection.subscribe(BookmarksListener.TOPIC, new MyBookmarksListener());
 
     PsiManager.getInstance(project).addPsiTreeChangeListener(createPsiTreeChangeListener(project), this);
@@ -141,7 +139,7 @@ public class ProjectTreeBuilder extends BaseProjectTreeBuilder {
 
   private class MyProblemListener implements ProblemListener {
     private final Alarm myUpdateProblemAlarm = new Alarm();
-    private final Collection<VirtualFile> myFilesToRefresh = new THashSet<>();
+    private final Collection<VirtualFile> myFilesToRefresh = new HashSet<>();
 
     @Override
     public void problemsAppeared(@NotNull VirtualFile file) {

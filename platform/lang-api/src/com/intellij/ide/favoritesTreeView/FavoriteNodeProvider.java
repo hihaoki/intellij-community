@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.favoritesTreeView;
 
@@ -7,6 +7,7 @@ import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NonNls;
@@ -19,8 +20,6 @@ import java.util.Collection;
  * Returns the nodes which should be added to the Favorites for the given data context.
  * Implementations of this class must be registered as extensions for
  * {@code com.intellij.favoriteNodeProvider} extension point.
- *
- * @author yole
  */
 public abstract class FavoriteNodeProvider {
   public static final ExtensionPointName<FavoriteNodeProvider> EP_NAME = new ExtensionPointName<>("com.intellij.favoriteNodeProvider");
@@ -58,6 +57,7 @@ public abstract class FavoriteNodeProvider {
    * @return the location text, or -1 if {@code element} is not an element supported by this provider.
    */
   @Nullable
+  @NlsSafe
   public abstract String getElementLocation(final Object element);
 
   /**

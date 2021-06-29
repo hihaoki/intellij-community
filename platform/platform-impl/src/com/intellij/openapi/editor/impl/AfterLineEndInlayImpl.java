@@ -10,12 +10,21 @@ import org.jetbrains.annotations.NotNull;
 import java.awt.*;
 import java.util.List;
 
-final class AfterLineEndInlayImpl<R extends EditorCustomElementRenderer> extends InlayImpl<R, AfterLineEndInlayImpl<?>> {
+public final class AfterLineEndInlayImpl<R extends EditorCustomElementRenderer> extends InlayImpl<R, AfterLineEndInlayImpl<?>> {
   private static int ourGlobalCounter = 0;
+  private final boolean mySoftWrappable;
+  public final int myPriority;
   final int myOrder;
 
-  AfterLineEndInlayImpl(@NotNull EditorImpl editor, int offset, boolean relatesToPrecedingText, @NotNull R renderer) {
+  AfterLineEndInlayImpl(@NotNull EditorImpl editor,
+                        int offset,
+                        boolean relatesToPrecedingText,
+                        boolean softWrappable,
+                        int priority,
+                        @NotNull R renderer) {
     super(editor, offset, relatesToPrecedingText, renderer);
+    mySoftWrappable = softWrappable;
+    myPriority = priority;
     //noinspection AssignmentToStaticFieldFromInstanceMethod
     myOrder = ourGlobalCounter++;
   }
@@ -57,6 +66,10 @@ final class AfterLineEndInlayImpl<R extends EditorCustomElementRenderer> extends
     List<Inlay<?>> inlays = myEditor.getInlayModel().getAfterLineEndElementsForLogicalLine(logicalLine);
     int order = inlays.indexOf(this);
     return new VisualPosition(position.line, position.column + 1 + order);
+  }
+
+  public boolean isSoftWrappable() {
+    return mySoftWrappable;
   }
 
   @Override

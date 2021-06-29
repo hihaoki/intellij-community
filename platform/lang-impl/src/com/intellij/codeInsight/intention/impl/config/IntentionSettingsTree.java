@@ -7,6 +7,7 @@ import com.intellij.ide.DefaultTreeExpander;
 import com.intellij.ide.TreeExpander;
 import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.ActionToolbar;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -63,14 +64,12 @@ public abstract class IntentionSettingsTree {
         final String text = getNodeText(node);
         Color background = UIUtil.getTreeBackground(selected, true);
         UIUtil.changeBackGround(this, background);
-        if (text != null) {
-          SearchUtil.appendFragments(myFilter != null ? myFilter.getFilter() : null,
-                                     text,
-                                     attributes.getStyle(),
-                                     attributes.getFgColor(),
-                                     background,
-                                     getTextRenderer());
-        }
+        SearchUtil.appendFragments(myFilter != null ? myFilter.getFilter() : null,
+                                   text,
+                                   attributes.getStyle(),
+                                   attributes.getFgColor(),
+                                   background,
+                                   getTextRenderer());
       }
     }, new CheckedTreeNode(null));
 
@@ -97,7 +96,9 @@ public abstract class IntentionSettingsTree {
     group.add(actionManager.createExpandAllAction(treeExpander, myTree));
     group.add(actionManager.createCollapseAllAction(treeExpander, myTree));
 
-    myNorthPanel.add(ActionManager.getInstance().createActionToolbar("IntentionSettingsTree", group, true).getComponent(), BorderLayout.WEST);
+    ActionToolbar treeToolbar = ActionManager.getInstance().createActionToolbar("IntentionSettingsTree", group, true);
+    treeToolbar.setTargetComponent(myTree);
+    myNorthPanel.add(treeToolbar.getComponent(), BorderLayout.WEST);
 
     myComponent.add(myNorthPanel, BorderLayout.NORTH);
     myComponent.add(scrollPane, BorderLayout.CENTER);
@@ -110,7 +111,7 @@ public abstract class IntentionSettingsTree {
 
   public void filter(List<IntentionActionMetaData> intentionsToShow) {
     refreshCheckStatus((CheckedTreeNode)myTree.getModel().getRoot());
-    reset(intentionsToShow);
+    reset(copyAndSort(intentionsToShow));
   }
 
   public void reset(){
@@ -329,7 +330,7 @@ public abstract class IntentionSettingsTree {
     void visit(CheckedTreeNode node);
   }
   private static void visitChildren(TreeNode node, CheckedNodeVisitor visitor) {
-    Enumeration children = node.children();
+    Enumeration<?> children = node.children();
     while (children.hasMoreElements()) {
       final CheckedTreeNode child = (CheckedTreeNode)children.nextElement();
       visitor.visit(child);

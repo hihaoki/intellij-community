@@ -20,10 +20,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.StringUtilRt;
+import git4idea.http.GitAskPassApp;
+import git4idea.http.GitAskPassXmlRpcHandler;
+import git4idea.ssh.GitXmlRpcHandlerService;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.git4idea.http.GitAskPassApp;
-import org.jetbrains.git4idea.http.GitAskPassXmlRpcHandler;
-import org.jetbrains.git4idea.ssh.GitXmlRpcHandlerService;
 
 import java.io.File;
 import java.util.Collection;
@@ -62,7 +62,7 @@ public abstract class GitHttpAuthService extends GitXmlRpcHandlerService<GitHttp
     public @NotNull String handleInput(@NotNull String handlerNo, @NotNull String arg) {
       GitHttpAuthenticator handler = getHandler(UUID.fromString(handlerNo));
 
-      boolean usernameNeeded = StringUtilRt.startsWithIgnoreCase(arg, "username");
+      boolean usernameNeeded = StringUtilRt.startsWithIgnoreCase(arg, "username"); //NON-NLS
 
       String[] split = arg.split(" ");
       String url = split.length > 2 ? parseUrl(split[2]) : "";

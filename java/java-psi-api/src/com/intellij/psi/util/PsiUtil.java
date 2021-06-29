@@ -1,9 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.core.JavaPsiBundle;
 import com.intellij.lang.java.JavaLanguage;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
@@ -12,6 +11,7 @@ import com.intellij.openapi.projectRoots.JavaVersionService;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -700,15 +700,25 @@ public final class PsiUtil extends PsiUtilCore {
       return equalOnEquivalentClasses(s1, containingClass1, s2, containingClass2);
     }
 
-    return containingClass1 == null && containingClass2 == null;
+    if (containingClass1 == null && containingClass2 == null) {
+      if (aClass == bClass && isLocalClass(aClass)) {
+        PsiClass containingClass = PsiTreeUtil.getParentOfType(aClass, PsiClass.class);
+        return containingClass != null && equalOnEquivalentClasses(s1, containingClass, s2, containingClass);
+      }
+      return true;
+    }
+
+    return false;
+
   }
 
   /**
    * JLS 15.28
    */
   public static boolean isCompileTimeConstant(@NotNull PsiVariable field) {
-    return field.hasModifierProperty(PsiModifier.FINAL)
-           && (TypeConversionUtil.isPrimitiveAndNotNull(field.getType()) || field.getType().equalsToText(CommonClassNames.JAVA_LANG_STRING))
+    if (!field.hasModifierProperty(PsiModifier.FINAL)) return false;
+    PsiType type = field.getType();
+    return (TypeConversionUtil.isPrimitiveAndNotNull(type) || type.equalsToText(CommonClassNames.JAVA_LANG_STRING))
            && field.hasInitializer()
            && isConstantExpression(field.getInitializer());
   }
@@ -762,6 +772,7 @@ public final class PsiUtil extends PsiUtilCore {
     return topClass instanceof PsiTypeParameter ? null : topClass;
   }
 
+  @NlsSafe
   @Nullable
   public static String getPackageName(@NotNull PsiClass aClass) {
     PsiClass topClass = getTopLevelClass(aClass);
@@ -943,6 +954,10 @@ public final class PsiUtil extends PsiUtilCore {
       }
 
       if (currentOwner.hasModifierProperty(PsiModifier.STATIC)) break;
+      if (currentOwner instanceof PsiClass && isLocalClass((PsiClass)currentOwner)) {
+        currentOwner = PsiTreeUtil.getParentOfType(currentOwner, PsiTypeParameterListOwner.class);
+        continue;
+      }
       currentOwner = currentOwner.getContainingClass();
     }
 
@@ -1029,6 +1044,10 @@ public final class PsiUtil extends PsiUtilCore {
     return getLanguageLevel(element).isAtLeast(LanguageLevel.JDK_14);
   }
 
+  public static boolean isLanguageLevel16OrHigher(@NotNull PsiElement element) {
+    return getLanguageLevel(element).isAtLeast(LanguageLevel.JDK_16);
+  }
+
   @NotNull
   public static LanguageLevel getLanguageLevel(@NotNull PsiElement element) {
     if (element instanceof PsiDirectory) {
@@ -1050,7 +1069,7 @@ public final class PsiUtil extends PsiUtilCore {
       }
     }
 
-    PsiResolveHelper instance = ServiceManager.getService(element.getProject(), PsiResolveHelper.class);
+    PsiResolveHelper instance = element.getProject().getService(PsiResolveHelper.class);
     return instance != null ? instance.getEffectiveLanguageLevel(getVirtualFile(file)) : LanguageLevel.HIGHEST;
   }
 
@@ -1365,16 +1384,18 @@ public final class PsiUtil extends PsiUtilCore {
   public static PsiElement addModuleStatement(@NotNull PsiJavaModule module, @NotNull String text) {
     PsiJavaParserFacade facade = JavaPsiFacade.getInstance(module.getProject()).getParserFacade();
     PsiStatement statement = facade.createModuleStatementFromText(text, null);
+    return addModuleStatement(module, statement);
+  }
 
-    PsiElement anchor = SyntaxTraverser.psiTraverser().children(module).filter(statement.getClass()).last();
+  public static PsiElement addModuleStatement(@NotNull PsiJavaModule module, @NotNull PsiStatement moduleStatement) {
+    PsiElement anchor = SyntaxTraverser.psiTraverser().children(module).filter(moduleStatement.getClass()).last();
     if (anchor == null) {
       anchor = SyntaxTraverser.psiTraverser().children(module).filter(e -> isJavaToken(e, JavaTokenType.LBRACE)).first();
     }
     if (anchor == null) {
       throw new IllegalStateException("No anchor in " + Arrays.toString(module.getChildren()));
     }
-
-    return module.addAfter(statement, anchor);
+    return module.addAfter(moduleStatement, anchor);
   }
 
   public static boolean isArrayClass(@Nullable PsiElement psiClass) {

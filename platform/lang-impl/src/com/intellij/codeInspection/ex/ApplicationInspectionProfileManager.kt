@@ -25,7 +25,6 @@ import org.jdom.JDOMException
 import org.jetbrains.annotations.TestOnly
 import java.io.IOException
 import java.nio.file.Paths
-import java.util.*
 
 @State(name = "InspectionProfileManager", storages = [Storage("editor.xml")], additionalExportDirectory = InspectionProfileManager.INSPECTION_DIR)
 open class ApplicationInspectionProfileManager @TestOnly @NonInjectable constructor(schemeManagerFactory: SchemeManagerFactory) : ApplicationInspectionProfileManagerBase(schemeManagerFactory),
@@ -42,8 +41,7 @@ open class ApplicationInspectionProfileManager @TestOnly @NonInjectable construc
     @JvmStatic
     fun getInstanceImpl() = service<InspectionProfileManager>() as ApplicationInspectionProfileManager
 
-    // It should be public to be available from Upsource
-    fun registerProvidedSeverities() {
+    private fun registerProvidedSeverities() {
       val map = HashMap<String, HighlightInfoType>()
       SeveritiesProvider.EP_NAME.forEachExtensionSafe { provider ->
         for (t in provider.severitiesHighlightInfoTypes) {
@@ -71,7 +69,7 @@ open class ApplicationInspectionProfileManager @TestOnly @NonInjectable construc
   @TestOnly
   fun forceInitProfiles(flag: Boolean) {
     LOAD_PROFILES = flag
-    profilesAreInitialized.value
+    profilesAreInitialized
   }
 
   override fun getState(): Element? {

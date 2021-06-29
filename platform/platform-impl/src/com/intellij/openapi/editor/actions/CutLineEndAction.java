@@ -17,11 +17,11 @@ public class CutLineEndAction extends TextComponentEditorAction {
 
   private static final class Handler extends EditorWriteActionHandler {
     private Handler() {
-      super(false);
+      super();
     }
 
     @Override
-    public void executeWriteAction(final Editor editor, @Nullable Caret caret, DataContext dataContext) {
+    public void executeWriteAction(final @NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
       if (caret == null && editor.getCaretModel().getCaretCount() > 1) {
         editor.getCaretModel().runForEachCaret(c -> c.setSelection(c.getOffset(), getEndOffset(c)));
         // We don't support kill-ring operations for multiple carets currently

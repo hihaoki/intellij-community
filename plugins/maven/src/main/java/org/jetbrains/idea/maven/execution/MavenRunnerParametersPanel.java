@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.codeInsight.completion.CompletionResultSet;
@@ -15,7 +15,10 @@ import com.intellij.ui.PanelWithAnchor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.TextFieldCompletionProvider;
 import com.intellij.util.execution.ParametersListUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.project.MavenConfigurableBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 
 import javax.swing.*;
@@ -26,7 +29,7 @@ import java.util.Map;
 /**
  * @author Vladislav.Kaznacheev
  */
-public class MavenRunnerParametersPanel implements PanelWithAnchor {
+public class MavenRunnerParametersPanel implements PanelWithAnchor, MavenSettingsObservable {
   private JPanel panel;
   protected LabeledComponent<TextFieldWithBrowseButton> workingDirComponent;
   protected LabeledComponent<EditorTextField> goalsComponent;
@@ -45,7 +48,7 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
     if (!project.isDefault()) {
       TextFieldCompletionProvider profilesCompletionProvider = new TextFieldCompletionProvider(true) {
         @Override
-        protected final void addCompletionVariants(@NotNull String text, int offset, @NotNull String prefix, @NotNull CompletionResultSet result) {
+        protected void addCompletionVariants(@NotNull String text, int offset, @NotNull String prefix, @NotNull CompletionResultSet result) {
           MavenProjectsManager manager = MavenProjectsManager.getInstance(project);
           for (String profile : manager.getAvailableProfiles()) {
             result.addElement(LookupElementBuilder.create(ParametersListUtil.join(profile)));
@@ -109,7 +112,7 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
     }
 
     data.setGoals(commandLine);
-    data.setResolveToWorkspace(myResolveToWorkspaceCheckBox.isSelected());
+    data.setResolveToWorkspace(myResolveToWorkspaceCheckBox.isEnabled() && myResolveToWorkspaceCheckBox.isSelected());
 
     Map<String, Boolean> profilesMap = new LinkedHashMap<>();
 
@@ -165,5 +168,25 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
     goalsComponent.setAnchor(anchor);
     profilesComponent.setAnchor(anchor);
     myFakeLabel.setAnchor(anchor);
+  }
+
+  @ApiStatus.Internal
+  void applyTargetEnvironmentConfiguration(@Nullable String targetName) {
+    boolean localTarget = targetName == null;
+    myResolveToWorkspaceCheckBox.setEnabled(localTarget);
+    if (!localTarget) {
+      myResolveToWorkspaceCheckBox.setSelected(false);
+      myResolveToWorkspaceCheckBox.setToolTipText(MavenConfigurableBundle.message("maven.settings.on.targets.runner.resolve.workspace.artifacts.tooltip"));
+    } else {
+      myResolveToWorkspaceCheckBox.setToolTipText(MavenConfigurableBundle.message("maven.settings.runner.resolve.workspace.artifacts.tooltip"));
+    }
+  }
+
+  @Override
+  public void registerSettingsWatcher(@NotNull MavenRCSettingsWatcher watcher) {
+    watcher.registerComponent("workingDir", workingDirComponent);
+    watcher.registerComponent("goals", goalsComponent);
+    watcher.registerComponent("profiles", profilesComponent);
+    watcher.registerComponent("resolveToWorkspace", myResolveToWorkspaceCheckBox);
   }
 }

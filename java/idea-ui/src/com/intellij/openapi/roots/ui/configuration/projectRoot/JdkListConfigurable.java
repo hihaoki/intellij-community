@@ -1,10 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
 import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
@@ -19,10 +18,7 @@ import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.SdkProject
 import com.intellij.openapi.ui.MasterDetailsComponent;
 import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.util.IconUtil;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.tree.TreePath;
 import java.util.*;
@@ -32,6 +28,7 @@ import static com.intellij.openapi.projectRoots.SimpleJavaSdkType.notSimpleJavaS
 public class JdkListConfigurable extends BaseStructureConfigurable {
   @NotNull
   private final ProjectSdksModel myJdksTreeModel;
+  private boolean hasListenerRegistered = false;
   private final SdkModel.Listener myListener = new SdkModel.Listener() {
     @Override
     public void sdkAdded(@NotNull Sdk sdk) {
@@ -59,9 +56,9 @@ public class JdkListConfigurable extends BaseStructureConfigurable {
     }
   };
 
-  public JdkListConfigurable(@NotNull Project project) {
-    super(project);
-    myJdksTreeModel = ProjectStructureConfigurable.getInstance(project).getProjectJdksModel();
+  public JdkListConfigurable(ProjectStructureConfigurable projectStructureConfigurable) {
+    super(projectStructureConfigurable);
+    myJdksTreeModel = projectStructureConfigurable.getProjectJdksModel();
   }
 
   @Override
@@ -124,6 +121,7 @@ public class JdkListConfigurable extends BaseStructureConfigurable {
   @Override
   public void dispose() {
     myJdksTreeModel.removeListener(myListener);
+    hasListenerRegistered = false;
     myJdksTreeModel.disposeUIResources();
   }
 
@@ -135,7 +133,10 @@ public class JdkListConfigurable extends BaseStructureConfigurable {
   @Override
   public void reset() {
     super.reset();
-    myJdksTreeModel.addListener(myListener);
+    if (!hasListenerRegistered) {
+      hasListenerRegistered = true;
+      myJdksTreeModel.addListener(myListener);
+    }
     myTree.setRootVisible(false);
   }
 
@@ -159,10 +160,14 @@ public class JdkListConfigurable extends BaseStructureConfigurable {
     return super.isModified() || myJdksTreeModel.isModified();
   }
 
+  /**
+   * @deprecated use {@link ProjectStructureConfigurable#getJdkConfig()} instead
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static JdkListConfigurable getInstance(Project project) {
-    return ServiceManager.getService(project, JdkListConfigurable.class);
+    return ProjectStructureConfigurable.getInstance(project).getJdkConfig();
   }
-
 
   @NotNull
   @Override
@@ -189,7 +194,7 @@ public class JdkListConfigurable extends BaseStructureConfigurable {
   protected
   @Nullable
   String getEmptySelectionString() {
-    return "Select an SDK to view or edit its details here";
+    return JavaUiBundle.message("project.jdks.configurable.empty.selection.string");
   }
 
   private class SdkRemoveHandler extends RemoveConfigurableHandler<Sdk> {

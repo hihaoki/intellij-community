@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.ProjectTopics;
@@ -9,6 +9,7 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.AdditionalLibraryRootsListener;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.util.ActionCallback;
@@ -24,8 +25,8 @@ import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.vcsUtil.VcsUtil;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -58,6 +59,9 @@ public final class VcsDirtyScopeManagerImpl extends VcsDirtyScopeManager impleme
         ApplicationManager.getApplication().invokeLater(() -> markEverythingDirty(), ModalityState.NON_MODAL, myProject.getDisposed());
       }
     });
+    busConnection.subscribe(AdditionalLibraryRootsListener.TOPIC, ((presentableLibraryName, oldRoots, newRoots, libraryNameForDebug) -> {
+      ApplicationManager.getApplication().invokeLater(() -> markEverythingDirty(), ModalityState.NON_MODAL, myProject.getDisposed());
+    }));
   }
 
   private static ProjectLevelVcsManager getVcsManager(@NotNull Project project) {
@@ -96,10 +100,10 @@ public final class VcsDirtyScopeManagerImpl extends VcsDirtyScopeManager impleme
       }
       ongoingRefresh = myRefreshInProgress;
     }
-    if (ongoingRefresh != null) ongoingRefresh.setRejected();
 
     if (wasReady) {
       ChangeListManager.getInstance(myProject).scheduleUpdate();
+      if (ongoingRefresh != null) ongoingRefresh.setRejected();
     }
   }
 
@@ -113,16 +117,20 @@ public final class VcsDirtyScopeManagerImpl extends VcsDirtyScopeManager impleme
     }
   }
 
-  @NotNull
-  private Map<VcsRoot, Set<FilePath>> groupByVcs(@Nullable Iterable<? extends FilePath> from) {
-    if (from == null) return Collections.emptyMap();
+  private @NotNull Map<VcsRoot, Set<FilePath>> groupByVcs(@Nullable Iterable<? extends FilePath> from) {
+    if (from == null) {
+      return Collections.emptyMap();
+    }
 
     ProjectLevelVcsManager vcsManager = getVcsManager(myProject);
     Map<VcsRoot, Set<FilePath>> map = new HashMap<>();
     for (FilePath path : from) {
       VcsRoot vcsRoot = vcsManager.getVcsRootObjectFor(path);
       if (vcsRoot != null && vcsRoot.getVcs() != null) {
-        Set<FilePath> pathSet = map.computeIfAbsent(vcsRoot, key -> new THashSet<>(getDirtyScopeHashingStrategy(key.getVcs())));
+        Set<FilePath> pathSet = map.computeIfAbsent(vcsRoot, key -> {
+          Hash.Strategy<FilePath> strategy = getDirtyScopeHashingStrategy(key.getVcs());
+          return strategy == null ? new HashSet<>() : new ObjectOpenCustomHashSet<>(strategy);
+        });
         pathSet.add(path);
       }
     }
@@ -269,10 +277,9 @@ public final class VcsDirtyScopeManagerImpl extends VcsDirtyScopeManager impleme
     return null;
   }
 
-  @NotNull
-  public static TObjectHashingStrategy<FilePath> getDirtyScopeHashingStrategy(@NotNull AbstractVcs vcs) {
+  public static @Nullable Hash.Strategy<FilePath> getDirtyScopeHashingStrategy(@NotNull AbstractVcs vcs) {
     return vcs.needsCaseSensitiveDirtyScope() ? ChangesUtil.CASE_SENSITIVE_FILE_PATH_HASHING_STRATEGY
-                                              : ContainerUtil.canonicalStrategy();
+                                              : null;
   }
 
   static final class MyStartupActivity implements VcsStartupActivity {

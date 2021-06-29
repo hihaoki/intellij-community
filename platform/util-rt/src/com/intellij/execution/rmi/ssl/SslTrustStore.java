@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.rmi.ssl;
 
 import java.io.IOException;
@@ -9,7 +9,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
-public class SslTrustStore extends DelegateKeyStore {
+public final class SslTrustStore extends DelegateKeyStore {
   private static final String NAME = "idea-trust-store";
   static {
     ourProvider.setProperty("KeyStore." + NAME, SslTrustStore.class.getName());
@@ -26,7 +26,7 @@ public class SslTrustStore extends DelegateKeyStore {
 
   private void appendUserCert() {
     try {
-      List<X509Certificate> certs = SslSocketFactory.loadCertificates(System.getProperty(SslSocketFactory.SSL_CA_CERT_PATH));
+      List<X509Certificate> certs = SslUtil.loadCertificates(System.getProperty(SslUtil.SSL_CA_CERT_PATH));
       for (int i = 0; i < certs.size(); i++) {
         delegate.setCertificateEntry("user-provided-ca" + (i == 0 ? "" : "-" + i), certs.get(i));
       }

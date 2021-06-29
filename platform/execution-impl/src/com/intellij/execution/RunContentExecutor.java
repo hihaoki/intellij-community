@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.CommonBundle;
@@ -22,6 +22,7 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,8 +33,6 @@ import java.util.List;
 
 /**
  * Runs a process and prints the output in a content tab within the Run toolwindow.
- *
- * @author yole
  */
 public class RunContentExecutor implements Disposable {
   private final Project myProject;
@@ -43,7 +42,7 @@ public class RunContentExecutor implements Disposable {
   private Runnable myStopAction;
   private Runnable myAfterCompletion;
   private Computable<Boolean> myStopEnabled;
-  private String myTitle = "Output";
+  private @NlsContexts.TabTitle String myTitle = ExecutionBundle.message("output.tab.default.title");
   private String myHelpId = null;
   private boolean myActivateToolWindow = true;
   private boolean myFocusToolWindow = true;
@@ -62,7 +61,7 @@ public class RunContentExecutor implements Disposable {
     return this;
   }
 
-  public RunContentExecutor withTitle(String title) {
+  public RunContentExecutor withTitle(@NlsContexts.TabTitle String title) {
     myTitle = title;
     return this;
   }

@@ -12,7 +12,6 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -45,7 +44,7 @@ public final class SPIFileType extends LanguageFileType implements FileTypeIdent
   @NotNull
   @Override
   public String getDescription() {
-    return JavaBundle.message("spi.file.type.description");
+    return JavaBundle.message("filetype.spi.description");
   }
 
   @NotNull
@@ -54,15 +53,13 @@ public final class SPIFileType extends LanguageFileType implements FileTypeIdent
     return "";
   }
 
-  @Nullable
   @Override
-  public Icon getIcon() {
+  public @NotNull Icon getIcon() {
     return AllIcons.FileTypes.Text;
   }
 
-  @Nullable
   @Override
-  public String getCharset(@NotNull VirtualFile file, byte @NotNull [] content) {
+  public String getCharset(@NotNull VirtualFile file, final byte @NotNull [] content) {
     return CharsetToolkit.UTF8;
   }
 }

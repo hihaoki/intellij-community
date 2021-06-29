@@ -31,6 +31,7 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.analysis.XmlAnalysisBundle;
+import com.intellij.xml.impl.XmlElementDescriptorEx;
 import com.intellij.xml.impl.schema.AnyXmlElementDescriptor;
 import com.intellij.xml.util.HtmlUtil;
 import com.intellij.xml.util.XmlTagUtil;
@@ -97,6 +98,15 @@ public class HtmlUnknownTagInspectionBase extends HtmlUnknownElementInspection {
                                          ? tag.getDescriptor()
                                          : descriptorFromContext;
 
+    if (ownDescriptor instanceof XmlElementDescriptorEx) {
+      ((XmlElementDescriptorEx)ownDescriptor).validateTagName(tag, holder, isOnTheFly);
+      return;
+    }
+    if (descriptorFromContext instanceof XmlElementDescriptorEx) {
+      ((XmlElementDescriptorEx)descriptorFromContext).validateTagName(tag, holder, isOnTheFly);
+      return;
+    }
+
     if (isAbstractDescriptor(ownDescriptor) ||
         (parentDescriptor instanceof HtmlElementDescriptorImpl &&
          ownDescriptor instanceof HtmlElementDescriptorImpl &&
@@ -105,13 +115,14 @@ public class HtmlUnknownTagInspectionBase extends HtmlUnknownElementInspection {
       final String name = tag.getName();
 
       if (!isCustomValuesEnabled() || !isCustomValue(name)) {
-        final AddCustomHtmlElementIntentionAction action = new AddCustomHtmlElementIntentionAction(TAG_KEY, name, XmlAnalysisBundle.message("add.custom.html.tag", name));
+        final AddCustomHtmlElementIntentionAction action = new AddCustomHtmlElementIntentionAction(TAG_KEY, name, XmlAnalysisBundle.message(
+          "html.quickfix.add.custom.html.tag", name));
 
         // todo: support "element is not allowed" message for html5
         // some tags in html5 cannot be found in xhtml5.xsd if they are located in incorrect context, so they get any-element descriptor (ex. "canvas: tag)
         final String message = isAbstractDescriptor(ownDescriptor)
-                               ? XmlAnalysisBundle.message("unknown.html.tag", name)
-                               : XmlAnalysisBundle.message("element.is.not.allowed.here", name);
+                               ? XmlAnalysisBundle.message("xml.inspections.unknown.html.tag", name)
+                               : XmlAnalysisBundle.message("xml.inspections.element.is.not.allowed.here", name);
 
         final PsiElement startTagName = XmlTagUtil.getStartTagNameElement(tag);
         assert startTagName != null;

@@ -1,8 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.ide.ui.VirtualFileAppearanceListener;
@@ -11,52 +7,49 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.util.LowMemoryWatcher;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.Function;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.FixedHashMap;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
-public class IconDeferrerImpl extends IconDeferrer {
+public final class IconDeferrerImpl extends IconDeferrer {
+  private static final ThreadLocal<Boolean> evaluationIsInProgress = ThreadLocal.withInitial(() -> Boolean.FALSE);
   private final Object LOCK = new Object();
-  private final Map<Object, Icon> myIconsCache = new FixedHashMap<>(Registry.intValue("ide.icons.deferrerCacheSize"));
-  private long myLastClearTimestamp;
+  private final Map<Object, Icon> myIconsCache = new FixedHashMap<>(SystemProperties.getIntProperty("ide.icons.deferrerCacheSize", 1000)); // guarded by LOCK
+  private long myLastClearTimestamp; // guarded by LOCK
 
   public IconDeferrerImpl() {
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
-    connection.subscribe(PsiModificationTracker.TOPIC, this::clear);
+    connection.subscribe(PsiModificationTracker.TOPIC, this::clearCache);
     // update "locked" icon
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
-        clear();
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
+        clearCache();
       }
     });
     connection.subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
       @Override
       public void projectClosed(@NotNull Project project) {
-        clear();
+        clearCache();
       }
     });
-    connection.subscribe(VirtualFileAppearanceListener.TOPIC, new VirtualFileAppearanceListener() {
-      @Override
-      public void virtualFileAppearanceChanged(@NotNull VirtualFile virtualFile) {
-        clear();
-      }
-    });
-    LowMemoryWatcher.register(this::clear, connection);
+    connection.subscribe(VirtualFileAppearanceListener.TOPIC, __ -> clearCache());
+    LowMemoryWatcher.register(this::clearCache, connection);
   }
 
-  protected final void clear() {
+  @Override
+  public void clearCache() {
     synchronized (LOCK) {
       myIconsCache.clear();
       myLastClearTimestamp++;
@@ -64,18 +57,21 @@ public class IconDeferrerImpl extends IconDeferrer {
   }
 
   @Override
-  public <T> Icon defer(final Icon base, final T param, @NotNull final Function<? super T, ? extends Icon> evaluator) {
-    return deferImpl(base, param, evaluator, false);
+  public <T> @NotNull Icon defer(@Nullable Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator) {
+    return deferImpl(base, param, false, evaluator);
   }
 
   @Override
-  public <T> Icon deferAutoUpdatable(Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator) {
-    return deferImpl(base, param, evaluator, true);
+  public <T> @NotNull Icon deferAutoUpdatable(Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator) {
+    return deferImpl(base, param, true, evaluator);
   }
 
-  private <T> Icon deferImpl(Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator, final boolean autoUpdatable) {
-    if (myEvaluationIsInProgress.get().booleanValue()) {
-      return evaluator.fun(param);
+  private <T> @NotNull Icon deferImpl(Icon base,
+                                      T param,
+                                      final boolean autoUpdatable,
+                                      @NotNull Function<? super T, ? extends Icon> evaluator) {
+    if (evaluationIsInProgress.get().booleanValue()) {
+      return evaluator.apply(param);
     }
 
     synchronized (LOCK) {
@@ -83,30 +79,27 @@ public class IconDeferrerImpl extends IconDeferrer {
       if (cached != null) {
         return cached;
       }
-      final long started = myLastClearTimestamp;
-      Icon result = new DeferredIconImpl<>(base, param, evaluator, (DeferredIconImpl<T> source, T key, Icon r) -> {
+      long started = myLastClearTimestamp;
+      Icon result = new DeferredIconImpl<>(base, param, true, autoUpdatable, evaluator, (DeferredIcon source, Icon r) -> {
         synchronized (LOCK) {
-          // check if our results is not outdated yet
+          // check if our result is not outdated yet
           if (started == myLastClearTimestamp) {
-            myIconsCache.put(key, autoUpdatable ? source : r);
+            myIconsCache.put(((DeferredIconImpl<?>)source).myParam, autoUpdatable ? source : r);
           }
         }
-      }, autoUpdatable);
+      });
       myIconsCache.put(param, result);
-
       return result;
     }
   }
 
-  private static final ThreadLocal<Boolean> myEvaluationIsInProgress = ThreadLocal.withInitial(() -> Boolean.FALSE);
-
   static void evaluateDeferred(@NotNull Runnable runnable) {
     try {
-      myEvaluationIsInProgress.set(Boolean.TRUE);
+      evaluationIsInProgress.set(Boolean.TRUE);
       runnable.run();
     }
     finally {
-      myEvaluationIsInProgress.set(Boolean.FALSE);
+      evaluationIsInProgress.set(Boolean.FALSE);
     }
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
@@ -26,14 +12,14 @@ import com.intellij.notification.NotificationDisplayType;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsContexts.NotificationContent;
+import com.intellij.openapi.util.NlsContexts.NotificationTitle;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
@@ -139,7 +125,6 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
       project,
       PyBundle.message("python.compatibility.inspection.advertiser.notifications.title"),
       message,
-      NotificationType.INFORMATION,
       (notification, event) -> {
         final boolean enabled = "#yes".equals(event.getDescription());
         if (enabled) {
@@ -176,12 +161,11 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
     }
   }
 
-  private static void showSingletonNotification(@NotNull Project project, String msg) {
+  private static void showSingletonNotification(@NotNull Project project, @NotificationContent String msg) {
     showSingletonNotification(
       project,
       PyBundle.message("python.compatibility.inspection.advertiser.notifications.title"),
       msg,
-      NotificationType.INFORMATION,
       (notification, event) -> {
         final boolean enabled = "#yes".equals(event.getDescription());
         if (enabled) {
@@ -194,19 +178,20 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   }
 
   private static void showSingletonNotification(@NotNull Project project,
-                                                @NotNull @NlsContexts.NotificationTitle String title,
-                                                @NotNull @NlsContexts.NotificationContent String htmlContent,
-                                                @NotNull NotificationType type,
+                                                @NotNull @NotificationTitle String title,
+                                                @NotNull @NotificationContent String htmlContent,
                                                 @NotNull NotificationListener listener) {
     project.putUserData(DONT_SHOW_BALLOON, true);
-    BALLOON_NOTIFICATIONS.createNotification(title, htmlContent, type, (notification, event) -> {
-      try {
-        listener.hyperlinkUpdate(notification, event);
-      }
-      finally {
-        notification.expire();
-      }
-    }).notify(project);
+    BALLOON_NOTIFICATIONS.createNotification(title, htmlContent, NotificationType.INFORMATION)
+      .setListener((notification, event) -> {
+        try {
+          listener.hyperlinkUpdate(notification, event);
+        }
+        finally {
+          notification.expire();
+        }
+      })
+      .notify(project);
   }
 
   private static boolean containsFutureImports(@NotNull PyFile file) {
@@ -252,6 +237,6 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
 
   @NotNull
   private static PyCompatibilityInspectionAdvertiserSettings getSettings(@NotNull Project project) {
-    return ServiceManager.getService(project, PyCompatibilityInspectionAdvertiserSettings.class);
+    return project.getService(PyCompatibilityInspectionAdvertiserSettings.class);
   }
 }

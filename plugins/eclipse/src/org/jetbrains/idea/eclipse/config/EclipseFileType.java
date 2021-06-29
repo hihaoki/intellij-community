@@ -5,6 +5,7 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -16,6 +17,9 @@ import javax.swing.*;
 public class EclipseFileType implements FileType {
   public static final FileType INSTANCE = new EclipseFileType();
 
+  private EclipseFileType() {
+  }
+
   @Override
   @NotNull
   @NonNls
@@ -26,7 +30,13 @@ public class EclipseFileType implements FileType {
   @Override
   @NotNull
   public String getDescription() {
-    return EclipseBundle.message("eclipse.file.type.descr");
+    return EclipseBundle.message("filetype.eclipse.description");
+  }
+
+  @Nls
+  @Override
+  public @NotNull String getDisplayName() {
+    return EclipseBundle.message("filetype.eclipse.display.name");
   }
 
   @Override
@@ -48,12 +58,7 @@ public class EclipseFileType implements FileType {
   }
 
   @Override
-  public boolean isReadOnly() {
-    return false;
-  }
-
-  @Override
-  public String getCharset(@NotNull final VirtualFile file, final byte @NotNull [] content) {
+  public String getCharset(@NotNull VirtualFile file, final byte @NotNull [] content) {
     return CharsetToolkit.UTF8;
   }
 }

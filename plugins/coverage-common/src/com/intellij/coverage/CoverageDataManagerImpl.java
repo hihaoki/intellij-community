@@ -14,7 +14,6 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.ide.projectView.ProjectView;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -52,11 +51,11 @@ import com.intellij.ui.UIBundle;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
-import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -104,7 +103,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
   private CoverageSuitesBundle myCurrentSuitesBundle;
 
   private final Object ANNOTATORS_LOCK = new Object();
-  private final Map<Editor, SrcFileAnnotator> myAnnotators = new HashMap<>();
+  private final Map<Editor, CoverageEditorAnnotator> myAnnotators = new HashMap<>();
 
   public CoverageDataManagerImpl(@NotNull Project project) {
     myProject = project;
@@ -121,12 +120,12 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
       addSuiteListener(coverageViewListener, this);
     }
 
-    CoverageRunner.EP_NAME.addExtensionPointListener(new ExtensionPointListener<CoverageRunner>() {
+    CoverageRunner.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionRemoved(@NotNull CoverageRunner coverageRunner, @NotNull PluginDescriptor pluginDescriptor) {
         CoverageSuitesBundle suitesBundle = getCurrentSuitesBundle();
         if (suitesBundle != null &&
-            Arrays.stream(suitesBundle.getSuites()).anyMatch(suite -> coverageRunner == suite.getRunner())) {
+            ContainerUtil.exists(suitesBundle.getSuites(), suite -> coverageRunner == suite.getRunner())) {
           chooseSuitesBundle(null);
         }
 
@@ -154,12 +153,10 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
             }
           }
         }
-
-        ActionToolbarImpl.updateAllToolbarsImmediately();
       }
     }, this);
 
-    CoverageEngine.EP_NAME.addExtensionPointListener(new ExtensionPointListener<CoverageEngine>() {
+    CoverageEngine.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionRemoved(@NotNull CoverageEngine coverageEngine, @NotNull PluginDescriptor pluginDescriptor) {
         CoverageSuitesBundle suitesBundle = getCurrentSuitesBundle();
@@ -254,7 +251,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
 
   @Override
   public CoverageSuite addCoverageSuite(final CoverageEnabledConfiguration config) {
-    final String name = config.getName() + " Coverage Results";
+    final String name = CoverageBundle.message("coverage.results.suite.name", config.getName());
     final String covFilePath = config.getCoverageFilePath();
     assert covFilePath != null; // Shouldn't be null here!
 
@@ -339,6 +336,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
 
   @Override
   public void coverageGathered(@NotNull final CoverageSuite suite) {
+    fireCoverageGathered(suite);
     ApplicationManager.getApplication().invokeLater(() -> {
       if (myProject.isDisposed()) return;
       if (myCurrentSuitesBundle != null) {
@@ -478,7 +476,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
       for (FileEditor editor : editors) {
         if (editor instanceof TextEditor) {
           final Editor textEditor = ((TextEditor)editor).getEditor();
-          SrcFileAnnotator annotator;
+          CoverageEditorAnnotator annotator;
           synchronized (ANNOTATORS_LOCK) {
             annotator = myAnnotators.remove(textEditor);
           }
@@ -492,16 +490,16 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
       for (FileEditor editor : editors) {
         if (editor instanceof TextEditor) {
           final Editor textEditor = ((TextEditor)editor).getEditor();
-          SrcFileAnnotator annotator = getAnnotator(textEditor);
+          CoverageEditorAnnotator annotator = getAnnotator(textEditor);
           if (annotator == null) {
-            annotator = new SrcFileAnnotator(psiFile, textEditor);
+            annotator = engine.createSrcFileAnnotator(psiFile, textEditor);
             synchronized (ANNOTATORS_LOCK) {
               myAnnotators.put(textEditor, annotator);
             }
           }
 
           if (myCurrentSuitesBundle != null && engine.acceptedByFilters(psiFile, myCurrentSuitesBundle)) {
-            annotator.showCoverageInformation(myCurrentSuitesBundle);
+            annotator.showCoverage(myCurrentSuitesBundle);
           }
         }
       }
@@ -574,7 +572,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
   }
 
   @Override
-  public void addSuiteListener(final CoverageSuiteListener listener, Disposable parentDisposable) {
+  public void addSuiteListener(@NotNull final CoverageSuiteListener listener, @NotNull Disposable parentDisposable) {
     myListeners.add(listener);
     Disposer.register(parentDisposable, new Disposable() {
       @Override
@@ -582,6 +580,12 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
         myListeners.remove(listener);
       }
     });
+  }
+
+  public void fireCoverageGathered(@NotNull CoverageSuite suite) {
+    for (CoverageSuiteListener listener : myListeners) {
+      listener.coverageGathered(suite);
+    }
   }
 
   public void fireBeforeSuiteChosen() {
@@ -602,7 +606,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
   }
 
   @Nullable
-  public SrcFileAnnotator getAnnotator(Editor editor) {
+  public CoverageEditorAnnotator getAnnotator(Editor editor) {
     synchronized (ANNOTATORS_LOCK) {
       return myAnnotators.get(editor);
     }
@@ -610,7 +614,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
 
   public void disposeAnnotators() {
     synchronized (ANNOTATORS_LOCK) {
-      for (SrcFileAnnotator annotator : myAnnotators.values()) {
+      for (CoverageEditorAnnotator annotator : myAnnotators.values()) {
         if (annotator != null) {
           Disposer.dispose(annotator);
         }
@@ -685,12 +689,12 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
             return;
           }
 
-          SrcFileAnnotator annotator = manager.getAnnotator(editor);
+          CoverageEditorAnnotator annotator = manager.getAnnotator(editor);
           if (annotator == null) {
-            annotator = new SrcFileAnnotator(psiFile, editor);
+            annotator = engine.createSrcFileAnnotator(psiFile, editor);
           }
 
-          final SrcFileAnnotator finalAnnotator = annotator;
+          final CoverageEditorAnnotator finalAnnotator = annotator;
 
           synchronized (manager.ANNOTATORS_LOCK) {
             manager.myAnnotators.put(editor, finalAnnotator);
@@ -701,7 +705,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
             CoverageSuitesBundle suitesBundle = manager.myCurrentSuitesBundle;
             if (suitesBundle != null) {
               if (engine.acceptedByFilters(psiFile, suitesBundle)) {
-                finalAnnotator.showCoverageInformation(suitesBundle);
+                finalAnnotator.showCoverage(suitesBundle);
               }
             }
           };
@@ -716,10 +720,10 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
       final Editor editor = event.getEditor();
       Project project = editor.getProject();
       if (project == null) return;
+      CoverageDataManagerImpl manager = project.getServiceIfCreated(CoverageDataManagerImpl.class);
       try {
-        
-        CoverageDataManagerImpl manager = (CoverageDataManagerImpl)getInstance(project);
-        final SrcFileAnnotator fileAnnotator;
+        if (manager == null) return;
+        final CoverageEditorAnnotator fileAnnotator;
         synchronized (manager.ANNOTATORS_LOCK) {
           fileAnnotator = manager.myAnnotators.remove(editor);
         }
@@ -729,13 +733,13 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
       }
       finally {
         final Runnable request = myCurrentEditors.remove(editor);
-        if (request != null) {
-          getRequestsAlarm((CoverageDataManagerImpl)getInstance(project)).cancelRequest(request);
+        if (request != null && manager != null) {
+          getRequestsAlarm(manager).cancelRequest(request);
         }
       }
     }
 
-    @CalledInAwt
+    @RequiresEdt
     private static Alarm getRequestsAlarm(@NotNull CoverageDataManagerImpl manager) {
       Alarm alarm = manager.myRequestsAlarm;
       if (alarm == null) {

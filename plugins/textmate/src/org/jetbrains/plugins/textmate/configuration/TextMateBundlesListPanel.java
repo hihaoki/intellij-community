@@ -6,6 +6,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.fileChooser.FileChooserDialog;
 import com.intellij.openapi.fileChooser.FileChooserFactory;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
@@ -27,8 +28,7 @@ import java.util.*;
 
 import static com.intellij.openapi.fileChooser.FileChooserDescriptorFactory.createMultipleFoldersDescriptor;
 import static com.intellij.ui.ToolbarDecorator.createDecorator;
-import static org.jetbrains.plugins.textmate.TextMateServiceImpl.INSTALLED_BUNDLES_PATH;
-import static org.jetbrains.plugins.textmate.TextMateServiceImpl.PREINSTALLED_BUNDLES_PATH;
+import static org.jetbrains.plugins.textmate.TextMateServiceImpl.BUNDLED_BUNDLES_PATH;
 
 public class TextMateBundlesListPanel implements Disposable {
   private static final String TEXTMATE_LAST_ADDED_BUNDLE = "textmate.last.added.bundle";
@@ -36,7 +36,7 @@ public class TextMateBundlesListPanel implements Disposable {
   private Collection<TextMateBundlesChangeStateListener> myListeners = new ArrayList<>();
 
   public TextMateBundlesListPanel() {
-    myBundlesList = new CheckBoxList<BundleConfigBean>(new CheckBoxListListener() {
+    myBundlesList = new CheckBoxList<>(new CheckBoxListListener() {
       @Override
       public void checkBoxSelectionChanged(int index, boolean value) {
         BundleConfigBean itemAt = myBundlesList.getItemAt(index);
@@ -52,7 +52,7 @@ public class TextMateBundlesListPanel implements Disposable {
         if (isBuiltin(bean)) {
           return TextMateBundle.message("title.built.in");
         }
-        return bean != null ? bean.getPath() : null;
+        return bean != null ? FileUtil.toSystemDependentName(bean.getPath()) : null;
       }
     };
     myBundlesList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
@@ -61,7 +61,7 @@ public class TextMateBundlesListPanel implements Disposable {
 
   private static boolean isBuiltin(BundleConfigBean bean) {
     String path = bean != null ? bean.getPath() : null;
-    return path != null && (path.startsWith(PREINSTALLED_BUNDLES_PATH) || path.startsWith(INSTALLED_BUNDLES_PATH));
+    return path != null && path.startsWith(BUNDLED_BUNDLES_PATH);
   }
 
   @NotNull
@@ -89,7 +89,11 @@ public class TextMateBundlesListPanel implements Disposable {
           return;
         }
         String message = StringUtil.join(bundlesToDelete, JCheckBox::getText, "\n");
-        if (Messages.showYesNoDialog(message, TextMateBundle.message("textmate.remove.title", bundlesToDelete.size()), CommonBundle.message("button.remove"), CommonBundle.getCancelButtonText(), null) != Messages.YES) {
+        if (MessageDialogBuilder.yesNo(TextMateBundle.message("textmate.remove.title", bundlesToDelete.size()), message)
+              .yesText(CommonBundle.message("button.remove"))
+              .noText(CommonBundle.getCancelButtonText())
+              .icon(null)
+              .show() != Messages.YES) {
           return;
         }
         ListUtil.removeSelectedItems(myBundlesList);

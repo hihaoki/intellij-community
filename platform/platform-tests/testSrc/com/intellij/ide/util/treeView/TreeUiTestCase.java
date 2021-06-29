@@ -390,6 +390,7 @@ abstract class TreeUiTestCase extends AbstractTreeBuilderTest {
 
     final Ref<Boolean> done = new Ref<>();
     doAndWaitForBuilder(() -> getBuilder().expandAll(() -> done.set(true)));
+    assertTrue(done.get());
 
     assertTree("-/\n"
                + " -com\n"
@@ -1766,7 +1767,7 @@ abstract class TreeUiTestCase extends AbstractTreeBuilderTest {
 
   public void testResorting() throws Exception {
     boolean[] invert = new boolean[]{false};
-    NodeDescriptor.NodeComparator<NodeDescriptor<?>> c = new NodeDescriptor.NodeComparator<NodeDescriptor<?>>() {
+    NodeDescriptor.NodeComparator<NodeDescriptor<?>> c = new NodeDescriptor.NodeComparator<>() {
       @Override
       public int compare(NodeDescriptor<?> o1, NodeDescriptor<?> o2) {
         return invert[0] ? AlphaComparator.INSTANCE.compare(o2, o1) : AlphaComparator.INSTANCE.compare(o1, o2);
@@ -1990,7 +1991,7 @@ abstract class TreeUiTestCase extends AbstractTreeBuilderTest {
   }
 
   private void doTestSelectionOnDelete(boolean keepRef) throws Exception {
-    myComparator.setDelegate(new NodeDescriptor.NodeComparator<NodeDescriptor<?>>() {
+    myComparator.setDelegate(new NodeDescriptor.NodeComparator<>() {
       @Override
       public int compare(NodeDescriptor o1, NodeDescriptor o2) {
         boolean isParent1 = myStructure._getChildElements(o1.getElement(), false).length > 0;

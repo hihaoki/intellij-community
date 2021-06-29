@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.dvcs.ui
 
 import com.intellij.dvcs.DvcsRememberedInputs
 import com.intellij.dvcs.repo.ClonePathProvider
 import com.intellij.dvcs.ui.CloneDvcsValidationUtils.sanitizeCloneUrl
+import com.intellij.dvcs.ui.DvcsBundle.message
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ValidationInfo
@@ -15,11 +16,11 @@ import com.intellij.openapi.vcs.ui.cloneDialog.VcsCloneDialogComponentStateListe
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.TextFieldWithHistory
 import com.intellij.ui.layout.*
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBEmptyBorder
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
-import org.jetbrains.annotations.CalledInAwt
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
@@ -39,13 +40,13 @@ abstract class DvcsCloneDialogComponent(var project: Project,
     val fcd = FileChooserDescriptorFactory.createSingleFolderDescriptor()
     fcd.isShowFileSystemRoots = true
     fcd.isHideIgnored = false
-    directoryField.addBrowseFolderListener(DvcsBundle.getString("clone.destination.directory.browser.title"),
-                                           DvcsBundle.getString("clone.destination.directory.browser.description"),
+    directoryField.addBrowseFolderListener(message("clone.destination.directory.browser.title"),
+                                           message("clone.destination.directory.browser.description"),
                                            project,
                                            fcd)
     mainPanel = panel {
-      row(VcsBundle.getString("vcs.common.labels.url")) { urlEditor(growX) }
-      row(VcsBundle.getString("vcs.common.labels.directory")) { directoryField(growX) }
+      row(VcsBundle.message("vcs.common.labels.url")) { urlEditor(growX) }
+      row(VcsBundle.message("vcs.common.labels.directory")) { directoryField(growX) }
         .largeGapAfter()
       row {
         errorComponent = BorderLayoutPanel(UIUtil.DEFAULT_HGAP, 0)
@@ -92,10 +93,10 @@ abstract class DvcsCloneDialogComponent(var project: Project,
 
   override fun dispose() {}
 
-  @CalledInAwt
+  @RequiresEdt
   protected open fun isOkActionEnabled(): Boolean = getUrl().isNotBlank()
 
-  @CalledInAwt
+  @RequiresEdt
   protected fun updateOkActionState(dialogStateListener: VcsCloneDialogComponentStateListener) {
     dialogStateListener.onOkActionEnabled(isOkActionEnabled())
   }

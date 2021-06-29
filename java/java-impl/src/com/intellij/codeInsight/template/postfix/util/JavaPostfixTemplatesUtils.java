@@ -7,7 +7,6 @@ import com.intellij.codeInsight.template.postfix.templates.PostfixTemplatePsiInf
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Conditions;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
@@ -18,6 +17,7 @@ import com.intellij.refactoring.introduceVariable.IntroduceVariableBase;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -60,15 +60,7 @@ public final class JavaPostfixTemplatesUtils {
     };
   }
 
-  /**
-   * @deprecated use {@link #selectorTopmost(Condition)}
-   */
-  @Deprecated
-  public static PostfixTemplateExpressionSelector selectorTopmost() {
-    return selectorTopmost(Conditions.alwaysTrue());
-  }
-
-  public static PostfixTemplateExpressionSelector selectorTopmost(Condition<PsiElement> additionalFilter) {
+  public static PostfixTemplateExpressionSelector selectorTopmost(Condition<? super PsiElement> additionalFilter) {
     return new PostfixTemplateExpressionSelectorBase(additionalFilter) {
       @Override
       protected List<PsiElement> getNonFilteredExpressions(@NotNull PsiElement context, @NotNull Document document, int offset) {
@@ -89,7 +81,7 @@ public final class JavaPostfixTemplatesUtils {
   }
 
   @NotNull
-  public static PostfixTemplateExpressionSelector selectorAllExpressionsWithCurrentOffset(@Nullable Condition<PsiElement> additionalFilter) {
+  public static PostfixTemplateExpressionSelector selectorAllExpressionsWithCurrentOffset(@Nullable Condition<? super PsiElement> additionalFilter) {
     return new PostfixTemplateExpressionSelectorBase(additionalFilter) {
       @Override
       protected List<PsiElement> getNonFilteredExpressions(@NotNull PsiElement context, @NotNull Document document, int offset) {
@@ -144,7 +136,8 @@ public final class JavaPostfixTemplatesUtils {
   /**
    * @deprecated use {@link #isThrowable(PsiType)}
    */
-  @Deprecated public static final Condition<PsiElement> IS_THROWABLE =
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final Condition<PsiElement> IS_THROWABLE =
     element -> element instanceof PsiExpression && isThrowable(((PsiExpression)element).getType());
 
   public static final Condition<PsiElement> IS_NON_VOID =
@@ -154,19 +147,10 @@ public final class JavaPostfixTemplatesUtils {
     element -> element instanceof PsiExpression && isNotPrimitiveTypeExpression((PsiExpression)element);
 
   /**
-   * @deprecated use {@link #isArray(PsiType)}
-   */
-  @Deprecated public static final Condition<PsiElement> IS_ARRAY = element -> {
-    if (!(element instanceof PsiExpression)) return false;
-
-    PsiType type = ((PsiExpression)element).getType();
-    return isArray(type);
-  };
-
-  /**
    * @deprecated use {@link #isIterable(PsiType)} / {@link #isArray(PsiType)}
    */
-  @Deprecated public static final Condition<PsiElement> IS_ITERABLE_OR_ARRAY = element -> {
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final Condition<PsiElement> IS_ITERABLE_OR_ARRAY = element -> {
     if (!(element instanceof PsiExpression)) return false;
 
     PsiType type = ((PsiExpression)element).getType();

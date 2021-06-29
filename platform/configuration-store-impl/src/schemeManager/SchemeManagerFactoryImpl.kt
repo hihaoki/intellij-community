@@ -17,15 +17,16 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.SmartList
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.throwIfNotEmpty
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
 import java.nio.file.Path
 import java.nio.file.Paths
 
-const val ROOT_CONFIG = "\$ROOT_CONFIG$"
+@NonNls const val ROOT_CONFIG = "\$ROOT_CONFIG$"
 
 internal typealias FileChangeSubscriber = (schemeManager: SchemeManagerImpl<*, *>) -> Unit
 
-sealed class SchemeManagerFactoryBase : SchemeManagerFactory(), com.intellij.openapi.components.SettingsSavingComponent {
+sealed class SchemeManagerFactoryBase : SchemeManagerFactory(), SettingsSavingComponent {
   private val managers = ContainerUtil.createLockFreeCopyOnWriteList<SchemeManagerImpl<Scheme, Scheme>>()
 
   protected open val componentManager: ComponentManager? = null
@@ -34,7 +35,7 @@ sealed class SchemeManagerFactoryBase : SchemeManagerFactory(), com.intellij.ope
 
   protected open fun getVirtualFileResolver(): VirtualFileResolver? = null
 
-  final override fun <T : Any, MutableT : T> create(directoryName: String,
+  final override fun <T: Scheme, MutableT : T> create(directoryName: String,
                                                     processor: SchemeProcessor<T, MutableT>,
                                                     presentableName: String?,
                                                     roamingType: RoamingType,
@@ -88,14 +89,16 @@ sealed class SchemeManagerFactoryBase : SchemeManagerFactory(), com.intellij.ope
     }
   }
 
-  final override fun save() {
+  final override suspend fun save() {
     val errors = SmartList<Throwable>()
-    for (registeredManager in managers) {
-      try {
-        registeredManager.save(errors)
-      }
-      catch (e: Throwable) {
-        errors.add(e)
+    withEdtContext(componentManager) {
+      for (registeredManager in managers) {
+        try {
+          registeredManager.save(errors)
+        }
+        catch (e: Throwable) {
+          errors.add(e)
+        }
       }
     }
     throwIfNotEmpty(errors)
@@ -127,9 +130,9 @@ sealed class SchemeManagerFactoryBase : SchemeManagerFactory(), com.intellij.ope
 
     override fun getVirtualFileResolver() = project as? VirtualFileResolver?
 
-    private fun addVfsListener(schemeManager: SchemeManagerImpl<*, *>) {
+    private fun <T : Scheme, M:T>addVfsListener(schemeManager: SchemeManagerImpl<T, M>) {
       @Suppress("UNCHECKED_CAST")
-      project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, SchemeFileTracker(schemeManager as SchemeManagerImpl<Any, Any>, project))
+      project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, SchemeFileTracker(schemeManager, project))
     }
 
     override fun createFileChangeSubscriber(): FileChangeSubscriber? {

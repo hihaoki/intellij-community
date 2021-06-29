@@ -6,7 +6,7 @@ import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionPopupMenu;
 import com.intellij.openapi.application.ApplicationManager;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,11 +18,19 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
- * @author Eugene Belyaev
+ * Prefer {@link #installPopupMenu(JComponent, ActionGroup, String)} or {@link #installPopupMenu(JComponent, String, String)}
+ * to direct implementation if no special handing is required.
  */
 public abstract class PopupHandler extends MouseAdapter {
+
+  private static final PopupHandler EMPTY_HANDLER = new PopupHandler() {
+    @Override
+    public void invokePopup(Component comp, int x, int y) {
+    }
+  };
 
   public abstract void invokePopup(Component comp, int x, int y);
 
@@ -50,41 +58,75 @@ public abstract class PopupHandler extends MouseAdapter {
     }
   }
 
-  public static void installPopupHandler(JComponent component, @NonNls String groupId, @NonNls String place) {
-    ActionManager actionManager = ActionManager.getInstance();
-    ActionGroup group = (ActionGroup)actionManager.getAction(groupId);
-    installPopupHandler(component, group, place, actionManager);
+  /** @deprecated use {@link #installPopupMenu(JComponent, String, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  public static void installPopupHandler(@NotNull JComponent component,
+                                         @NotNull String groupId,
+                                         @NotNull String place) {
+    installPopupMenu(component, groupId, place);
   }
 
-  @NotNull
-  public static MouseListener installPopupHandler(JComponent component,
-                                                  @NotNull ActionGroup group,
-                                                  @NonNls String place) {
-    return installPopupHandler(component, group, place, ActionManager.getInstance());
+  public static @NotNull PopupHandler installPopupMenu(@NotNull JComponent component,
+                                                       @NotNull String groupId,
+                                                       @NotNull String place) {
+    return installPopupMenu(component, am -> (ActionGroup)am.getAction(groupId), place, null, null);
   }
 
-  @NotNull
-  public static MouseListener installPopupHandler(JComponent component,
-                                                  @NotNull ActionGroup group,
-                                                  @NonNls String place,
-                                                  ActionManager actionManager) {
-    return installPopupHandler(component, group, place, actionManager, null);
+  /** @deprecated use {@link #installPopupMenu(JComponent, ActionGroup, String)} instead */
+  @Deprecated
+  public static @NotNull MouseListener installPopupHandler(@NotNull JComponent component,
+                                                           @NotNull ActionGroup group,
+                                                           @NotNull String place) {
+    return installPopupMenu(component, __ -> group, place, null, null);
   }
 
-  @NotNull
-  public static MouseListener installPopupHandler(@NotNull JComponent component,
-                                                  @NotNull ActionGroup group,
-                                                  @NonNls String place,
-                                                  @NotNull ActionManager actionManager,
-                                                  @Nullable PopupMenuListener menuListener) {
-    if (ApplicationManager.getApplication() == null) return new MouseAdapter(){};
+  public static @NotNull PopupHandler installPopupMenu(@NotNull JComponent component,
+                                                       @NotNull ActionGroup group,
+                                                       @NotNull String place) {
+    return installPopupMenu(component, __ -> group, place, null, null);
+  }
+
+  /** @deprecated use {@link #installPopupMenu(JComponent, ActionGroup, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  public static @NotNull MouseListener installPopupHandler(@NotNull JComponent component,
+                                                           @NotNull ActionGroup group,
+                                                           @NotNull String place,
+                                                           @Nullable ActionManager actionManager) {
+    return installPopupMenu(component, __ -> group, place, actionManager, null);
+  }
+
+  /** @deprecated use {@link #installPopupMenu(JComponent, ActionGroup, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval (inVersion = "2021.2")
+  public static @NotNull MouseListener installPopupHandler(@NotNull JComponent component,
+                                                           @NotNull ActionGroup group,
+                                                           @NotNull String place,
+                                                           @Nullable ActionManager actionManager,
+                                                           @Nullable PopupMenuListener menuListener) {
+    return installPopupMenu(component, __ -> group, place, actionManager, menuListener);
+  }
+
+  private static @NotNull PopupHandler installPopupMenu(@NotNull JComponent component,
+                                                        @NotNull Function<ActionManager, ActionGroup> group,
+                                                        @NotNull String place,
+                                                        @Nullable ActionManager actionManager,
+                                                        @Nullable PopupMenuListener menuListener) {
+    if (ApplicationManager.getApplication() == null) {
+      return EMPTY_HANDLER;
+    }
+
     PopupHandler popupHandler = new PopupHandler() {
       @Override
       public void invokePopup(Component comp, int x, int y) {
-        ActionPopupMenu popupMenu = actionManager.createActionPopupMenu(place, group);
+        ActionManager manager = actionManager == null ? ActionManager.getInstance() : actionManager;
+        ActionPopupMenu popupMenu = manager.createActionPopupMenu(place, group.apply(manager));
         popupMenu.setTargetComponent(component);
         JPopupMenu menu = popupMenu.getComponent();
-        if (menuListener != null) menu.addPopupMenuListener(menuListener);
+        if (menuListener != null) {
+          menu.addPopupMenuListener(menuListener);
+        }
         menu.show(comp, x, y);
       }
     };
@@ -92,48 +134,73 @@ public abstract class PopupHandler extends MouseAdapter {
     return popupHandler;
   }
 
-  @NotNull
-  public static MouseListener installFollowingSelectionTreePopup(@NotNull JTree tree,
-                                                                 @NotNull ActionGroup group,
-                                                                 @NonNls String place,
-                                                                 @NotNull ActionManager actionManager) {
-    return installConditionalPopup(tree, group, place, actionManager, (comp, x, y) ->
-      tree.getPathForLocation(x, y) != null &&
-      Arrays.binarySearch(Objects.requireNonNull(tree.getSelectionRows()), tree.getRowForLocation(x, y)) > -1);
+  public static @NotNull PopupHandler installFollowingSelectionTreePopup(@NotNull JTree tree,
+                                                                         @NotNull ActionGroup group,
+                                                                         @NotNull String place) {
+    return (PopupHandler)installFollowingSelectionTreePopup(tree, group, place, null);
   }
 
-  @NotNull
-  public static MouseListener installRowSelectionTablePopup(@NotNull JTable table,
-                                                            @NotNull ActionGroup group,
-                                                            @NonNls String place,
-                                                            @NotNull ActionManager actionManager) {
+  /** @deprecated use {@link #installFollowingSelectionTreePopup(JTree, ActionGroup, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static @NotNull MouseListener installFollowingSelectionTreePopup(@NotNull JTree tree,
+                                                                          @NotNull ActionGroup group,
+                                                                          @NotNull String place,
+                                                                          @Nullable ActionManager actionManager) {
+    return installConditionalPopup(tree, group, place, actionManager, (comp, x, y) -> {
+      return tree.getPathForLocation(x, y) != null &&
+             Arrays.binarySearch(Objects.requireNonNull(tree.getSelectionRows()), tree.getRowForLocation(x, y)) > -1;
+    });
+  }
+
+  public static @NotNull PopupHandler installRowSelectionTablePopup(@NotNull JTable table,
+                                                                    @NotNull ActionGroup group,
+                                                                    @NotNull String place) {
+    return (PopupHandler)installRowSelectionTablePopup(table, group, place, null);
+  }
+
+  /** @deprecated use {@link #installFollowingSelectionTreePopup(JTree, ActionGroup, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  public static @NotNull MouseListener installRowSelectionTablePopup(@NotNull JTable table,
+                                                                     @NotNull ActionGroup group,
+                                                                     @NotNull String place,
+                                                                     @Nullable ActionManager actionManager) {
     return installConditionalPopup(table, group, place, actionManager, (comp, x, y) ->
       Arrays.binarySearch(table.getSelectedRows(), table.rowAtPoint(new Point(x, y))) > -1);
   }
 
-  @NotNull
-  public static MouseListener installSelectionListPopup(@NotNull JList<?> list,
-                                                        @NotNull ActionGroup group,
-                                                        @NonNls String place,
-                                                        @NotNull ActionManager actionManager) {
+  public static @NotNull PopupHandler installSelectionListPopup(@NotNull JList<?> list,
+                                                                @NotNull ActionGroup group,
+                                                                @NotNull String place) {
+    return (PopupHandler)installSelectionListPopup(list, group, place, null);
+  }
+
+  /** @deprecated use {@link #installSelectionListPopup(JList, ActionGroup, String)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  public static @NotNull MouseListener installSelectionListPopup(@NotNull JList<?> list,
+                                                                 @NotNull ActionGroup group,
+                                                                 @NotNull String place,
+                                                                 @Nullable ActionManager actionManager) {
     return installConditionalPopup(list, group, place, actionManager, (comp, x, y) -> ListUtil.isPointOnSelection(list, x, y));
   }
 
-  @NotNull
-  private static MouseListener installConditionalPopup(@NotNull JComponent component,
-                                                       @NotNull ActionGroup group,
-                                                       @NonNls String place,
-                                                       @NotNull ActionManager actionManager,
-                                                       @NotNull ShowPopupPredicate condition) {
+  private static @NotNull PopupHandler installConditionalPopup(@NotNull JComponent component,
+                                                                @NotNull ActionGroup group,
+                                                                @NotNull String place,
+                                                                @Nullable ActionManager actionManager,
+                                                                @NotNull ShowPopupPredicate condition) {
     if (ApplicationManager.getApplication() == null) {
-      return new MouseAdapter() {
-      };
+      return EMPTY_HANDLER;
     }
+
     PopupHandler handler = new PopupHandler() {
       @Override
       public void invokePopup(Component comp, int x, int y) {
         if (condition.shouldShowPopup(comp, x, y)) {
-          ActionPopupMenu popupMenu = actionManager.createActionPopupMenu(place, group);
+          ActionManager manager = actionManager == null ? ActionManager.getInstance() : actionManager;
+          ActionPopupMenu popupMenu = manager.createActionPopupMenu(place, group);
           popupMenu.getComponent().show(comp, x, y);
         }
       }
@@ -142,8 +209,16 @@ public abstract class PopupHandler extends MouseAdapter {
     return handler;
   }
 
+  /** @deprecated Use {@link #installPopupMenu(JComponent, ActionGroup, String)} */
+  @Deprecated
   public static MouseListener installUnknownPopupHandler(JComponent component, ActionGroup group, ActionManager actionManager) {
-    return installPopupHandler(component, group, ActionPlaces.UNKNOWN, actionManager);
+    return installPopupMenu(component, __ -> group, ActionPlaces.UNKNOWN, actionManager, null);
+  }
+
+  /** @deprecated Use {@link #installPopupMenu(JComponent, ActionGroup, String)} */
+  @Deprecated
+  public static MouseListener installUnknownPopupHandler(JComponent component, ActionGroup group) {
+    return installPopupMenu(component, __ -> group, ActionPlaces.UNKNOWN, null, null);
   }
 
   @FunctionalInterface

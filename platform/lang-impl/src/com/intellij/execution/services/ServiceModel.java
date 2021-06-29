@@ -9,7 +9,6 @@ import com.intellij.ide.util.treeView.WeighedItem;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ColoredItem;
@@ -36,9 +35,9 @@ import java.util.List;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static com.intellij.execution.services.ServiceViewContributor.CONTRIBUTOR_EP_NAME;
+
 final class ServiceModel implements Disposable, InvokerSupplier {
-  static final ExtensionPointName<ServiceViewContributor<?>> CONTRIBUTOR_EP_NAME =
-    ExtensionPointName.create("com.intellij.serviceViewContributor");
   private static final Logger LOG = Logger.getInstance(ServiceModel.class);
 
   static final TreeTraversal NOT_LOADED_LAST_BFS = new TreeTraversal("NOT_LOADED_LAST_BFS") {
@@ -46,6 +45,13 @@ final class ServiceModel implements Disposable, InvokerSupplier {
     @Override
     public <T> It<T> createIterator(@NotNull Iterable<? extends T> roots, @NotNull Function<? super T, ? extends Iterable<? extends T>> tree) {
       return new NotLoadedLastBfsIt<>(roots, tree);
+    }
+  };
+  static final TreeTraversal ONLY_LOADED_BFS = new TreeTraversal("ONLY_LOADED_BFS") {
+    @NotNull
+    @Override
+    public <T> It<T> createIterator(@NotNull Iterable<? extends T> roots, @NotNull Function<? super T, ? extends Iterable<? extends T>> tree) {
+      return new OnlyLoadedBfsIt<>(roots, tree);
     }
   };
   private static final NotNullizer ourNotNullizer = new NotNullizer("ServiceViewTreeTraversal.NotNull");
@@ -804,6 +810,35 @@ final class ServiceModel implements Disposable, InvokerSupplier {
         if (iterable != null) {
           JBIterable.from(iterable).map(ourNotNullizer::notNullize).addAllTo(myQueue);
         }
+      }
+      if (myQueue.isEmpty()) {
+        return stop();
+      }
+      myTop = ourNotNullizer.nullize(myQueue.remove());
+      return myTop;
+    }
+  }
+
+  private static final class OnlyLoadedBfsIt<T> extends TreeTraversal.It<T> {
+    Deque<T> myQueue = new ArrayDeque<>();
+    T myTop;
+
+    OnlyLoadedBfsIt(@NotNull Iterable<? extends T> roots, Function<? super T, ? extends Iterable<? extends T>> tree) {
+      super(tree);
+      JBIterable.from(roots).map(ourNotNullizer::notNullize).addAllTo(myQueue);
+    }
+
+    @Override
+    public T nextImpl() {
+      if (myTop != null) {
+        if (!(myTop instanceof ServiceNode) ||
+            ((ServiceNode)myTop).isChildrenInitialized() || ((ServiceNode)myTop).isLoaded()) {
+          Iterable<? extends T> iterable = tree.fun(myTop);
+          if (iterable != null) {
+            JBIterable.from(iterable).map(ourNotNullizer::notNullize).addAllTo(myQueue);
+          }
+        }
+        myTop = null;
       }
       if (myQueue.isEmpty()) {
         return stop();

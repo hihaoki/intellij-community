@@ -70,26 +70,28 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
   @Test
   fun `test build script plugins errors on Sync`() {
     createProjectSubFile("buildSrc/src/main/java/example/SomePlugin.java",
-                         "package example;\n" +
-                         "\n" +
-                         "import org.gradle.api.Plugin;\n" +
-                         "import org.gradle.api.Project;\n" +
-                         "\n" +
-                         "public class SomePlugin implements Plugin<Project> {\n" +
-                         "    public void apply(Project project) {\n" +
-                         "        throw new IllegalArgumentException(\"Something's wrong!\");\n" +
-                         "    }\n" +
-                         "}\n")
+                         """
+                           package example;
+                           
+                           import org.gradle.api.Plugin;
+                           import org.gradle.api.Project;
+                           
+                           public class SomePlugin implements Plugin<Project> {
+                               public void apply(Project project) {
+                                   throw new IllegalArgumentException("Something's wrong!");
+                               }
+                           }
+                         """.trimIndent())
     importProject("apply plugin: example.SomePlugin")
 
     var expectedExecutionTree: String = "-\n" +
                                         " -failed\n"
-    if (currentGradleVersion >= GradleVersion.version("3.3") &&
-        currentGradleVersion < GradleVersion.version("4.5")) {
+    if (isGradleNewerOrSameAs("3.3") &&
+        isGradleOlderThan("4.5")) {
       expectedExecutionTree += "  :buildSrc:clean\n"
     }
 
-    if (currentGradleVersion >= GradleVersion.version("3.3")) {
+    if (isGradleNewerOrSameAs("3.3")) {
       expectedExecutionTree += "  :buildSrc:compileJava\n" +
                                "  :buildSrc:compileGroovy\n" +
                                "  :buildSrc:processResources\n" +
@@ -110,21 +112,26 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
     assertSyncViewTreeEquals(expectedExecutionTree)
 
     val filePath = FileUtil.toSystemDependentName(myProjectConfig.path)
-    val tryScanSuggestion = if (isGradleNewerOrSameThen("4.10")) " Run with --scan to get full insights." else ""
+    val tryScanSuggestion = if (isGradleNewerOrSameAs("4.10")) " Run with --scan to get full insights." else ""
+    val className = if (isGradleNewerOrSameAs("6.8")) "class 'example.SomePlugin'." else "[class 'example.SomePlugin']"
     assertSyncViewSelectedNode("Something's wrong!",
-                               "Build file '$filePath' line: 1\n\n" +
-                               "A problem occurred evaluating root project 'project'.\n" +
-                               "> Failed to apply plugin [class 'example.SomePlugin']\n" +
-                               "   > Something's wrong!\n" +
-                               "\n" +
-                               "* Try:\n" +
-                               "Run with --stacktrace option to get the stack trace. Run with --debug option to get more log output.$tryScanSuggestion\n")
+                               """
+                                 |Build file '$filePath' line: 1
+                                 |
+                                 |A problem occurred evaluating root project 'project'.
+                                 |> Failed to apply plugin $className
+                                 |   > Something's wrong!
+                                 |
+                                 |* Try:
+                                 |Run with --stacktrace option to get the stack trace. Run with --debug option to get more log output.$tryScanSuggestion
+                                 |
+                               """.trimMargin())
 
   }
 
   @Test
   fun `test unresolved dependencies errors on Sync`() {
-    val buildScript = GradleBuildScriptBuilderEx().withJavaPlugin()
+    val buildScript = createBuildScriptBuilder().withJavaPlugin()
 
     // check sunny case
     importProject(buildScript.generate())
@@ -132,7 +139,7 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
                              " finished")
 
     // check unresolved dependency w/o repositories
-    buildScript.addDependency("testCompile 'junit:junit:4.12'")
+    buildScript.addTestImplementationDependency("junit:junit:4.12")
     importProject(buildScript.generate())
     assertSyncViewTreeEquals("-\n" +
                              " -finished\n" +
@@ -150,14 +157,14 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
                                "\n")
 
     // successful import when repository is added
-    buildScript.withMavenCentral(isGradleNewerOrSameThen("6.0"))
+    buildScript.withMavenCentral(isGradleNewerOrSameAs("6.0"))
     importProject(buildScript.generate())
     assertSyncViewTreeEquals("-\n" +
                              " finished")
 
     // check unresolved dependency for offline mode
     GradleSettings.getInstance(myProject).isOfflineWork = true
-    buildScript.addDependency("testCompile 'junit:junit:99.99'")
+    buildScript.addTestImplementationDependency("junit:junit:99.99")
     importProject(buildScript.generate())
     assertSyncViewTreeEquals("-\n" +
                              " -finished\n" +
@@ -211,7 +218,7 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
 
   @Test
   fun `test unresolved build script dependencies errors on Sync`() {
-    val buildScript = GradleBuildScriptBuilderEx()
+    val buildScript = createBuildScriptBuilder()
     val requiredByProject = if (currentGradleVersion < GradleVersion.version("3.1")) ":project:unspecified" else "project :"
     val artifacts = when {
       currentGradleVersion < GradleVersion.version("4.0") -> "dependencies"
@@ -237,7 +244,7 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
                                "\n")
 
     // successful import when repository is added
-    buildScript.withBuildScriptMavenCentral(isGradleNewerOrSameThen("6.0"))
+    buildScript.withBuildScriptMavenCentral(isGradleNewerOrSameAs("6.0"))
     importProject(buildScript.generate())
     assertSyncViewTreeEquals("-\n" +
                              " finished")
@@ -295,15 +302,25 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
 
   @Test
   fun `test startup build script errors with column info`() {
-    importProject("apply plugin: 'java'\n" +
-                  "dependencies { \n" +
-                  "  testCompile group: 'junit', name: 'junit', version: '4.12\n" +
-                  "}")
+    val builder = createBuildScriptBuilder()
+    importProject(
+      builder
+        .withJavaPlugin()
+        .addTestImplementationDependency(builder.code("group: 'junit', name: 'junit', version: '4.12"))
+        .generate())
 
-    assertSyncViewTreeEquals("-\n" +
-                             " -failed\n" +
-                             "  -build.gradle\n" +
-                             "   expecting ''', found '\\n'")
+    if (isGradleOlderThan("7.0")) {
+      assertSyncViewTreeEquals("-\n" +
+                               " -failed\n" +
+                               "  -build.gradle\n" +
+                               "   expecting ''', found '\\n'")
+    }
+    else {
+      assertSyncViewTreeEquals("-\n" +
+                               " -failed\n" +
+                               "  -build.gradle\n" +
+                               "   Unexpected input: '{'")
+    }
   }
 
   @Test
@@ -329,7 +346,7 @@ open class GradleOutputParsersMessagesImportingTest : BuildViewMessagesImporting
 
     val filePath = FileUtil.toSystemDependentName(myProjectConfig.path)
     assertSyncViewSelectedNode("Cannot get property 'foo' on null object", true) {
-      val tryScanSuggestion = if (isGradleNewerOrSameThen("4.10")) " Run with --scan to get full insights." else ""
+      val tryScanSuggestion = if (isGradleNewerOrSameAs("4.10")) " Run with --scan to get full insights." else ""
       assertThat(it).startsWith("Build file '$filePath' line: 1\n\n" +
                                 "A problem occurred evaluating root project 'project'.\n" +
                                 "> Cannot get property 'foo' on null object\n" +

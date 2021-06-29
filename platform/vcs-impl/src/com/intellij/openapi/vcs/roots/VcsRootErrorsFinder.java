@@ -1,7 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.roots;
 
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -20,7 +19,7 @@ public final class VcsRootErrorsFinder {
   public VcsRootErrorsFinder(@NotNull Project project) {
     myProject = project;
     myVcsManager = ProjectLevelVcsManager.getInstance(project);
-    myRootDetector = ServiceManager.getService(myProject, VcsRootDetector.class);
+    myRootDetector = myProject.getService(VcsRootDetector.class);
   }
 
   @NotNull
@@ -51,8 +50,9 @@ public final class VcsRootErrorsFinder {
     List<String> mappedPaths = mappingsToPathsWithSelectedVcs(mappings);
     for (VcsRoot root : vcsRoots) {
       String vcsPath = root.getPath().getPath();
-      if (root.getVcs() != null && !mappedPaths.contains(vcsPath)) {
-        errors.add(new VcsRootErrorImpl(VcsRootError.Type.UNREGISTERED_ROOT, vcsPath, root.getVcs().getName()));
+      AbstractVcs vcs = root.getVcs();
+      if (vcs != null && !mappedPaths.contains(vcsPath)) {
+        errors.add(new VcsRootErrorImpl(VcsRootError.Type.UNREGISTERED_ROOT, new VcsDirectoryMapping(vcsPath, vcs.getName())));
       }
     }
     return errors;
@@ -65,16 +65,8 @@ public final class VcsRootErrorsFinder {
       if (!hasVcsChecker(mapping.getVcs())) {
         continue;
       }
-      if (mapping.isDefaultMapping()) {
-        if (!isRoot(mapping)) {
-          errors.add(new VcsRootErrorImpl(VcsRootError.Type.EXTRA_MAPPING, VcsDirectoryMapping.PROJECT_CONSTANT, mapping.getVcs()));
-        }
-      }
-      else {
-        String mappedPath = mapping.getDirectory();
-        if (!isRoot(mapping)) {
-          errors.add(new VcsRootErrorImpl(VcsRootError.Type.EXTRA_MAPPING, mappedPath, mapping.getVcs()));
-        }
+      if (!isRoot(mapping)) {
+        errors.add(new VcsRootErrorImpl(VcsRootError.Type.EXTRA_MAPPING, mapping));
       }
     }
     return errors;

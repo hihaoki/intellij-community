@@ -4,6 +4,7 @@ package com.siyeh.ig.bugs;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -13,10 +14,7 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.ConstructionUtils;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,19 +70,21 @@ public class SuspiciousDateFormatInspection extends AbstractBaseJavaLocalInspect
         if (pattern == null) return;
         List<Token> tokens = new ArrayList<>();
         char lastChar = 0;
-        int countNonAlpha = 0;
+        int countNonFormat = 0;
         char[] array = pattern.toCharArray();
+        boolean inQuote = false;
         for (int pos = 0; pos < array.length; pos++) {
           char c = array[pos];
+          if (c == '\'') inQuote = !inQuote;
           if (c == lastChar) continue;
           lastChar = c;
-          if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z') {
-            countNonAlpha = 0;
+          if (!inQuote && (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z')) {
+            countNonFormat = 0;
             tokens.add(new Token(pos, array));
             continue;
           }
-          countNonAlpha++;
-          if (countNonAlpha > 3) {
+          countNonFormat++;
+          if (countNonFormat > 3) {
             tokens.add(null);
           }
         }
@@ -135,7 +135,7 @@ public class SuspiciousDateFormatInspection extends AbstractBaseJavaLocalInspect
         return null;
       }
 
-      private boolean hasNeighbor(@NotNull String neighbors, @Nullable Token prev, @Nullable Token next) {
+      private boolean hasNeighbor(@NotNull @NonNls String neighbors, @Nullable Token prev, @Nullable Token next) {
         return prev != null && neighbors.indexOf(prev.character) >= 0 ||
                next != null && neighbors.indexOf(next.character) >= 0;
       }
@@ -169,10 +169,10 @@ public class SuspiciousDateFormatInspection extends AbstractBaseJavaLocalInspect
 
   private static final class Problem {
     final Token token;
-    final String usedName;
-    final String intendedName;
+    final @NlsSafe String usedName;
+    final @NlsSafe String intendedName;
 
-    private Problem(Token token, String usedName, String intendedName) {
+    private Problem(Token token, @NlsSafe String usedName, @NlsSafe String intendedName) {
       this.token = token;
       this.usedName = usedName;
       this.intendedName = intendedName;

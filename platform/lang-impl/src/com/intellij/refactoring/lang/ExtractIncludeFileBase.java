@@ -23,6 +23,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
@@ -263,7 +264,6 @@ public abstract class ExtractIncludeFileBase<T extends PsiElement> implements Re
     return extractFileType.getDefaultExtension();
   }
 
-  @Deprecated
   @TestOnly
   public boolean isValidRange(final T firstToExtract, final T lastToExtract) {
     return verifyChildRange(firstToExtract, lastToExtract);
@@ -286,11 +286,11 @@ public abstract class ExtractIncludeFileBase<T extends PsiElement> implements Re
     return RefactoringBundle.message("extract.include.file.action.title");
   }
 
-  protected String getRefactoringName() {
+  protected @NlsContexts.DialogTitle String getRefactoringName() {
     return getRefactoringNameText();
   }
 
-  static String getRefactoringNameText() {
+  static @NlsContexts.DialogTitle String getRefactoringNameText() {
     return RefactoringBundle.message("extract.include.file.title");
   }
 }

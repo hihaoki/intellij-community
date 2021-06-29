@@ -1,13 +1,17 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.local;
 
+import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.VFileProperty;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFilePointerCapableFileSystem;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
@@ -15,8 +19,6 @@ import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
 import com.intellij.openapi.vfs.newvfs.VfsImplUtil;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.*;
@@ -24,28 +26,51 @@ import org.jetbrains.annotations.*;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-public final class LocalFileSystemImpl extends LocalFileSystemBase implements Disposable, VirtualFilePointerCapableFileSystem {
+import static java.util.Objects.requireNonNullElse;
+
+public class LocalFileSystemImpl extends LocalFileSystemBase implements Disposable, VirtualFilePointerCapableFileSystem {
   private static final int STATUS_UPDATE_PERIOD = 1000;
 
   private final ManagingFS myManagingFS;
   private final FileWatcher myWatcher;
   private final WatchRootsManager myWatchRootsManager;
+  private final Runnable myAfterMarkDirtyCallback;
   private volatile boolean myDisposed;
 
   public LocalFileSystemImpl() {
+    this(null);
+  }
+
+  public LocalFileSystemImpl(@Nullable Runnable afterMarkDirtyCallback) {
+    myAfterMarkDirtyCallback = afterMarkDirtyCallback;
     myManagingFS = ManagingFS.getInstance();
     myWatcher = new FileWatcher(myManagingFS, () -> {
-      AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
-        () -> { if (!ApplicationManager.getApplication().isDisposed()) storeRefreshStatusToFiles(); },
+      AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> {
+          if (!ApplicationManager.getApplication().isDisposed()) {
+            if (storeRefreshStatusToFiles() && myAfterMarkDirtyCallback != null) {
+              myAfterMarkDirtyCallback.run();
+            }
+          }
+        },
         STATUS_UPDATE_PERIOD, STATUS_UPDATE_PERIOD, TimeUnit.MILLISECONDS);
     });
+
+    for (PluggableLocalFileSystemContentLoader contentLoader : PLUGGABLE_CONTENT_LOADER_EP_NAME.getExtensionList()) {
+      try {
+        contentLoader.initialize();
+        Disposer.register(this, contentLoader);
+      }
+      catch (Exception e) {
+        LOG.error(PluginException.createByClass(e, contentLoader.getClass()));
+      }
+    }
+
     myWatchRootsManager = new WatchRootsManager(myWatcher, this);
     Disposer.register(ApplicationManager.getApplication(), this);
     new SymbolicLinkRefresher(this);
   }
 
-  @NotNull
-  public FileWatcher getFileWatcher() {
+  public @NotNull FileWatcher getFileWatcher() {
     return myWatcher;
   }
 
@@ -55,13 +80,15 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Di
     myWatcher.dispose();
   }
 
-  private void storeRefreshStatusToFiles() {
+  private boolean storeRefreshStatusToFiles() {
     if (myWatcher.isOperational()) {
       FileWatcher.DirtyPaths dirtyPaths = myWatcher.getDirtyPaths();
       markPathsDirty(dirtyPaths.dirtyPaths);
       markFlatDirsDirty(dirtyPaths.dirtyDirectories);
       markRecursiveDirsDirty(dirtyPaths.dirtyPathsRecursive);
+      return !dirtyPaths.dirtyPaths.isEmpty() || !dirtyPaths.dirtyDirectories.isEmpty() || !dirtyPaths.dirtyPathsRecursive.isEmpty();
     }
+    return false;
   }
 
   private void markPathsDirty(@NotNull Iterable<String> dirtyPaths) {
@@ -136,17 +163,16 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Di
     return aliases;
   }
 
-  @NotNull
   @Override
-  public Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequestsToRemove,
-                                               @Nullable Collection<String> recursiveRootsToAdd,
-                                               @Nullable Collection<String> flatRootsToAdd) {
+  public @NotNull Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequestsToRemove,
+                                                        @Nullable Collection<String> recursiveRootsToAdd,
+                                                        @Nullable Collection<String> flatRootsToAdd) {
     if (myDisposed) return Collections.emptySet();
     Collection<WatchRequest> nonNullWatchRequestsToRemove = ContainerUtil.skipNulls(watchRequestsToRemove);
     LOG.assertTrue(nonNullWatchRequestsToRemove.size() == watchRequestsToRemove.size(), "watch requests collection should not contain `null` elements");
     return myWatchRootsManager.replaceWatchedRoots(nonNullWatchRequestsToRemove,
-                                                   ObjectUtils.notNull(recursiveRootsToAdd, Collections.emptyList()),
-                                                   ObjectUtils.notNull(flatRootsToAdd, Collections.emptyList()));
+                                                   requireNonNullElse(recursiveRootsToAdd, Collections.emptyList()),
+                                                   requireNonNullElse(flatRootsToAdd, Collections.emptyList()));
   }
 
   @Override
@@ -167,8 +193,12 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Di
   }
 
   @ApiStatus.Internal
-  public final void symlinkUpdated(int fileId, @Nullable VirtualFile parent, @NotNull String linkPath, @Nullable String linkTarget) {
-    if (linkTarget == null || !isRecursiveOrCircularSymlink(linkPath, linkTarget, parent)) {
+  public final void symlinkUpdated(int fileId,
+                                   @Nullable VirtualFile parent,
+                                   @NotNull CharSequence name,
+                                   @NotNull String linkPath,
+                                   @Nullable String linkTarget) {
+    if (linkTarget == null || !isRecursiveOrCircularSymlink(parent, name, linkTarget)) {
       myWatchRootsManager.updateSymlink(fileId, linkPath, linkTarget);
     }
   }
@@ -183,17 +213,17 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Di
     return "LocalFileSystem";
   }
 
+  @Override
   @TestOnly
   public void cleanupForNextTest() {
-    FileDocumentManager.getInstance().saveAllDocuments();
-    PersistentFS.getInstance().clearIdCache();
+    super.cleanupForNextTest();
     myWatchRootsManager.clear();
   }
 
-  private static boolean isRecursiveOrCircularSymlink(@NotNull String linkPath,
-                                                      @NotNull String symlinkTarget,
-                                                      @Nullable VirtualFile parent) {
-    if (FileUtil.startsWith(linkPath, symlinkTarget)) return true;
+  private static boolean isRecursiveOrCircularSymlink(@Nullable VirtualFile parent,
+                                                      @NotNull CharSequence name,
+                                                      @NotNull String symlinkTarget) {
+    if (startsWith(parent, name, symlinkTarget)) return true;
 
     if (!(parent instanceof VirtualFileSystemEntry)) {
       return false;
@@ -201,14 +231,25 @@ public final class LocalFileSystemImpl extends LocalFileSystemBase implements Di
     // check if it's circular - any symlink above resolves to my target too
     for (VirtualFileSystemEntry p = (VirtualFileSystemEntry)parent; p != null; p = p.getParent()) {
       // optimization: when the file has no symlinks up the hierarchy, it's not circular
-      if (!p.hasSymlink()) return false;
+      if (!p.thisOrParentHaveSymlink()) return false;
       if (p.is(VFileProperty.SYMLINK)) {
         String parentResolved = p.getCanonicalPath();
-        if (parentResolved != null && symlinkTarget.equals(parentResolved)) {
+        if (symlinkTarget.equals(parentResolved)) {
           return true;
         }
       }
     }
     return false;
+  }
+
+  private static boolean startsWith(@Nullable VirtualFile parent,
+                                    @NotNull CharSequence name,
+                                    @NotNull String symlinkTarget) {
+    if (parent != null) {
+      String symlinkTargetParent = StringUtil.trimEnd(symlinkTarget, "/" + name);
+      return VfsUtilCore.isAncestorOrSelf(symlinkTargetParent, parent);
+    }
+    // parent == null means name is root
+    return StringUtilRt.equal(name, symlinkTarget, SystemInfoRt.isFileSystemCaseSensitive);
   }
 }

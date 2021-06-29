@@ -13,6 +13,7 @@ import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.MasterDetailsComponent;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.util.Function;
 import com.intellij.util.IconUtil;
@@ -38,6 +39,7 @@ import static com.jetbrains.jsonSchema.remote.JsonFileResolver.isAbsoluteUrl;
  */
 public class JsonSchemaMappingsConfigurable extends MasterDetailsComponent implements SearchableConfigurable, Disposable {
   @NonNls public static final String SETTINGS_JSON_SCHEMA = "settings.json.schema";
+  private Runnable myInitializer = null;
 
   private final static Comparator<UserDefinedJsonSchemaConfiguration> COMPARATOR = (o1, o2) -> {
     if (o1.isApplicationDefined() != o2.isApplicationDefined()) {
@@ -46,7 +48,7 @@ public class JsonSchemaMappingsConfigurable extends MasterDetailsComponent imple
     return o1.getName().compareToIgnoreCase(o2.getName());
   };
   static final String STUB_SCHEMA_NAME = "New Schema";
-  private String myError;
+  private @Nls String myError;
 
   @NotNull
   private final Project myProject;
@@ -99,7 +101,7 @@ public class JsonSchemaMappingsConfigurable extends MasterDetailsComponent imple
 
   @SuppressWarnings("SameParameterValue")
   @NotNull
-  private String createUniqueName(@NotNull String s) {
+  private @Nls String createUniqueName(@NotNull @NlsSafe String s) {
     int max = -1;
     Enumeration children = myRoot.children();
     while (children.hasMoreElements()) {
@@ -288,10 +290,18 @@ public class JsonSchemaMappingsConfigurable extends MasterDetailsComponent imple
     return uiList;
   }
 
+  public void setInitializer(@NotNull Runnable initializer) {
+    myInitializer = initializer;
+  }
+
   @Override
   public void reset() {
     fillTree();
     updateWarningText(true);
+    if (myInitializer != null) {
+      myInitializer.run();
+      myInitializer = null;
+    }
   }
 
   @Override

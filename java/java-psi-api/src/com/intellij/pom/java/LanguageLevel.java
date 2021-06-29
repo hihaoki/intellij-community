@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.pom.java;
 
 import com.intellij.core.JavaPsiBundle;
@@ -12,6 +12,8 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.function.Supplier;
+
 /**
  * Represents a language level (i.e. features available) of a Java code.
  * The {@link org.jetbrains.jps.model.java.LanguageLevel} class is a compiler-side counterpart of this enum.
@@ -22,33 +24,35 @@ import org.jetbrains.annotations.Nullable;
  * @see JavaSdkVersion
  */
 public enum LanguageLevel {
-  JDK_1_3(JavaPsiBundle.message("jdk.1.3.language.level.description"), 3),
-  JDK_1_4(JavaPsiBundle.message("jdk.1.4.language.level.description"), 4),
-  JDK_1_5(JavaPsiBundle.message("jdk.1.5.language.level.description"), 5),
-  JDK_1_6(JavaPsiBundle.message("jdk.1.6.language.level.description"), 6),
-  JDK_1_7(JavaPsiBundle.message("jdk.1.7.language.level.description"), 7),
-  JDK_1_8(JavaPsiBundle.message("jdk.1.8.language.level.description"), 8),
-  JDK_1_9(JavaPsiBundle.message("jdk.1.9.language.level.description"), 9),
-  JDK_10(JavaPsiBundle.message("jdk.10.language.level.description"), 10),
-  JDK_11(JavaPsiBundle.message("jdk.11.language.level.description"), 11),
-  JDK_12(JavaPsiBundle.message("jdk.12.language.level.description"), 12),
-  JDK_13(JavaPsiBundle.message("jdk.13.language.level.description"), 13),
-  JDK_14(JavaPsiBundle.message("jdk.14.language.level.description"), 14),
-  JDK_14_PREVIEW(JavaPsiBundle.message("jdk.14.preview.language.level.description"), 14),
-  JDK_15(JavaPsiBundle.message("jdk.15.language.level.description"), 15),
-  JDK_15_PREVIEW(JavaPsiBundle.message("jdk.15.preview.language.level.description"), 15),
-  
-  JDK_X(JavaPsiBundle.message("jdk.X.language.level.description"), 16);
+  JDK_1_3(JavaPsiBundle.messagePointer("jdk.1.3.language.level.description"), 3),
+  JDK_1_4(JavaPsiBundle.messagePointer("jdk.1.4.language.level.description"), 4),
+  JDK_1_5(JavaPsiBundle.messagePointer("jdk.1.5.language.level.description"), 5),
+  JDK_1_6(JavaPsiBundle.messagePointer("jdk.1.6.language.level.description"), 6),
+  JDK_1_7(JavaPsiBundle.messagePointer("jdk.1.7.language.level.description"), 7),
+  JDK_1_8(JavaPsiBundle.messagePointer("jdk.1.8.language.level.description"), 8),
+  JDK_1_9(JavaPsiBundle.messagePointer("jdk.1.9.language.level.description"), 9),
+  JDK_10(JavaPsiBundle.messagePointer("jdk.10.language.level.description"), 10),
+  JDK_11(JavaPsiBundle.messagePointer("jdk.11.language.level.description"), 11),
+  JDK_12(JavaPsiBundle.messagePointer("jdk.12.language.level.description"), 12),
+  JDK_13(JavaPsiBundle.messagePointer("jdk.13.language.level.description"), 13),
+  JDK_14(JavaPsiBundle.messagePointer("jdk.14.language.level.description"), 14),
+  JDK_15(JavaPsiBundle.messagePointer("jdk.15.language.level.description"), 15),
+  JDK_15_PREVIEW(JavaPsiBundle.messagePointer("jdk.15.preview.language.level.description"), 15),
+  JDK_16(JavaPsiBundle.messagePointer("jdk.16.language.level.description"), 16),
+  JDK_16_PREVIEW(JavaPsiBundle.messagePointer("jdk.16.preview.language.level.description"), 16),
+  JDK_17(JavaPsiBundle.messagePointer("jdk.17.language.level.description"), 17),
+  JDK_17_PREVIEW(JavaPsiBundle.messagePointer("jdk.17.preview.language.level.description"), 17),
+  JDK_X(JavaPsiBundle.messagePointer("jdk.X.language.level.description"), 18);
 
-  public static final LanguageLevel HIGHEST = JDK_14;
+  public static final LanguageLevel HIGHEST = JDK_16;
   public static final Key<LanguageLevel> KEY = Key.create("LANGUAGE_LEVEL");
 
-  private final String myPresentableText;
+  private final Supplier<@Nls String> myPresentableText;
   private final JavaVersion myVersion;
   private final boolean myPreview;
 
-  LanguageLevel(@Nls String presentableText, int major) {
-    myPresentableText = presentableText;
+  LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major) {
+    myPresentableText = presentableTextSupplier;
     myVersion = JavaVersion.compose(major);
     myPreview = name().endsWith("_PREVIEW");
   }
@@ -73,7 +77,7 @@ public enum LanguageLevel {
   @NotNull
   @Nls
   public String getPresentableText() {
-    return myPresentableText;
+    return myPresentableText.get();
   }
 
   public boolean isAtLeast(@NotNull LanguageLevel level) {

@@ -10,6 +10,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.content.Content;
 import com.intellij.util.containers.hash.LinkedHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
@@ -27,7 +28,7 @@ public class RunnerLayout  {
   private final Map<String, ViewImpl.Default> myDefaultViews = new HashMap<>();
 
   protected Set<TabImpl> myTabs = new TreeSet<>(Comparator.comparingInt(TabImpl::getIndex));
-  private final Int2ObjectOpenHashMap<TabImpl.Default> myDefaultTabs = new Int2ObjectOpenHashMap<>();
+  private final Int2ObjectMap<TabImpl.Default> myDefaultTabs = new Int2ObjectOpenHashMap<>();
 
   protected General myGeneral = new General();
   private final Map<String, Pair<String, LayoutAttractionPolicy>> myDefaultFocus = new HashMap<>();
@@ -37,6 +38,28 @@ public class RunnerLayout  {
   public String getDefaultDisplayName(final int defaultIndex) {
     final TabImpl.Default tab = myDefaultTabs.get(defaultIndex);
     return tab != null ? tab.myDisplayName : null;
+  }
+
+  @Nullable
+  public Icon getDefaultIcon(int defaultIndex) {
+    TabImpl.Default tab = myDefaultTabs.get(defaultIndex);
+    return tab != null ? tab.myIcon : null;
+  }
+
+  public int getDefaultTabIndex(String contentId) {
+    ViewImpl.Default viewDefault = myDefaultViews.get(contentId);
+    return viewDefault != null ? viewDefault.getTabID() : -1;
+  }
+
+  @Nullable
+  public PlaceInGrid getDefaultPlaceInGrid(String contentId) {
+    ViewImpl.Default viewDefault = myDefaultViews.get(contentId);
+    return viewDefault != null ? viewDefault.getPlaceInGrid() : null;
+  }
+
+  public boolean getDefaultIsMinimized(String contentId) {
+    ViewImpl.Default viewDefault = myDefaultViews.get(contentId);
+    return viewDefault != null ? viewDefault.isMinimizedInGrid() : false;
   }
 
   @NotNull

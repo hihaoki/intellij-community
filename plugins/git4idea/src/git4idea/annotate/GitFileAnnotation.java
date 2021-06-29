@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.annotate;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.annotate.AnnotationTooltipBuilder;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import com.intellij.openapi.vcs.annotate.LineAnnotationAspect;
 import com.intellij.openapi.vcs.annotate.LineAnnotationAspectAdapter;
@@ -44,7 +33,9 @@ import git4idea.changes.GitCommittedChangeListProvider;
 import git4idea.log.GitCommitTooltipLinkHandler;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -59,31 +50,34 @@ public class GitFileAnnotation extends FileAnnotation {
 
   @NotNull private final List<LineInfo> myLines;
   @Nullable private List<VcsFileRevision> myRevisions;
-  @Nullable private TObjectIntHashMap<VcsRevisionNumber> myRevisionMap;
+  @Nullable private Object2IntMap<VcsRevisionNumber> myRevisionMap;
   @NotNull private final Map<VcsRevisionNumber, String> myCommitMessageMap = new HashMap<>();
   private final VcsLogApplicationSettings myLogSettings = ApplicationManager.getApplication().getService(VcsLogApplicationSettings.class);
 
-  private final LineAnnotationAspect DATE_ASPECT = new GitAnnotationAspect(LineAnnotationAspect.DATE, true) {
-    @Override
-    public String doGetValue(LineInfo info) {
-      Date date = getDate(info);
-      return FileAnnotation.formatDate(date);
-    }
-  };
+  private final LineAnnotationAspect DATE_ASPECT =
+    new GitAnnotationAspect(LineAnnotationAspect.DATE, VcsBundle.message("line.annotation.aspect.date"), true) {
+      @Override
+      public String doGetValue(LineInfo info) {
+        Date date = getDate(info);
+        return FileAnnotation.formatDate(date);
+      }
+    };
 
-  private final LineAnnotationAspect REVISION_ASPECT = new GitAnnotationAspect(LineAnnotationAspect.REVISION, false) {
-    @Override
-    protected String doGetValue(LineInfo lineInfo) {
-      return lineInfo.getRevisionNumber().getShortRev();
-    }
-  };
+  private final LineAnnotationAspect REVISION_ASPECT =
+    new GitAnnotationAspect(LineAnnotationAspect.REVISION, VcsBundle.message("line.annotation.aspect.revision"), false) {
+      @Override
+      protected String doGetValue(LineInfo lineInfo) {
+        return lineInfo.getRevisionNumber().getShortRev();
+      }
+    };
 
-  private final LineAnnotationAspect AUTHOR_ASPECT = new GitAnnotationAspect(LineAnnotationAspect.AUTHOR, true) {
-    @Override
-    protected String doGetValue(LineInfo lineInfo) {
-      return lineInfo.getAuthor();
-    }
-  };
+  private final LineAnnotationAspect AUTHOR_ASPECT =
+    new GitAnnotationAspect(LineAnnotationAspect.AUTHOR, VcsBundle.message("line.annotation.aspect.author"), true) {
+      @Override
+      protected String doGetValue(LineInfo lineInfo) {
+        return lineInfo.getAuthor();
+      }
+    };
   private final VcsLogUiProperties.PropertiesChangeListener myLogSettingChangeListener = this::onLogSettingChange;
 
   public GitFileAnnotation(@NotNull Project project,
@@ -146,7 +140,7 @@ public class GitFileAnnotation extends FileAnnotation {
   public void setRevisions(@NotNull List<VcsFileRevision> revisions) {
     myRevisions = revisions;
 
-    myRevisionMap = new TObjectIntHashMap<>();
+    myRevisionMap = new Object2IntOpenHashMap<>();
     for (int i = 0; i < myRevisions.size(); i++) {
       myRevisionMap.put(myRevisions.get(i).getRevisionNumber(), i);
     }
@@ -167,18 +161,21 @@ public class GitFileAnnotation extends FileAnnotation {
     return myLines.get(lineNumber);
   }
 
+  @NlsContexts.Tooltip
   @Nullable
   @Override
   public String getToolTip(int lineNumber) {
     return getToolTip(lineNumber, false);
   }
 
+  @NlsContexts.Tooltip
   @Nullable
   @Override
   public String getHtmlToolTip(int lineNumber) {
     return getToolTip(lineNumber, true);
   }
 
+  @NlsContexts.Tooltip
   @Nullable
   private String getToolTip(int lineNumber, boolean asHtml) {
     LineInfo lineInfo = getLineInfo(lineNumber);
@@ -203,10 +200,11 @@ public class GitFileAnnotation extends FileAnnotation {
     return atb.toString();
   }
 
+  @NlsSafe
   @Nullable
   public String getCommitMessage(@NotNull VcsRevisionNumber revisionNumber) {
     if (myRevisions != null && myRevisionMap != null &&
-        myRevisionMap.contains(revisionNumber)) {
+        myRevisionMap.containsKey(revisionNumber)) {
       VcsFileRevision fileRevision = myRevisions.get(myRevisionMap.get(revisionNumber));
       return fileRevision.getCommitMessage();
     }
@@ -240,8 +238,8 @@ public class GitFileAnnotation extends FileAnnotation {
    * Revision annotation aspect implementation
    */
   private abstract class GitAnnotationAspect extends LineAnnotationAspectAdapter {
-    GitAnnotationAspect(String id, boolean showByDefault) {
-      super(id, showByDefault);
+    GitAnnotationAspect(@NonNls String id, @NlsContexts.ListItem String displayName, boolean showByDefault) {
+      super(id, displayName, showByDefault);
     }
 
     @Override
@@ -393,6 +391,7 @@ public class GitFileAnnotation extends FileAnnotation {
       return myCommitInfo.getAuthor();
     }
 
+    @NlsSafe
     @NotNull
     public String getSubject() {
       return myCommitInfo.getSubject();
@@ -448,7 +447,7 @@ public class GitFileAnnotation extends FileAnnotation {
 
         GitRevisionNumber revisionNumber = lineInfo.getRevisionNumber();
         if (myRevisions != null && myRevisionMap != null &&
-            myRevisionMap.contains(revisionNumber)) {
+            myRevisionMap.containsKey(revisionNumber)) {
           int index = myRevisionMap.get(revisionNumber);
           if (index + 1 < myRevisions.size()) {
             return myRevisions.get(index + 1);

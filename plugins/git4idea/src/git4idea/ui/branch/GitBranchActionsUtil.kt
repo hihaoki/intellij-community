@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ui.branch
 
 import com.intellij.dvcs.branch.GroupingKey
@@ -14,8 +14,12 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.VcsException
 import com.intellij.openapi.vcs.VcsNotifier
+import git4idea.GitNotificationIdsHolder.Companion.BRANCHES_UPDATE_SUCCESSFUL
+import git4idea.GitNotificationIdsHolder.Companion.BRANCH_CHECKOUT_FAILED
+import git4idea.GitNotificationIdsHolder.Companion.BRANCH_CREATION_FAILED
 import git4idea.GitUtil
 import git4idea.GitVcs
+import git4idea.branch.GitBranchPair
 import git4idea.branch.GitBrancher
 import git4idea.branch.GitNewBranchDialog
 import git4idea.branch.GitNewBranchOptions
@@ -24,6 +28,7 @@ import git4idea.fetch.GitFetchSupport
 import git4idea.history.GitHistoryUtils
 import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
+import git4idea.update.GitUpdateExecutionProcess
 import org.jetbrains.annotations.Nls
 import javax.swing.Icon
 
@@ -87,7 +92,8 @@ internal fun checkoutOrReset(project: Project,
     val hasCommits = checkCommitsUnderProgress(project, repositories, startPoint, name)
     if (hasCommits) {
       VcsNotifier.getInstance(project)
-        .notifyError(GitBundle.message("branches.checkout.failed.title"),
+        .notifyError(BRANCH_CHECKOUT_FAILED,
+                     GitBundle.message("branches.checkout.failed.title"),
                      GitBundle.message("branches.checkout.failed.description", name))
       return
     }
@@ -102,7 +108,8 @@ internal fun createNewBranch(project: Project, repositories: List<GitRepository>
   if (options.reset) {
     val hasCommits = checkCommitsUnderProgress(project, repositories, startPoint, name)
     if (hasCommits) {
-      VcsNotifier.getInstance(project).notifyError(GitBundle.message("branches.creation.failed.title"),
+      VcsNotifier.getInstance(project).notifyError(BRANCH_CREATION_FAILED,
+                                                   GitBundle.message("branches.creation.failed.title"),
                                                    GitBundle.message("branches.checkout.failed.description", name))
       return
     }
@@ -144,29 +151,51 @@ internal fun updateBranches(project: Project, repositories: List<GitRepository>,
   if (repoToTrackingInfos.isEmpty()) return
 
   GitVcs.runInBackground(object : Task.Backgroundable(project, GitBundle.message("branches.updating.process"), true) {
-    var successFetches = 0
+    private val successfullyUpdated = arrayListOf<String>()
+
     override fun run(indicator: ProgressIndicator) {
       val fetchSupport = GitFetchSupport.fetchSupport(project)
+      val currentBranchesMap: MutableMap<GitRepository, GitBranchPair> = HashMap()
+
       for ((repo, trackingInfos) in repoToTrackingInfos) {
+        val currentBranch = repo.currentBranch
         for (trackingInfo in trackingInfos) {
-          val localBranchName = trackingInfo.localBranch.name
-          val remoteBranchName = trackingInfo.remoteBranch.nameForRemoteOperations
-          val fetchResult = fetchSupport.fetch(repo, trackingInfo.remote, "$remoteBranchName:$localBranchName")
-          try {
-            fetchResult.throwExceptionIfFailed()
-            successFetches += 1
+          val localBranch = trackingInfo.localBranch
+          val remoteBranch = trackingInfo.remoteBranch
+          if (localBranch == currentBranch) {
+            currentBranchesMap[repo] = GitBranchPair(currentBranch, remoteBranch)
           }
-          catch (ignored: VcsException) {
-            fetchResult.showNotificationIfFailed(GitBundle.message("branches.update.failed"))
+          else {
+            // Fast-forward all non-current branches in the selection
+            val localBranchName = localBranch.name
+            val remoteBranchName = remoteBranch.nameForRemoteOperations
+            val fetchResult = fetchSupport.fetch(repo, trackingInfo.remote, "$remoteBranchName:$localBranchName")
+            try {
+              fetchResult.throwExceptionIfFailed()
+              successfullyUpdated.add(localBranchName)
+            }
+            catch (ignored: VcsException) {
+              fetchResult.showNotificationIfFailed(GitBundle.message("branches.update.failed"))
+            }
           }
         }
+      }
+      // Update all current branches in the selection
+      if (currentBranchesMap.isNotEmpty()) {
+        GitUpdateExecutionProcess(project,
+                                  repositories,
+                                  currentBranchesMap,
+                                  GitVcsSettings.getInstance(project).updateMethod,
+                                  false).execute()
       }
     }
 
     override fun onSuccess() {
-      if (successFetches > 0) {
-        VcsNotifier.getInstance(myProject).notifySuccess(GitBundle.message("branches.selected.branches.updated.title",
-                                                                           localBranchNames.size))
+      if (successfullyUpdated.isNotEmpty()) {
+        VcsNotifier.getInstance(project).notifySuccess(BRANCHES_UPDATE_SUCCESSFUL, "",
+                                                       GitBundle.message("branches.selected.branches.updated.title",
+                                                                         successfullyUpdated.size,
+                                                                         successfullyUpdated.joinToString("\n")))
       }
     }
   })
@@ -184,7 +213,7 @@ internal fun hasRemotes(project: Project): Boolean {
 internal abstract class BranchGroupingAction(private val key: GroupingKey,
                                              icon: Icon? = null) : ToggleAction(key.text, key.description, icon), DumbAware {
 
-  abstract fun setSelected(key: GroupingKey, state: Boolean)
+  abstract fun setSelected(e: AnActionEvent, key: GroupingKey, state: Boolean)
 
   override fun isSelected(e: AnActionEvent) =
     e.project?.let { GitVcsSettings.getInstance(it).branchSettings.isGroupingEnabled(key) } ?: false
@@ -193,6 +222,6 @@ internal abstract class BranchGroupingAction(private val key: GroupingKey,
     val project = e.project ?: return
     val branchSettings = GitVcsSettings.getInstance(project).branchSettings
     branchSettings.setGrouping(key, state)
-    setSelected(key, state)
+    setSelected(e, key, state)
   }
 }

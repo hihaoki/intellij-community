@@ -10,11 +10,11 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.LineHandlerHelper;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.io.BaseDataReader;
 import git4idea.config.GitExecutable;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,13 +48,13 @@ public class GitLineHandler extends GitTextHandler {
     super(project, directory, command);
   }
 
-  public GitLineHandler(@NotNull Project project,
+  public GitLineHandler(@Nullable Project project,
                         @NotNull VirtualFile vcsRoot,
                         @NotNull GitCommand command) {
     super(project, vcsRoot, command);
   }
 
-  public GitLineHandler(@NotNull Project project,
+  public GitLineHandler(@Nullable Project project,
                         @NotNull VirtualFile vcsRoot,
                         @NotNull GitCommand command,
                         @NotNull List<String> configParameters) {
@@ -69,7 +69,7 @@ public class GitLineHandler extends GitTextHandler {
     super(project, directory, executable, command, configParameters);
   }
 
-  public void setUrl(@NotNull String url) {
+  public void setUrl(@NotNull @NonNls String url) {
     setUrls(Collections.singletonList(url));
   }
 
@@ -112,36 +112,38 @@ public class GitLineHandler extends GitTextHandler {
     myLineListeners.addListener(listener);
   }
 
-  @Override
+  /**
+   * @deprecated Do not inherit {@link GitLineHandler}.
+   */
+  @Deprecated
   protected void onTextAvailable(String text, Key outputType) {
-    notifyLine(text, outputType);
   }
 
   /**
-   * Notify single line
-   *
-   * @param line       a line to notify
-   * @param outputType output type
+   * @param line line content without separators
+   * @param isCr whether this line is CR-only separated (typically, a progress message)
    */
-  private void notifyLine(@NotNull String line, @NotNull Key outputType) {
-    String lineWithoutSeparator = LineHandlerHelper.trimLineSeparator(line);
-    // do not log git remote progress (progress lines are separated with CR by convention)
-    if (!line.endsWith("\r")) logOutput(lineWithoutSeparator, outputType);
+  private void onLineAvailable(@NotNull String line, boolean isCr, @NotNull Key outputType) {
+    onTextAvailable(line, outputType);
     if (outputType == ProcessOutputTypes.SYSTEM) return;
-    myLineListeners.getMulticaster().onLineAvailable(lineWithoutSeparator, outputType);
+
+    // do not log git remote progress
+    if (!isCr) logOutput(line, outputType);
+
+    if (OUTPUT_LOG.isDebugEnabled()) {
+      OUTPUT_LOG.debug(String.format("%s %% %s (%s):'%s'", getCommand(), this.hashCode(), outputType, line));
+    }
+
+    myLineListeners.getMulticaster().onLineAvailable(line, outputType);
   }
 
   private void logOutput(@NotNull String line, @NotNull Key outputType) {
-    String trimmedLine = line.trim();
-    if (!StringUtil.isEmptyOrSpaces(trimmedLine) &&
-        !mySilent &&
-        ((outputType == ProcessOutputTypes.STDOUT && !isStdoutSuppressed()) ||
-         outputType == ProcessOutputTypes.STDERR && !isStderrSuppressed())) {
-      LOG.info(trimmedLine);
-    }
-    else {
-      OUTPUT_LOG.debug(trimmedLine);
-    }
+    if (mySilent) return;
+    boolean shouldLogOutput = outputType == ProcessOutputTypes.STDOUT && !isStdoutSuppressed() ||
+                              outputType == ProcessOutputTypes.STDERR && !isStderrSuppressed();
+    if (!shouldLogOutput) return;
+    if (StringUtil.isEmptyOrSpaces(line)) return;
+    LOG.info(line.trim());
   }
 
   @Override
@@ -152,7 +154,7 @@ public class GitLineHandler extends GitTextHandler {
       protected BaseDataReader createOutputDataReader() {
         return new LineReader(createProcessOutReader(),
                               readerOptions().policy(),
-                              new BufferingTextSplitter((line) -> this.notifyTextAvailable(line, ProcessOutputTypes.STDOUT)),
+                              new BufferingTextSplitter((line, isCr) -> onLineAvailable(line, isCr, ProcessOutputTypes.STDOUT)),
                               myPresentableName);
       }
 
@@ -161,13 +163,13 @@ public class GitLineHandler extends GitTextHandler {
       protected BaseDataReader createErrorDataReader() {
         return new LineReader(createProcessErrReader(),
                               readerOptions().policy(),
-                              new BufferingTextSplitter((line) -> this.notifyTextAvailable(line, ProcessOutputTypes.STDERR)),
+                              new BufferingTextSplitter((line, isCr) -> onLineAvailable(line, isCr, ProcessOutputTypes.STDERR)),
                               myPresentableName);
       }
     };
   }
 
-  public void overwriteConfig(String ... params) {
+  public void overwriteConfig(@NonNls String ... params) {
     for (String param : params) {
       myCommandLine.getParametersList().prependAll("-c", param);
     }

@@ -15,6 +15,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.ex.Settings;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.codeStyle.CodeStyleScheme;
 import com.intellij.psi.codeStyle.CodeStyleSchemes;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
@@ -87,6 +88,8 @@ public class CodeStyleMainPanel extends JPanel implements TabbedLanguageCodeStyl
 
       @Override
       public void schemeListChanged() {
+        mySettingsPanels.keySet().removeIf(
+          name -> !myModel.containsScheme(name, false) && !myModel.containsScheme(name, true));
         mySchemesPanel.resetSchemesCombo();
       }
 
@@ -257,8 +260,8 @@ public class CodeStyleMainPanel extends JPanel implements TabbedLanguageCodeStyl
         if (currentTab != null) {
           tabbedPanel.changeTab(currentTab);
         }
-        mySchemesPanel.setSeparatorVisible(false);
       }
+      mySchemesPanel.setSeparatorVisible(false);
       mySettingsPanels.put(name, panel);
       mySettingsPanel.add(scheme.getName(), panel);
     }
@@ -266,7 +269,7 @@ public class CodeStyleMainPanel extends JPanel implements TabbedLanguageCodeStyl
     return mySettingsPanels.get(name);
   }
 
-  public String getDisplayName() {
+  public @NlsContexts.ConfigurableName String getDisplayName() {
     return myModel.getSelectedScheme().getName();
   }
 
@@ -307,5 +310,9 @@ public class CodeStyleMainPanel extends JPanel implements TabbedLanguageCodeStyl
 
   public void highlightOptions(@NotNull String searchString) {
     ensureCurrentPanel().highlightOptions(searchString);
+  }
+
+  public void setSchemesPanelVisible(boolean isVisible) {
+    mySchemesPanel.setVisible(isVisible);
   }
 }

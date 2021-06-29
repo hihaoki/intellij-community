@@ -2,16 +2,19 @@
 package com.intellij.util.io.keyStorage;
 
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Processor;
+import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataOutputStream;
 import com.intellij.util.io.*;
+import com.intellij.util.lang.CompoundRuntimeException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public class AppendableStorageBackedByResizableMappedFile<Data> extends ResizeableMappedFile implements AppendableObjectStorage<Data> {
   private static final ThreadLocal<MyDataIS> ourReadStream = ThreadLocal.withInitial(() -> new MyDataIS());
@@ -20,20 +23,20 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
   private volatile int myBufferPosition;
   private static final int ourAppendBufferLength = 4096;
   @NotNull
-  private final KeyDescriptor<Data> myDataDescriptor;
+  private final DataExternalizer<Data> myDataDescriptor;
 
   public AppendableStorageBackedByResizableMappedFile(final Path file,
                                                       int initialSize,
                                                       @Nullable StorageLockContext lockContext,
                                                       int pageSize,
                                                       boolean valuesAreBufferAligned,
-                                                      @NotNull KeyDescriptor<Data> dataDescriptor) {
+                                                      @NotNull DataExternalizer<Data> dataDescriptor) throws IOException {
     super(file, initialSize, lockContext, pageSize, valuesAreBufferAligned);
     myDataDescriptor = dataDescriptor;
     myFileLength = (int)length();
   }
 
-  private void flushKeyStoreBuffer() {
+  private void flushKeyStoreBuffer() throws IOException {
     if (myBufferPosition > 0) {
       put(myFileLength, myAppendBuffer, 0, myBufferPosition);
       myFileLength += myBufferPosition;
@@ -42,16 +45,24 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
   }
 
   @Override
-  public void force() {
+  public void force() throws IOException {
     flushKeyStoreBuffer();
     super.force();
   }
 
   @Override
-  public void close() {
-    flushKeyStoreBuffer();
-    super.close();
-    ourReadStream.remove();
+  public void close() throws IOException {
+    try {
+      List<Exception> exceptions = new SmartList<>();
+      ContainerUtil.addIfNotNull(exceptions, ExceptionUtil.runAndCatch(() -> flushKeyStoreBuffer()));
+      ContainerUtil.addIfNotNull(exceptions, ExceptionUtil.runAndCatch(() -> super.close()));
+      if (!exceptions.isEmpty()) {
+        throw new IOException(new CompoundRuntimeException(exceptions));
+      }
+    }
+    finally {
+      ourReadStream.remove();
+    }
   }
 
   @Override
@@ -80,28 +91,30 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
   @Override
   public boolean processAll(@NotNull Processor<? super Data> processor) throws IOException {
     assert !isDirty();
-
     if (myFileLength == 0) return true;
 
-    try (DataInputStream keysStream = new DataInputStream(
-      new BufferedInputStream(new LimitedInputStream(Files.newInputStream(getPagedFileStorage().getFile()),
-                                                     myFileLength) {
-        @Override
-        public int available() {
-          return remainingLimit();
-        }
-      }, 32768))) {
+    return readInputStream(is -> {
+      // calculation may restart few times, so it's expected that processor processes duplicated
+      DataInputStream keyStream = new DataInputStream(
+        new BufferedInputStream(new LimitedInputStream(is, myFileLength) {
+          @Override
+          public int available() {
+            return remainingLimit();
+          }
+        }, 32768));
+
       try {
         while (true) {
-          Data key = myDataDescriptor.read(keysStream);
+          Data key = myDataDescriptor.read(keyStream);
           if (!processor.process(key)) return false;
         }
       }
       catch (EOFException e) {
         // Done
       }
+
       return true;
-    }
+    });
   }
 
   @Override
@@ -148,33 +161,12 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
     return sameValue[0];
   }
 
-  @Override
-  public void lockRead() {
-    getPagedFileStorage().lockRead();
-  }
-
-  @Override
-  public void unlockRead() {
-    getPagedFileStorage().unlockRead();
-  }
-
-  @Override
-  public void lockWrite() {
-    getPagedFileStorage().lockWrite();
-  }
-
-  @Override
-  public void unlockWrite() {
-    getPagedFileStorage().unlockWrite();
-  }
-
   @NotNull
-  private OutputStream buildOldComparerStream(final int addr, final boolean[] sameValue) {
+  private OutputStream buildOldComparerStream(final int addr, final boolean[] sameValue) throws IOException {
     OutputStream comparer;
     final PagedFileStorage storage = getPagedFileStorage();
 
     if (myFileLength <= addr) {
-      //noinspection IOResourceOpenedButNotSafelyClosed
       comparer = new OutputStream() {
         int address = addr - myFileLength;
         boolean same = true;
@@ -191,20 +183,19 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
       };
     }
     else {
-      //noinspection IOResourceOpenedButNotSafelyClosed
       comparer = new OutputStream() {
         int base = addr;
         int address = storage.getOffsetInPage(addr);
         boolean same = true;
-        ByteBuffer buffer = storage.getByteBuffer(addr, false).getCachedBuffer();
+        DirectBufferWrapper buffer = storage.getByteBuffer(addr, false);
         final int myPageSize = storage.getPageSize();
 
         @Override
-        public void write(int b) {
+        public void write(int b) throws IOException {
           if (same) {
             if (myPageSize == address && address < myFileLength) {    // reached end of current byte buffer
               base += address;
-              buffer = storage.getByteBuffer(base, false).getCachedBuffer();
+              buffer = storage.getByteBuffer(base, false);
               address = 0;
             }
             same = address < myFileLength && buffer.get(address++) == (byte)b;
@@ -243,7 +234,6 @@ public class AppendableStorageBackedByResizableMappedFile<Data> extends Resizeab
     }
   }
 
-  @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
   private static final InputStream TOMBSTONE = new InputStream() {
     @Override
     public int read() {

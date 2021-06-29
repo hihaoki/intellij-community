@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.diagnostic.PluginException;
@@ -41,9 +41,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/**
- * @author yole
- */
+
 public class PsiUtilCore {
   private static final Logger LOG = Logger.getInstance(PsiUtilCore.class);
   public static final PsiElement NULL_PSI_ELEMENT = new NullPsiElement();
@@ -502,7 +500,7 @@ public class PsiUtilCore {
     VirtualFile vDir = file.getParent();
     PsiDirectory psiDir = vDir == null ? null : PsiManager.getInstance(project).findDirectory(vDir);
     FileIndexFacade indexFacade = FileIndexFacade.getInstance(project);
-    StringBuilder sb = new StringBuilder();
+    @NonNls StringBuilder sb = new StringBuilder();
     sb.append("valid=").append(file.isValid()).
       append(" isDirectory=").append(file.isDirectory()).
       append(" hasDocument=").append(document != null).
@@ -666,7 +664,7 @@ public class PsiUtilCore {
     }
 
     @Override
-    public boolean processChildren(@NotNull PsiElementProcessor<PsiFileSystemItem> processor) {
+    public boolean processChildren(@NotNull PsiElementProcessor<? super PsiFileSystemItem> processor) {
       throw createException();
     }
 

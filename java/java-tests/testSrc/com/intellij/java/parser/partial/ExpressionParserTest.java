@@ -1,8 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.parser.partial;
 
 import com.intellij.java.parser.JavaParsingTestCase;
 import com.intellij.lang.java.parser.JavaParser;
+import com.intellij.pom.java.LanguageLevel;
 
 public class ExpressionParserTest extends JavaParsingTestCase {
   public ExpressionParserTest() {
@@ -30,7 +31,14 @@ public class ExpressionParserTest extends JavaParsingTestCase {
 
   public void testInstanceOf0() { doParserTest("a instanceof String"); }
   public void testInstanceOf1() { doParserTest("a instanceof"); }
-  public void testInstanceOf2() { doParserTest("x instanceof Foo v"); }
+
+  public void testInstanceOfPattern0() { doParserTest("x instanceof Foo v"); }
+  public void testInstanceOfPattern1() { doParserTest("x instanceof final Foo v"); }
+  public void testInstanceOfPattern2() { doParserTest("x instanceof @Ann() final Foo v"); }
+  public void testInstanceOfPattern3() { doParserTest("x instanceof (Foo v)"); }
+  public void testInstanceOfPattern4() { doParserTest("x instanceof Foo v && v > 10"); }
+  public void testInstanceOfPattern5() { doParserTest("x instanceof (Foo v && v > 10)"); }
+  public void testInstanceOfPattern6() { doParserTest("x instanceof ((A a && a.b instanceof (B b && b > 0)) && a > 10)"); }
 
   public void testNot0() { doParserTest("!!a"); }
   public void testNot1() { doParserTest("!"); }
@@ -149,6 +157,11 @@ public class ExpressionParserTest extends JavaParsingTestCase {
   public void testTextBlockLiteral0() { doParserTest("\"\"\".\"\"\""); }
 
   public void testSwitch0() { doParserTest("switch (i) { case 1 -> 1; default -> 2; }"); }
+
+  public void testYieldAsExpr0() { doParserTest("yield.run()"); }
+  public void testYieldAsExpr1() { doParserTest("yield++"); }
+  public void testYieldAsExpr2() { doParserTest("yield += 2"); }
+  public void testYieldAsExpr3() { doParserTest("yield ? 10 : 20"); }
 
   private void doParserTest(String text) {
     doParserTest(text, builder -> JavaParser.INSTANCE.getExpressionParser().parse(builder));

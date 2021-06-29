@@ -1,56 +1,34 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io
 
-import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.openapi.vfs.CharsetToolkit
+import com.intellij.openapi.util.io.NioFiles
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
-import java.nio.CharBuffer
 import java.nio.channels.Channels
 import java.nio.charset.Charset
 import java.nio.file.*
 import java.nio.file.attribute.BasicFileAttributes
-import java.nio.file.attribute.DosFileAttributeView
 import java.nio.file.attribute.FileTime
 import java.util.function.Predicate
 import kotlin.math.min
 
-operator fun Path.div(x: String): Path = resolve(x)
-
-operator fun File.div(x: String): File = File(this, x)
-
 fun Path.exists(): Boolean = Files.exists(this)
 
-fun Path.createDirectories(): Path {
-  // symlink or existing regular file - Java SDK do this check, but with as `isDirectory(dir, LinkOption.NOFOLLOW_LINKS)`, i.e. links are not checked
-  if (!Files.isDirectory(this)) {
-    try {
-      doCreateDirectories(toAbsolutePath())
-    }
-    catch (ignored: FileAlreadyExistsException) {
-      // toAbsolutePath can return resolved path or file exists now
-    }
-  }
-  return this
-}
-
-private fun doCreateDirectories(path: Path) {
-  path.parent?.let {
-    if (!Files.isDirectory(it)) {
-      doCreateDirectories(it)
-    }
-  }
-  Files.createDirectory(path)
-}
+fun Path.createDirectories(): Path =
+  NioFiles.createDirectories(this)
 
 /**
  * Opposite to Java, parent directories will be created
  */
-fun Path.outputStream(): OutputStream {
+@JvmOverloads
+fun Path.outputStream(append: Boolean = false): OutputStream {
   parent?.createDirectories()
+  if (append) {
+    return Files.newOutputStream(this, StandardOpenOption.APPEND, StandardOpenOption.CREATE)
+  }
   return Files.newOutputStream(this)
 }
 
@@ -61,9 +39,6 @@ fun Path.safeOutputStream(): OutputStream {
 
 @Throws(IOException::class)
 fun Path.inputStream(): InputStream = Files.newInputStream(this)
-
-@Throws(IOException::class)
-fun Path.inputStreamSkippingBom() = CharsetToolkit.inputStreamSkippingBOM(inputStream().buffered())
 
 fun Path.inputStreamIfExists(): InputStream? {
   try {
@@ -84,75 +59,11 @@ fun Path.createSymbolicLink(target: Path): Path {
 }
 
 @JvmOverloads
-fun Path.delete(recursively: Boolean = true) {
-  if (recursively) {
-    doDelete(this)
+fun Path.delete(recursively: Boolean = true) =
+  when {
+    recursively -> NioFiles.deleteRecursively(this)
+    else -> Files.delete(this)
   }
-  else {
-    Files.delete(this)
-  }
-}
-
-private fun doDelete(file: Path) {
-  val attributes = try {
-    Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-  }
-  catch (e: NoSuchFileException) {
-    return
-  }
-
-  if (!attributes.isDirectory) {
-    deleteFile(file)
-    return
-  }
-
-  Files.walkFileTree(file, object : SimpleFileVisitor<Path>() {
-    override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-      deleteFile(file)
-      return FileVisitResult.CONTINUE
-    }
-
-    override fun postVisitDirectory(dir: Path, exception: IOException?): FileVisitResult {
-      if (exception != null) {
-        throw exception
-      }
-
-      Files.deleteIfExists(dir)
-      return FileVisitResult.CONTINUE
-    }
-  })
-}
-
-private fun deleteFile(file: Path) {
-  // repeated delete is required for bad OS like Windows
-  val maxAttemptCount = 10
-  var attemptCount = 0
-  while (true) {
-    try {
-      Files.deleteIfExists(file)
-      return
-    }
-    catch (e: IOException) {
-      if (++attemptCount == maxAttemptCount) {
-        throw e
-      }
-
-      if (SystemInfoRt.isWindows && e is AccessDeniedException) {
-        val view = Files.getFileAttributeView(file, DosFileAttributeView::class.java)
-        if (view != null && view.readAttributes().isReadOnly) {
-          view.setReadOnly(false)
-        }
-      }
-
-      try {
-        Thread.sleep(10)
-      }
-      catch (ignored: InterruptedException) {
-        throw e
-      }
-    }
-  }
-}
 
 fun Path.deleteWithParentsIfEmpty(root: Path, isFile: Boolean = true): Boolean {
   var parent = if (isFile) this.parent else null
@@ -197,7 +108,7 @@ val Path.parentSystemIndependentPath: String
 fun Path.readBytes(): ByteArray = Files.readAllBytes(this)
 
 @Throws(IOException::class)
-fun Path.readText(): String = readBytes().toString(Charsets.UTF_8)
+fun Path.readText(): String = Files.readString(this)
 
 fun Path.readChars(): CharSequence {
   // channel is used to avoid Files.size() call
@@ -223,21 +134,11 @@ fun Path.write(data: ByteArray, offset: Int = 0, size: Int = data.size): Path {
 }
 
 @JvmOverloads
-fun Path.write(data: CharSequence, createParentDirs: Boolean = true): Path {
-  if (data is String) {
-    if (createParentDirs) {
-      parent?.createDirectories()
-    }
-    Files.write(this, data.toByteArray())
+fun Path.write(data: CharSequence, charset: Charset = Charsets.UTF_8, createParentDirs: Boolean = true): Path {
+  if (createParentDirs) {
+    parent?.createDirectories()
   }
-  else {
-    write(Charsets.UTF_8.encode(CharBuffer.wrap(data)), createParentDirs)
-  }
-  return this
-}
-
-fun Path.write(data: CharSequence, charset: Charset): Path {
-  write(charset.encode(CharBuffer.wrap(data)), createParentDirs = true)
+  Files.writeString(this, data, charset)
   return this
 }
 
@@ -272,7 +173,10 @@ fun Path.isDirectory(): Boolean = Files.isDirectory(this)
 
 fun Path.isFile(): Boolean = Files.isRegularFile(this)
 
-fun Path.move(target: Path): Path = Files.move(this, target, StandardCopyOption.REPLACE_EXISTING)
+fun Path.move(target: Path): Path {
+  target.parent?.createDirectories()
+  return Files.move(this, target, StandardCopyOption.REPLACE_EXISTING)
+}
 
 fun Path.copy(target: Path): Path {
   target.parent?.createDirectories()
@@ -356,4 +260,4 @@ fun isSymbolicLink(attributes: BasicFileAttributes?): Boolean {
   return attributes != null && attributes.isSymbolicLink
 }
 
-fun Path.isAncestor(child: Path) : Boolean = child.startsWith(this)
+fun Path.isAncestor(child: Path): Boolean = child.startsWith(this)

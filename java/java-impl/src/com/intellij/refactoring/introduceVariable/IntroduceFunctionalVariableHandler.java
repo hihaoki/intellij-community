@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceVariable;
 
 import com.intellij.codeInsight.ChangeContextUtil;
@@ -7,6 +7,7 @@ import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.codeInspection.AnonymousCanBeLambdaInspection;
 import com.intellij.ide.util.PsiClassListCellRenderer;
+import com.intellij.java.JavaBundle;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -38,20 +39,23 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.util.*;
+import java.util.function.Consumer;
 
 public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler {
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file, DataContext dataContext) {
-    ExtractMethodHandler.selectAndPass(project, editor, file, new Pass<PsiElement[]>() {
+    ExtractMethodHandler.selectAndPass(project, editor, file, new Pass<>() {
       @Override
       public void pass(PsiElement[] elements) {
         if (elements.length == 0) {
-          String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("selected.block.should.represent.a.set.of.statements.or.an.expression"));
-          showErrorMessage(project , editor, message);
+          String message = RefactoringBundle
+            .getCannotRefactorMessage(RefactoringBundle.message("selected.block.should.represent.a.set.of.statements.or.an.expression"));
+          showErrorMessage(project, editor, message);
           return;
         }
-        PsiElement anchorStatement = elements[0] instanceof PsiComment ? elements[0] : RefactoringUtil.getParentStatement(elements[0], false);
+        PsiElement anchorStatement =
+          elements[0] instanceof PsiComment ? elements[0] : RefactoringUtil.getParentStatement(elements[0], false);
         PsiElement tempContainer = checkAnchorStatement(project, editor, anchorStatement);
         if (tempContainer == null) return;
 
@@ -80,7 +84,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
         }
 
         if (types.isEmpty()) {
-          showErrorMessage(project, editor, "No applicable functional interfaces found");
+          showErrorMessage(project, editor, JavaBundle.message("introduce.functional.variable.nothing.found.message"));
           return;
         }
         if (types.size() == 1 || ApplicationManager.getApplication().isUnitTestMode()) {
@@ -96,7 +100,8 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
             PsiFormatUtil.formatMethod(emptyMethod, PsiSubstitutor.EMPTY, PsiFormatUtilBase.SHOW_PARAMETERS, PsiFormatUtilBase.SHOW_TYPE);
           final PsiType returnType = emptyMethod.getReturnType();
           assert returnType != null;
-          final String title = "Choose Applicable Functional Interface: " + methodSignature + " -> " + returnType.getPresentableText();
+          final String title =
+            JavaBundle.message("introduce.functional.variable.interface.chooser.title", methodSignature, returnType.getPresentableText());
           NavigationUtil.getPsiElementPopup(psiClasses, new PsiClassListCellRenderer(), title,
                                             psiClass -> {
                                               functionalInterfaceSelected(classes.get(psiClass), project, editor, processor, elements);
@@ -105,6 +110,15 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
         }
       }
     });
+  }
+
+  @Override
+  public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    if (editor.getSelectionModel().hasSelection()) {
+      return super.isAvailableForQuickList(editor, file, dataContext);
+    } else {
+      return false;
+    }
   }
 
   private  void functionalInterfaceSelected(PsiType type,
@@ -160,14 +174,14 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
     PsiMethodCallExpression psiExpression = (PsiMethodCallExpression)factory
       .createExpressionFromText("new " + selectedType.getCanonicalText() + "() {" + "}." + methodCall.getText(),
                                 methodCall);
-    
+
     PsiExpression qualifierExpression = psiExpression.getMethodExpression().getQualifierExpression();
     assert qualifierExpression != null;
     PsiAnonymousClass anonymousClass = ((PsiNewExpression)qualifierExpression).getAnonymousClass();
     assert anonymousClass != null;
     ChangeContextUtil.encodeContextInfo(extractedMethod, true);
     PsiClass aClass = extractedMethod.getContainingClass();
-    ChangeContextUtil.decodeContextInfo(anonymousClass.add(extractedMethod), aClass, 
+    ChangeContextUtil.decodeContextInfo(anonymousClass.add(extractedMethod), aClass,
                                         RefactoringChangeUtil.createThisExpression(anonymousClass.getManager(), aClass));
     if (AnonymousCanBeLambdaInspection.canBeConvertedToLambda(anonymousClass, false, Collections.emptySet())) {
       PsiExpression castExpression = JavaPsiFacade.getElementFactory(project)
@@ -177,7 +191,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
                                   ")", qualifierExpression);
       qualifierExpression.replace(castExpression);
     }
-      
+
     extractedMethod.delete();
     return (PsiMethodCallExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(methodCall.replace(psiExpression));
   }
@@ -200,7 +214,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
     processor.setDataFromInputVariables();
     processor.setMethodVisibility(PsiModifier.PUBLIC);
   }
-  
+
   private class MyExtractMethodProcessor extends ExtractMethodProcessor {
 
     MyExtractMethodProcessor(Project project,
@@ -215,7 +229,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
     public boolean isStatic() {
       return false;
     }
-    
+
     @Override
     protected boolean isFoldingApplicable() {
       return false;
@@ -255,21 +269,21 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
               .map(data -> data.type.getPresentableText())
               .reduce((result, item) -> result + ", " + item)
               .orElse("");
-          String returnTypeString = myReturnType == null || PsiType.VOID.equals(myReturnType) 
+          String returnTypeString = myReturnType == null || PsiType.VOID.equals(myReturnType)
                                     ? "{}" : myReturnType.getPresentableText();
           return "(" + parametersList + ") -> " + returnTypeString;
         }
 
         @Override
-        protected void checkMethodConflicts(MultiMap<PsiElement, String> conflicts) {
+        protected void checkMethodConflicts(MultiMap<PsiElement, @NlsContexts.DialogMessage String> conflicts) {
           checkParametersConflicts(conflicts);
           for (VariableData data : getChosenParameters()) {
             if (!data.passAsParameter) {
               PsiElement scope = PsiUtil.getVariableCodeBlock(data.variable, null);
-              if (PsiUtil.isLanguageLevel8OrHigher(data.variable) 
-                  ? scope != null && !HighlightControlFlowUtil.isEffectivelyFinal(data.variable, scope, null) 
+              if (PsiUtil.isLanguageLevel8OrHigher(data.variable)
+                  ? scope != null && !HighlightControlFlowUtil.isEffectivelyFinal(data.variable, scope, null)
                   : data.variable.hasModifierProperty(PsiModifier.FINAL)) {
-                conflicts.putValue(null, "Variable " + data.name + " is not effectively final and won't be accessible inside functional expression");
+                conflicts.putValue(null, JavaBundle.message("introduce.functional.variable.accessibility.conflict", data.name));
               }
             }
           }
@@ -284,7 +298,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
     }
 
     @Override
-    public boolean prepare(@Nullable Pass<ExtractMethodProcessor> pass) throws PrepareFailedException {
+    public boolean prepare(@Nullable Consumer<ExtractMethodProcessor> pass) throws PrepareFailedException {
       final boolean prepare = super.prepare(pass);
       if (prepare) {
         if (myNotNullConditionalCheck || myNullConditionalCheck) {
@@ -293,7 +307,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
       }
       return prepare;
     }
-    
+
     @Override
     public boolean showDialog() {
       if (!myInputVariables.hasInstanceFields() && myInputVariables.getInputVariables().isEmpty() ||

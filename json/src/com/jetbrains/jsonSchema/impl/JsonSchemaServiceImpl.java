@@ -1,15 +1,17 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.jsonSchema.impl;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.diagnostic.PluginException;
+import com.intellij.ide.lightEdit.LightEdit;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ClearableLazyValue;
-import com.intellij.openapi.util.Factory;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
@@ -33,10 +35,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTracker, Disposable {
   private static final Logger LOG = Logger.getInstance(JsonSchemaServiceImpl.class);
@@ -44,15 +46,17 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
   @NotNull private final Project myProject;
   @NotNull private final MyState myState;
   @NotNull private final ClearableLazyValue<Set<String>> myBuiltInSchemaIds;
-  @NotNull private final Set<String> myRefs = Collections.newSetFromMap(new ConcurrentHashMap<>());
+  @NotNull private final Set<String> myRefs = ContainerUtil.newConcurrentSet();
   private final AtomicLong myAnyChangeCount = new AtomicLong(0);
 
   @NotNull private final JsonSchemaCatalogManager myCatalogManager;
+  private final JsonSchemaProviderFactories myFactories;
 
   public JsonSchemaServiceImpl(@NotNull Project project) {
     myProject = project;
-    myState = new MyState(() -> getProvidersFromFactories(), myProject);
-    myBuiltInSchemaIds = new ClearableLazyValue<Set<String>>() {
+    myFactories = new JsonSchemaProviderFactories();
+    myState = new MyState(() -> myFactories.getProviders(), myProject);
+    myBuiltInSchemaIds = new ClearableLazyValue<>() {
       @NotNull
       @Override
       protected Set<String> compute() {
@@ -85,23 +89,6 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
   }
 
   @NotNull
-  private List<JsonSchemaFileProvider> getProvidersFromFactories() {
-    List<JsonSchemaFileProvider> providers = new ArrayList<>();
-    for (JsonSchemaProviderFactory factory : getProviderFactories()) {
-      try {
-        providers.addAll(factory.getProviders(myProject));
-      }
-      catch (ProcessCanceledException e) {
-        throw e;
-      }
-      catch (Exception e) {
-        PluginException.logPluginError(Logger.getInstance(JsonSchemaService.class), e.toString(), e, factory.getClass());
-      }
-    }
-    return providers;
-  }
-
-  @NotNull
   protected List<JsonSchemaProviderFactory> getProviderFactories() {
     return JsonSchemaProviderFactory.EP_NAME.getExtensionList();
   }
@@ -121,6 +108,11 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
 
   @Override
   public void reset() {
+    myFactories.reset();
+    resetWithCurrentFactories();
+  }
+
+  private void resetWithCurrentFactories() {
     myState.reset();
     myBuiltInSchemaIds.drop();
     myAnyChangeCount.incrementAndGet();
@@ -210,7 +202,7 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
       if (providers.size() > 1) {
         final Optional<JsonSchemaFileProvider> userSchema =
           providers.stream().filter(provider -> SchemaType.userSchema.equals(provider.getSchemaType())).findFirst();
-        if (!userSchema.isPresent()) return ContainerUtil.emptyList();
+        if (userSchema.isEmpty()) return ContainerUtil.emptyList();
         selected = userSchema.get();
       } else selected = providers.get(0);
       VirtualFile schemaFile = getSchemaForProvider(myProject, selected);
@@ -492,31 +484,31 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
   }
 
   private static final class MyState {
-    @NotNull private final Factory<List<JsonSchemaFileProvider>> myFactory;
+    @NotNull private final Supplier<List<JsonSchemaFileProvider>> myFactory;
     @NotNull private final Project myProject;
     @NotNull private final ClearableLazyValue<Map<VirtualFile, List<JsonSchemaFileProvider>>> myData;
     private final AtomicBoolean myIsComputed = new AtomicBoolean(false);
 
-    private MyState(@NotNull final Factory<List<JsonSchemaFileProvider>> factory, @NotNull Project project) {
+    private MyState(@NotNull final Supplier<List<JsonSchemaFileProvider>> factory, @NotNull Project project) {
       myFactory = factory;
       myProject = project;
-      myData = new ClearableLazyValue<Map<VirtualFile, List<JsonSchemaFileProvider>>>() {
+      myData = new ClearableLazyValue<>() {
         @NotNull
         @Override
         public Map<VirtualFile, List<JsonSchemaFileProvider>> compute() {
-          Map<VirtualFile, List<JsonSchemaFileProvider>> map = createFileProviderMap(myFactory.create(), myProject);
+          Map<VirtualFile, List<JsonSchemaFileProvider>> map = createFileProviderMap(myFactory.get(), myProject);
           myIsComputed.set(true);
           return map;
         }
 
         @NotNull
         @Override
-        public final synchronized Map<VirtualFile, List<JsonSchemaFileProvider>> getValue() {
+        public synchronized Map<VirtualFile, List<JsonSchemaFileProvider>> getValue() {
           return super.getValue();
         }
 
         @Override
-        public final synchronized void drop() {
+        public synchronized void drop() {
           myIsComputed.set(false);
           super.drop();
         }
@@ -614,5 +606,70 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
     }
 
     return VirtualFileManager.getInstance().findFileByUrl(fileUrl);
+  }
+
+  private class JsonSchemaProviderFactories {
+
+    private volatile List<JsonSchemaFileProvider> myProviders;
+
+    public @NotNull List<JsonSchemaFileProvider> getProviders() {
+      List<JsonSchemaFileProvider> providers = myProviders;
+      if (providers == null) {
+        providers = getDumbAwareProvidersAndUpdateRestWhenSmart();
+        myProviders = providers;
+      }
+      return providers;
+    }
+
+    public void reset() {
+      myProviders = null;
+    }
+
+    private @NotNull List<JsonSchemaFileProvider> getDumbAwareProvidersAndUpdateRestWhenSmart() {
+      List<JsonSchemaProviderFactory> readyFactories = new ArrayList<>();
+      List<JsonSchemaProviderFactory> notReadyFactories = new ArrayList<>();
+      boolean dumb = DumbService.getInstance(myProject).isDumb();
+      for (JsonSchemaProviderFactory factory : getProviderFactories()) {
+        if (!dumb || DumbService.isDumbAware(factory)) {
+          readyFactories.add(factory);
+        }
+        else {
+          notReadyFactories.add(factory);
+        }
+      }
+      List<JsonSchemaFileProvider> providers = getProvidersFromFactories(readyFactories);
+      myProviders = providers;
+      if (!notReadyFactories.isEmpty() && !LightEdit.owns(myProject)) {
+        DumbService.getInstance(myProject).runWhenSmart(() -> {
+          ApplicationManager.getApplication().executeOnPooledThread(() -> ReadAction.run(() -> {
+            if (myProviders == providers) {
+              List<JsonSchemaFileProvider> newProviders = getProvidersFromFactories(notReadyFactories);
+              if (!newProviders.isEmpty()) {
+                List<JsonSchemaFileProvider> oldProviders = myProviders;
+                myProviders = ContainerUtil.concat(oldProviders, newProviders);
+                JsonSchemaServiceImpl.this.resetWithCurrentFactories();
+              }
+            }
+          }));
+        });
+      }
+      return providers;
+    }
+
+    private @NotNull List<JsonSchemaFileProvider> getProvidersFromFactories(@NotNull List<JsonSchemaProviderFactory> factories) {
+      List<JsonSchemaFileProvider> providers = new ArrayList<>();
+      for (JsonSchemaProviderFactory factory : factories) {
+        try {
+          providers.addAll(factory.getProviders(myProject));
+        }
+        catch (ProcessCanceledException e) {
+          throw e;
+        }
+        catch (Exception e) {
+          PluginException.logPluginError(Logger.getInstance(JsonSchemaService.class), e.toString(), e, factory.getClass());
+        }
+      }
+      return providers;
+    }
   }
 }

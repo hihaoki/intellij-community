@@ -2,6 +2,11 @@
 package com.intellij.workspaceModel.storage
 
 import com.intellij.workspaceModel.storage.impl.WorkspaceEntityStorageBuilderImpl
+import com.intellij.workspaceModel.storage.url.MutableVirtualFileUrlIndex
+import com.intellij.workspaceModel.storage.url.VirtualFileUrl
+import com.intellij.workspaceModel.storage.url.VirtualFileUrlIndex
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty1
 
@@ -18,6 +23,7 @@ import kotlin.reflect.KProperty1
  * * [VirtualFileUrl];
  * * [WorkspaceEntity] or [PersistentEntityId];
  * * [List] of another allowed type;
+ * * [Array] of another allowed type;
  * * another data class with properties of the allowed types (references to entities must be wrapped into [EntityReference]);
  * * sealed abstract class where all implementations satisfy these requirements.
  *
@@ -32,6 +38,8 @@ interface WorkspaceEntity {
    * internal IDs of the corresponding entities.
    */
   fun hasEqualProperties(e: WorkspaceEntity): Boolean
+
+  fun <E : WorkspaceEntity> createReference(): EntityReference<E>
 }
 
 /**
@@ -54,7 +62,22 @@ interface ModifiableWorkspaceEntity<Unmodifiable : WorkspaceEntity> : WorkspaceE
  * * another data class with properties of the allowed types;
  * * sealed abstract class where all implementations satisfy these requirements.
  */
-interface EntitySource
+interface EntitySource {
+  val virtualFileUrl: VirtualFileUrl?
+    get() = null
+}
+
+/**
+ * Marker interface to represent entities which properties aren't loaded and which were added to the storage because other entities requires
+ * them. Entities which sources implements this interface don't replace existing entities when [WorkspaceEntityStorageBuilder.replaceBySource]
+ * is called.
+ *
+ * For example if we have `FacetEntity` which requires `ModuleEntity`, and need to load facet configuration from *.iml file and load the module
+ * configuration from some other source, we may use this interface to mark `entitySource` for `ModuleEntity`. This way when content of *.iml
+ * file is applied to the model via [WorkspaceEntityStorageBuilder.replaceBySource], it won't overwrite actual configuration
+ * of `ModuleEntity`.
+ */
+interface DummyParentEntitySource : EntitySource
 
 /**
  * Base interface for entities which may need to find all entities referring to them.
@@ -74,14 +97,16 @@ inline fun <E : ReferableWorkspaceEntity, reified R : WorkspaceEntity> E.referre
 }
 
 /**
- * Represents a reference to a entity inside a data class stored in [WorkspaceEntity]'s implementation. Such references are always valid (use [PersistentEntityId] for references which
- * may not be resolved), they are used to allow updating a entity without replacing all entities it refers to and also to get all referrers
- * via [WorkspaceEntityStorage.referrers].
+ * Represents a reference to an entity inside of [WorkspaceEntity].
  *
- * todo Do we really need this? May be it's enough to support references to other entities only as direct properties of [WorkspaceEntity]?
+ * The reference can be obtained via [WorkspaceEntityStorage.createReference].
+ *
+ * The reference will return the same entity for the same storage, but the changes in storages should be tracked if the client want to
+ *   use this reference between different storages. For example, if the referred entity was removed from the storage, this reference may
+ *   return null, but it can also return a different (newly added) entity.
  */
 abstract class EntityReference<out E : WorkspaceEntity> {
-  abstract fun resolve(storage: WorkspaceEntityStorage): E
+  abstract fun resolve(storage: WorkspaceEntityStorage): E?
 }
 
 /**
@@ -112,11 +137,22 @@ interface WorkspaceEntityWithPersistentId : WorkspaceEntity {
  */
 interface WorkspaceEntityStorage {
   fun <E : WorkspaceEntity> entities(entityClass: Class<E>): Sequence<E>
+  fun <E : WorkspaceEntity> entitiesAmount(entityClass: Class<E>): Int
   fun <E : WorkspaceEntity, R : WorkspaceEntity> referrers(e: E, entityClass: KClass<R>, property: KProperty1<R, EntityReference<E>>): Sequence<R>
   fun <E : WorkspaceEntityWithPersistentId, R : WorkspaceEntity> referrers(id: PersistentEntityId<E>, entityClass: Class<R>): Sequence<R>
   fun <E : WorkspaceEntityWithPersistentId> resolve(id: PersistentEntityId<E>): E?
+
+  /**
+   * Please select a name for your mapping in a form `<product_id>.<mapping_name>`.
+   * E.g.:
+   *  - intellij.modules.bridge
+   *  - intellij.facets.bridge
+   *  - rider.backend.id
+   */
   fun <T> getExternalMapping(identifier: String): ExternalEntityMapping<T>
+  fun getVirtualFileUrlIndex(): VirtualFileUrlIndex
   fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean): Map<EntitySource, Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>>
+  fun <E : WorkspaceEntity> createReference(e: E): EntityReference<E>
 }
 
 /**
@@ -128,10 +164,9 @@ interface WorkspaceEntityStorageBuilder : WorkspaceEntityStorage, WorkspaceEntit
                                                                                  source: EntitySource,
                                                                                  initializer: M.() -> Unit): T
 
-  override fun <M : ModifiableWorkspaceEntity<T>, T : WorkspaceEntity> modifyEntity(clazz: Class<M>, e: T, change: M.() -> Unit): T
+  override fun <M : ModifiableWorkspaceEntity<out T>, T : WorkspaceEntity> modifyEntity(clazz: Class<M>, e: T, change: M.() -> Unit): T
   override fun <T : WorkspaceEntity> changeSource(e: T, newSource: EntitySource): T
   override fun removeEntity(e: WorkspaceEntity)
-  fun <E : WorkspaceEntity> createReference(e: E): EntityReference<E>
   fun replaceBySource(sourceFilter: (EntitySource) -> Boolean, replaceWith: WorkspaceEntityStorage)
 
   /**
@@ -140,18 +175,19 @@ interface WorkspaceEntityStorageBuilder : WorkspaceEntityStorage, WorkspaceEntit
    */
   fun collectChanges(original: WorkspaceEntityStorage): Map<Class<*>, List<EntityChange<*>>>
 
-  // Reset all collected changes. TODO ugly!
-  // This method doesn't reset builder to it initial state, but just resets a changelog,
-  //   so next call to collectChanges will return empty list
-  fun resetChanges()
-
   fun toStorage(): WorkspaceEntityStorage
 
   companion object {
+    @JvmStatic
     fun create(): WorkspaceEntityStorageBuilder = WorkspaceEntityStorageBuilderImpl.create()
 
+    @JvmStatic
     fun from(storage: WorkspaceEntityStorage): WorkspaceEntityStorageBuilder = WorkspaceEntityStorageBuilderImpl.from(storage)
   }
+}
+
+fun WorkspaceEntityStorage.toBuilder(): WorkspaceEntityStorageBuilder {
+  return WorkspaceEntityStorageBuilder.from(this)
 }
 
 sealed class EntityChange<T : WorkspaceEntity> {
@@ -167,18 +203,29 @@ interface WorkspaceEntityStorageDiffBuilder {
   fun isEmpty(): Boolean
 
   fun <M : ModifiableWorkspaceEntity<T>, T : WorkspaceEntity> addEntity(clazz: Class<M>, source: EntitySource, initializer: M.() -> Unit): T
-  fun <M : ModifiableWorkspaceEntity<T>, T : WorkspaceEntity> modifyEntity(clazz: Class<M>, e: T, change: M.() -> Unit): T
+  fun <M : ModifiableWorkspaceEntity<out T>, T : WorkspaceEntity> modifyEntity(clazz: Class<M>, e: T, change: M.() -> Unit): T
   fun removeEntity(e: WorkspaceEntity)
   fun <T : WorkspaceEntity> changeSource(e: T, newSource: EntitySource): T
 
-  // Returns an association between an entity in diff and an entity in the current builder
-  fun addDiff(diff: WorkspaceEntityStorageDiffBuilder): Map<WorkspaceEntity, WorkspaceEntity>
+  fun addDiff(diff: WorkspaceEntityStorageDiffBuilder)
+
+  /**
+   * Please see [WorkspaceEntityStorage.getExternalMapping] for naming conventions
+   */
   fun <T> getExternalMapping(identifier: String): ExternalEntityMapping<T>
+
+  /**
+   * Please see [WorkspaceEntityStorage.getExternalMapping] for naming conventions
+   */
   fun <T> getMutableExternalMapping(identifier: String): MutableExternalEntityMapping<T>
+  fun getVirtualFileUrlIndex(): VirtualFileUrlIndex
+  fun getMutableVirtualFileUrlIndex(): MutableVirtualFileUrlIndex
+
 
   val modificationCount: Long
 
   companion object {
+    @JvmStatic
     fun create(underlyingStorage: WorkspaceEntityStorage): WorkspaceEntityStorageDiffBuilder = WorkspaceEntityStorageBuilder.from(underlyingStorage)
   }
 }

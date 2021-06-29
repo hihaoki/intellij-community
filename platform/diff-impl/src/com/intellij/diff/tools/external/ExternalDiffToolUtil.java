@@ -6,6 +6,7 @@ import com.intellij.diff.contents.*;
 import com.intellij.diff.merge.MergeResult;
 import com.intellij.diff.merge.ThreesideMergeRequest;
 import com.intellij.diff.util.DiffUserDataKeysEx;
+import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.Side;
 import com.intellij.diff.util.ThreeSide;
 import com.intellij.execution.ExecutionException;
@@ -15,26 +16,29 @@ import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.PathUtil;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.execution.ParametersListUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -51,7 +55,7 @@ public final class ExternalDiffToolUtil {
     if (content instanceof DocumentContent) return true;
     if (content instanceof FileContent) {
       VirtualFile file = ((FileContent)content).getFile();
-      if (file instanceof VirtualFileWithoutContent) return false;
+      if (DiffUtil.isFileWithoutContent(file)) return false;
       return true;
     }
     if (content instanceof DirectoryContent) return ((DirectoryContent)content).getFile().isInLocalFileSystem();
@@ -204,23 +208,30 @@ public final class ExternalDiffToolUtil {
     execute(settings.getDiffExePath(), settings.getDiffParameters(), patterns);
   }
 
+  @RequiresEdt
   public static void executeMerge(@Nullable Project project,
                                   @NotNull ExternalDiffSettings settings,
-                                  @NotNull ThreesideMergeRequest request)
-    throws IOException, ExecutionException {
-    boolean success = false;
-    try{
-      success = tryExecuteMerge(project, settings, request);
+                                  @NotNull ThreesideMergeRequest request,
+                                  @Nullable JComponent parentComponent) throws IOException, ExecutionException {
+    request.onAssigned(true);
+    try {
+      boolean success = false;
+      try {
+        success = tryExecuteMerge(project, settings, request, parentComponent);
+      }
+      finally {
+        request.applyResult(success ? MergeResult.RESOLVED : MergeResult.CANCEL);
+      }
     }
     finally {
-      request.applyResult(success ? MergeResult.RESOLVED : MergeResult.CANCEL);
+      request.onAssigned(false);
     }
   }
 
   public static boolean tryExecuteMerge(@Nullable Project project,
                                         @NotNull ExternalDiffSettings settings,
-                                        @NotNull ThreesideMergeRequest request)
-          throws IOException, ExecutionException {
+                                        @NotNull ThreesideMergeRequest request,
+                                        @Nullable JComponent parentComponent) throws IOException, ExecutionException {
     boolean success;
     OutputFile outputFile = null;
     List<InputFile> inputFiles = new ArrayList<>();
@@ -252,52 +263,42 @@ public final class ExternalDiffToolUtil {
       if (settings.isMergeTrustExitCode()) {
         final Ref<Boolean> resultRef = new Ref<>();
 
-        ProgressManager.getInstance().run(new Task.Modal(project, DiffBundle
-          .message("waiting.for.external.tool"), true) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            final Semaphore semaphore = new Semaphore(0);
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+          final Semaphore semaphore = new Semaphore(0);
 
-            final Thread waiter = new Thread("external process waiter") {
-              @Override
-              public void run() {
-                try {
-                  resultRef.set(process.waitFor() == 0);
-                }
-                catch (InterruptedException ignore) {
-                }
-                finally {
-                  semaphore.release();
-                }
+          final Thread waiter = new Thread("external process waiter") {
+            @Override
+            public void run() {
+              try {
+                resultRef.set(process.waitFor() == 0);
               }
-            };
-            waiter.start();
-
-            try {
-              while (true) {
-                indicator.checkCanceled();
-                if (semaphore.tryAcquire(200, TimeUnit.MILLISECONDS)) break;
+              catch (InterruptedException ignore) {
+              }
+              finally {
+                semaphore.release();
               }
             }
-            catch (InterruptedException ignore) {
-            }
-            finally {
-              waiter.interrupt();
+          };
+          waiter.start();
+
+          try {
+            while (true) {
+              ProgressManager.checkCanceled();
+              if (semaphore.tryAcquire(200, TimeUnit.MILLISECONDS)) break;
             }
           }
-        });
-
+          catch (InterruptedException ignore) {
+          }
+          finally {
+            waiter.interrupt();
+          }
+        }, DiffBundle.message("waiting.for.external.tool"), true, project, parentComponent);
         success = resultRef.get() == Boolean.TRUE;
       }
       else {
-        ProgressManager.getInstance().run(new Task.Modal(project, DiffBundle
-          .message("launching.external.tool"), false) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            indicator.setIndeterminate(true);
-            TimeoutUtil.sleep(1000);
-          }
-        });
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+          TimeoutUtil.sleep(1000);
+        }, DiffBundle.message("launching.external.tool"), false, project, parentComponent);
 
         success = Messages.showYesNoDialog(project,
                                            DiffBundle.message("press.mark.as.resolve"),

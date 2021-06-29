@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.timeline
 
 import com.intellij.openapi.util.text.StringUtil
@@ -7,10 +7,10 @@ import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UI
 import com.intellij.util.ui.UIUtil
-import icons.GithubIcons
+import icons.CollaborationToolsIcons
 import org.intellij.lang.annotations.Language
+import org.jetbrains.plugins.github.GithubIcons
 import org.jetbrains.plugins.github.api.data.GHLabel
 import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.pullrequest.GHGitRefName
@@ -18,10 +18,10 @@ import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestRequestedR
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestState
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.*
 import org.jetbrains.plugins.github.i18n.GithubBundle
-import org.jetbrains.plugins.github.pullrequest.avatars.GHAvatarIconsProvider
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineItemComponentFactory.Item
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
+import org.jetbrains.plugins.github.ui.util.GHUIUtil
 import org.jetbrains.plugins.github.ui.util.HtmlEditorPane
-import org.jetbrains.plugins.github.util.GithubUIUtil
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -113,17 +113,21 @@ class GHPRTimelineEventComponentFactoryImpl(private val avatarIconsProvider: GHA
       return builder.toString()
     }
 
-    private fun reviewersHTML(added: Collection<GHPullRequestRequestedReviewer> = emptyList(),
-                              removed: Collection<GHPullRequestRequestedReviewer> = emptyList()): String {
+    private fun reviewersHTML(added: Collection<GHPullRequestRequestedReviewer?> = emptyList(),
+                              removed: Collection<GHPullRequestRequestedReviewer?> = emptyList()): String {
       val builder = StringBuilder()
       if (added.isNotEmpty()) {
         builder.append(
-          added.joinToString(prefix = "${GithubBundle.message("pull.request.timeline.requested.review")} ") { "<b>${it.shortName}</b>" })
+          added.joinToString(prefix = "${GithubBundle.message("pull.request.timeline.requested.review")} ") {
+            "<b>${it?.shortName ?: GithubBundle.message("user.someone")}</b>"
+          })
       }
       if (removed.isNotEmpty()) {
         if (builder.isNotEmpty()) builder.append(" ${GithubBundle.message("pull.request.timeline.and")} ")
         builder.append(removed.joinToString(
-          prefix = "${GithubBundle.message("pull.request.timeline.removed.review.request")} ") { "<b>${it.shortName}</b>" })
+          prefix = "${GithubBundle.message("pull.request.timeline.removed.review.request")} ") {
+          "<b>${it?.shortName ?: GithubBundle.message("user.someone")}</b>"
+        })
       }
       return builder.toString()
     }
@@ -152,8 +156,8 @@ class GHPRTimelineEventComponentFactoryImpl(private val avatarIconsProvider: GHA
     }
 
     private fun labelHTML(label: GHLabel): String {
-      val background = GithubUIUtil.getLabelBackground(label)
-      val foreground = GithubUIUtil.getLabelForeground(background)
+      val background = GHUIUtil.getLabelBackground(label)
+      val foreground = GHUIUtil.getLabelForeground(background)
       //language=HTML
       return """<span style='color: #${ColorUtil.toHex(foreground)}; background: #${ColorUtil.toHex(background)}'>
                   &nbsp;${StringUtil.escapeXmlEntities(label.name)}&nbsp;</span>"""
@@ -165,9 +169,9 @@ class GHPRTimelineEventComponentFactoryImpl(private val avatarIconsProvider: GHA
   private inner class StateEventComponentFactory : EventComponentFactory<GHPRTimelineEvent.State>() {
     override fun createComponent(event: GHPRTimelineEvent.State): Item {
       val icon = when (event.newState) {
-        GHPullRequestState.CLOSED -> GithubIcons.PullRequestClosed
+        GHPullRequestState.CLOSED -> CollaborationToolsIcons.PullRequestClosed
         GHPullRequestState.MERGED -> GithubIcons.PullRequestMerged
-        GHPullRequestState.OPEN -> GithubIcons.PullRequestOpen
+        GHPullRequestState.OPEN -> CollaborationToolsIcons.PullRequestOpen
       }
 
       val text = when (event.newState) {
@@ -273,7 +277,7 @@ class GHPRTimelineEventComponentFactoryImpl(private val avatarIconsProvider: GHA
 
       //language=HTML
       return """<span style='color: #${ColorUtil.toHex(foreground)}; background: #${ColorUtil.toHex(background)}'>
-                  &nbsp;<icon-inline src='GithubIcons.Branch'/>$name&nbsp;</span>"""
+                  &nbsp;<icon-inline src='icons.CollaborationToolsIcons.Branch'/>$name&nbsp;</span>"""
     }
 
     private fun StringBuilder.appendParagraph(text: String): StringBuilder {
@@ -283,14 +287,14 @@ class GHPRTimelineEventComponentFactoryImpl(private val avatarIconsProvider: GHA
 
     private fun createComponent(reference: GHPRReferencedSubject): JComponent {
       val stateIcon = when (reference) {
-        is GHPRReferencedSubject.Issue -> GithubUIUtil.getIssueStateIcon(reference.state)
-        is GHPRReferencedSubject.PullRequest -> GithubUIUtil.getPullRequestStateIcon(reference.state, reference.isDraft)
+        is GHPRReferencedSubject.Issue -> GHUIUtil.getIssueStateIcon(reference.state)
+        is GHPRReferencedSubject.PullRequest -> GHUIUtil.getPullRequestStateIcon(reference.state, reference.isDraft)
       }
       val stateToolTip = when (reference) {
-        is GHPRReferencedSubject.Issue -> GithubUIUtil.getIssueStateText(reference.state)
-        is GHPRReferencedSubject.PullRequest -> GithubUIUtil.getPullRequestStateText(reference.state, reference.isDraft)
+        is GHPRReferencedSubject.Issue -> GHUIUtil.getIssueStateText(reference.state)
+        is GHPRReferencedSubject.PullRequest -> GHUIUtil.getPullRequestStateText(reference.state, reference.isDraft)
       }
-      return NonOpaquePanel(HorizontalLayout(UI.scale(5))).apply {
+      return NonOpaquePanel(HorizontalLayout(5)).apply {
         border = JBUI.Borders.emptyLeft(28)
         add(JLabel(stateIcon).apply {
           toolTipText = stateToolTip

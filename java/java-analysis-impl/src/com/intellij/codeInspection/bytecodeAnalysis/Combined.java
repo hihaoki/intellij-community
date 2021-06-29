@@ -1,9 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
 import com.intellij.codeInspection.bytecodeAnalysis.asm.ASMUtils;
 import com.intellij.codeInspection.bytecodeAnalysis.asm.ControlFlowGraph;
-import com.intellij.util.SingletonSet;
 import one.util.streamex.EntryStream;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -18,7 +17,6 @@ import org.jetbrains.org.objectweb.asm.tree.analysis.BasicValue;
 import org.jetbrains.org.objectweb.asm.tree.analysis.Frame;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static com.intellij.codeInspection.bytecodeAnalysis.AbstractValues.*;
 import static com.intellij.codeInspection.bytecodeAnalysis.CombinedData.*;
@@ -152,7 +150,7 @@ final class CombinedAnalysis {
     interpreter = new CombinedInterpreter(methodNode.instructions, Type.getArgumentTypes(methodNode.desc).length, staticFields);
   }
 
-  final void analyze() throws AnalyzerException {
+  void analyze() throws AnalyzerException {
     Frame<BasicValue> frame = createStartFrame();
     int insnIndex = 0;
 
@@ -187,7 +185,7 @@ final class CombinedAnalysis {
     }
   }
 
-  final Equation notNullParamEquation(int i, boolean stable) {
+  Equation notNullParamEquation(int i, boolean stable) {
     final EKey key = new EKey(method, new In(i, false), stable);
     final Result result;
     if (interpreter.dereferencedParams[i]) {
@@ -203,13 +201,13 @@ final class CombinedAnalysis {
         for (ParamKey pk: calls) {
           keys.add(new EKey(pk.method, new In(pk.i, false), pk.stable));
         }
-        result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+        result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
       }
     }
     return new Equation(key, result);
   }
 
-  final Equation nullableParamEquation(int i, boolean stable) {
+  Equation nullableParamEquation(int i, boolean stable) {
     final EKey key = new EKey(method, new In(i, true), stable);
     final Result result;
     if (interpreter.dereferencedParams[i] || interpreter.notNullableParams[i] || returnValue instanceof NthParamValue && ((NthParamValue)returnValue).n == i) {
@@ -231,8 +229,7 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  @Nullable
-  final Equation contractEquation(int i, Value inValue, boolean stable) {
+  @Nullable Equation contractEquation(int i, Value inValue, boolean stable) {
     final InOut direction = new InOut(i, inValue);
     final EKey key = new EKey(method, direction, stable);
     final Result result;
@@ -263,7 +260,7 @@ final class CombinedAnalysis {
       if (keys.isEmpty()) {
         return null;
       } else {
-        result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+        result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
       }
     }
     else {
@@ -272,17 +269,18 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  @Nullable
-  final Equation failEquation(boolean stable) {
+  @Nullable Equation failEquation(boolean stable) {
     final EKey key = new EKey(method, Throw, stable);
     final Result result;
     if (exception) {
       result = Value.Fail;
     }
     else if (!interpreter.calls.isEmpty()) {
-      Set<EKey> keys =
-        interpreter.calls.stream().map(call -> new EKey(call.method, Throw, call.stableCall)).collect(Collectors.toSet());
-      result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+      Set<EKey> keys = new HashSet<>();
+      for (TrackableCallValue call : interpreter.calls) {
+        keys.add(new EKey(call.method, Throw, call.stableCall));
+      }
+      result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
     }
     else {
       return null;
@@ -290,8 +288,7 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  @Nullable
-  final Equation failEquation(int i, Value inValue, boolean stable) {
+  @Nullable Equation failEquation(int i, Value inValue, boolean stable) {
     final InThrow direction = new InThrow(i, inValue);
     final EKey key = new EKey(method, direction, stable);
     final Result result;
@@ -304,7 +301,7 @@ final class CombinedAnalysis {
         keys.addAll(call.getKeysForParameter(i, direction));
         keys.add(new EKey(call.method, Throw, call.stableCall));
       }
-      result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+      result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
     }
     else {
       return null;
@@ -312,12 +309,11 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  @Nullable
-  final Equation outContractEquation(boolean stable) {
+  @Nullable Equation outContractEquation(boolean stable) {
     return outEquation(exception, method, returnValue, stable);
   }
 
-  final List<Equation> staticFieldEquations() {
+  List<Equation> staticFieldEquations() {
     return EntryStream.of(interpreter.staticFields)
       .removeValues(v -> v == BasicValue.UNINITIALIZED_VALUE)
       .mapKeyValue((field, value) -> outEquation(exception, field, value, true))
@@ -347,8 +343,8 @@ final class CombinedAnalysis {
     else if (returnValue instanceof TrackableCallValue) {
       TrackableCallValue call = (TrackableCallValue)returnValue;
       EKey callKey = new EKey(call.method, Out, call.stableCall);
-      Set<EKey> keys = new SingletonSet<>(callKey);
-      result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+      Set<EKey> keys = Collections.singleton(callKey);
+      result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
     }
     else {
       return null;
@@ -356,7 +352,7 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  final Equation nullableResultEquation(boolean stable) {
+  Equation nullableResultEquation(boolean stable) {
     final EKey key = new EKey(method, NullableOut, stable);
     final Result result;
     if (exception ||
@@ -366,8 +362,8 @@ final class CombinedAnalysis {
     else if (returnValue instanceof TrackableCallValue) {
       TrackableCallValue call = (TrackableCallValue)returnValue;
       EKey callKey = new EKey(call.method, NullableOut, call.stableCall || call.thisCall);
-      Set<EKey> keys = new SingletonSet<>(callKey);
-      result = new Pending(new SingletonSet<>(new Component(Value.Null, keys)));
+      Set<EKey> keys = Collections.singleton(callKey);
+      result = new Pending(Collections.singleton(new Component(Value.Null, keys)));
     }
     else if (returnValue instanceof TrackableNullValue) {
       result = Value.Null;
@@ -378,7 +374,7 @@ final class CombinedAnalysis {
     return new Equation(key, result);
   }
 
-  final Frame<BasicValue> createStartFrame() {
+  Frame<BasicValue> createStartFrame() {
     Frame<BasicValue> frame = new Frame<>(methodNode.maxLocals, methodNode.maxStack);
     Type returnType = Type.getReturnType(methodNode.desc);
     BasicValue returnValue = Type.VOID_TYPE.equals(returnType) ? null : new BasicValue(returnType);
@@ -679,7 +675,7 @@ final class NegationAnalysis {
     }
   }
 
-  final void analyze() throws AnalyzerException, NegationAnalysisFailedException {
+  void analyze() throws AnalyzerException, NegationAnalysisFailedException {
     Frame<BasicValue> frame = createStartFrame();
     int insnIndex = 0;
 
@@ -748,7 +744,7 @@ final class NegationAnalysis {
     }
   }
 
-  final Equation contractEquation(int i, Value inValue, boolean stable) {
+  Equation contractEquation(int i, Value inValue, boolean stable) {
     final EKey key = new EKey(method, new InOut(i, inValue), stable);
     final Result result;
     HashSet<EKey> keys = new HashSet<>();
@@ -764,12 +760,12 @@ final class NegationAnalysis {
     if (keys.isEmpty()) {
       result = Value.Top;
     } else {
-      result = new Pending(new SingletonSet<>(new Component(Value.Top, keys)));
+      result = new Pending(Collections.singleton(new Component(Value.Top, keys)));
     }
     return new Equation(key, result);
   }
 
-  final Frame<BasicValue> createStartFrame() {
+  Frame<BasicValue> createStartFrame() {
     Frame<BasicValue> frame = new Frame<>(methodNode.maxLocals, methodNode.maxStack);
     Type returnType = Type.getReturnType(methodNode.desc);
     BasicValue returnValue = Type.VOID_TYPE.equals(returnType) ? null : new BasicValue(returnType);

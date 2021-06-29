@@ -11,6 +11,7 @@ import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
@@ -20,7 +21,6 @@ import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.impl.libraries.LibraryTableImplUtil;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
-import com.intellij.openapi.roots.libraries.LibraryUtil;
 import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.util.Alarm;
 import com.intellij.util.containers.ContainerUtil;
@@ -108,7 +108,7 @@ public class RepositoryLibrarySynchronizer implements StartupActivity.DumbAware 
           }
         });
         String libraryText = validLibraries.size() == 1
-                             ? "'" + LibraryUtil.getPresentableName(validLibraries.iterator().next()) + "' library"
+                             ? "'" + validLibraries.iterator().next().getPresentableName() + "' library"
                              : validLibraries.size() + " libraries";
         Notifications.Bus.notify(new Notification(
           "Repository", JavaUiBundle.message("notification.title.repository.libraries.cleanup"),
@@ -132,7 +132,8 @@ public class RepositoryLibrarySynchronizer implements StartupActivity.DumbAware 
   @Override
   public void runActivity(@NotNull final Project project) {
     if (ApplicationManager.getApplication().isUnitTestMode()) return;
-    if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment() &&
+        !CoreProgressManager.shouldKeepTasksAsynchronousInHeadlessMode()) {
       loadDependenciesSync(project);
       return;
     }

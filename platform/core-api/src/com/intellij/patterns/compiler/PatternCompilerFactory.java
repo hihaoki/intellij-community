@@ -1,7 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.patterns.compiler;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public abstract class PatternCompilerFactory {
   public static PatternCompilerFactory getFactory() {
-    return ServiceManager.getService(PatternCompilerFactory.class);
+    return ApplicationManager.getApplication().getService(PatternCompilerFactory.class);
   }
 
   /**
@@ -18,7 +18,7 @@ public abstract class PatternCompilerFactory {
    * @param alias or null
    * @return pattern classes
    */
-  public abstract Class<?> @NotNull [] getPatternClasses(@Nullable final String alias);
+  public abstract Class<?> @NotNull [] getPatternClasses(@Nullable String alias);
 
   @NotNull
   public abstract <T> PatternCompiler<T> getPatternCompiler(Class @NotNull [] patternClasses);
@@ -27,4 +27,6 @@ public abstract class PatternCompilerFactory {
   public <T> PatternCompiler<T> getPatternCompiler(@Nullable final String alias) {
     return getPatternCompiler(getPatternClasses(alias));
   }
+
+  public abstract void dropCache();
 }

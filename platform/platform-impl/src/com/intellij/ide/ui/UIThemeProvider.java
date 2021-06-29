@@ -7,16 +7,18 @@ import com.intellij.openapi.extensions.PluginAware;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.extensions.RequiredElement;
 import com.intellij.util.xmlb.annotations.Attribute;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.InputStream;
+import java.util.function.Function;
 
 /**
  * @author Konstantin Bulenkov
  */
 public final class UIThemeProvider implements PluginAware {
-  public static final ExtensionPointName<UIThemeProvider> EP_NAME = ExtensionPointName.create("com.intellij.themeProvider");
+  public static final ExtensionPointName<UIThemeProvider> EP_NAME = new ExtensionPointName<>("com.intellij.themeProvider");
   private PluginDescriptor myPluginDescriptor;
 
   @Attribute("path")
@@ -27,16 +29,20 @@ public final class UIThemeProvider implements PluginAware {
   @RequiredElement
   public String id;
 
-  @Nullable
-  public UITheme createTheme() {
+  @ApiStatus.Internal
+  public @Nullable InputStream getThemeJsonStream() {
+    return myPluginDescriptor.getPluginClassLoader().getResourceAsStream(path.charAt(0) == '/' ? path.substring(1) : path);
+  }
+
+  public @Nullable UITheme createTheme() {
     try {
       ClassLoader classLoader = myPluginDescriptor.getPluginClassLoader();
-      InputStream stream = classLoader.getResourceAsStream(path.charAt(0) == '/' ? path.substring(1) : path);
+      InputStream stream = getThemeJsonStream();
       if (stream == null) {
         Logger.getInstance(getClass()).warn("Cannot find theme resource: " + path + " (classLoader=" + classLoader + ", pluginDescriptor=" + myPluginDescriptor + ")");
         return null;
       }
-      return UITheme.loadFromJson(stream, id, classLoader);
+      return UITheme.loadFromJson(stream, id, classLoader, Function.identity());
     }
     catch (Exception e) {
       Logger.getInstance(getClass()).warn("error loading UITheme '" + path + "', pluginDescriptor=" + myPluginDescriptor, e);

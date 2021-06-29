@@ -11,10 +11,13 @@ import java.util.Map;
 
 public class EventLogConfigVersions {
   @Nullable
-  public EventLogMajorVersion majorBuildVersionBorders;
+  public EventLogMajorVersionBorders majorBuildVersionBorders;
 
   @Nullable
   public Map<String, String> endpoints;
+
+  @Nullable
+  public Map<String, String> options;
 
   @Nullable
   public List<EventLogConfigFilterCondition> releaseFilters;
@@ -22,6 +25,11 @@ public class EventLogConfigVersions {
   @NotNull
   public Map<String, String> getEndpoints() {
     return endpoints != null ? endpoints : Collections.emptyMap();
+  }
+
+  @NotNull
+  public Map<String, String> getOptions() {
+    return options != null ? options : Collections.emptyMap();
   }
 
   @NotNull

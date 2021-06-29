@@ -1,8 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide
 
 import com.intellij.openapi.components.BaseState
-import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.wm.impl.FrameInfo
 import com.intellij.util.xmlb.annotations.Attribute
 import com.intellij.util.xmlb.annotations.MapAnnotation
@@ -17,6 +17,10 @@ class RecentProjectMetaInfo : BaseState() {
   @get:Attribute
   var displayName by string()
 
+  // to set frame title as earlier as possible
+  @get:Attribute
+  var frameTitle by string()
+
   var build by string()
   var productionCode by string()
   var eap by property(false)
@@ -29,7 +33,7 @@ class RecentProjectMetaInfo : BaseState() {
   var projectWorkspaceId by string()
 
   @get:Property(surroundWithTag = false)
-  var frame: FrameInfo? by property()
+  internal var frame: FrameInfo? by property()
 }
 
 class RecentProjectManagerState : BaseState() {
@@ -52,7 +56,7 @@ class RecentProjectManagerState : BaseState() {
   var lastProjectLocation by string()
 
   fun validateRecentProjects(modCounter: AtomicLong) {
-    val limit = Registry.intValue("ide.max.recent.projects")
+    val limit = AdvancedSettings.getInt("ide.max.recent.projects")
     if (additionalInfo.size <= limit) {
       return
     }

@@ -1,11 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl;
 
 import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usages.TextChunk;
 import com.intellij.usages.UsageGroup;
 import com.intellij.usages.UsageViewSettings;
-import com.intellij.util.SystemProperties;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -25,7 +24,7 @@ public class ExporterToTextFile implements com.intellij.ide.ExporterToTextFile {
   @Override
   public String getReportText() {
     StringBuilder buf = new StringBuilder();
-    appendNode(buf, myUsageView.getModelRoot(), SystemProperties.getLineSeparator(), "");
+    appendNode(buf, myUsageView.getModelRoot(), System.lineSeparator(), "");
     return buf.toString();
   }
 
@@ -57,7 +56,7 @@ public class ExporterToTextFile implements com.intellij.ide.ExporterToTextFile {
     }
     else if (node instanceof GroupNode) {
       UsageGroup group = ((GroupNode)node).getGroup();
-      buf.append(group != null ? group.getText(myUsageView) : UsageViewBundle.message("usages.title"));
+      buf.append(group != null ? group.getPresentableGroupText() : UsageViewBundle.message("usages.title"));
       buf.append(" ");
       int count = ((GroupNode)node).getRecursiveUsageCount();
       buf.append(" (").append(UsageViewBundle.message("usages.n", count)).append(")");

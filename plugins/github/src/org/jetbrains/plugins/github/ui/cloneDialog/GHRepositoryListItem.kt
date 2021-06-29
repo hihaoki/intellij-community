@@ -1,9 +1,9 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.ui.cloneDialog
 
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
-import com.intellij.util.ui.cloneDialog.SearchableListItem
+import org.jetbrains.annotations.Nls
 import org.jetbrains.plugins.github.api.data.GithubRepo
 import org.jetbrains.plugins.github.api.data.GithubUser
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
@@ -11,9 +11,7 @@ import javax.swing.JList
 
 sealed class GHRepositoryListItem(
   val account: GithubAccount
-) : SearchableListItem {
-  override val stringToSearch: String?
-    get() = ""
+) {
 
   abstract fun customizeRenderer(renderer: ColoredListCellRenderer<GHRepositoryListItem>,
                                  list: JList<out GHRepositoryListItem>)
@@ -38,7 +36,6 @@ sealed class GHRepositoryListItem(
     val user: GithubUser,
     val repo: GithubRepo
   ) : GHRepositoryListItem(account) {
-    override val stringToSearch get() = repo.fullName
 
     override fun customizeRenderer(renderer: ColoredListCellRenderer<GHRepositoryListItem>,
                                    list: JList<out GHRepositoryListItem>): Unit =
@@ -71,8 +68,8 @@ sealed class GHRepositoryListItem(
 
   class Error(
     account: GithubAccount,
-    private val errorText: String,
-    private val linkText: String,
+    @Nls private val errorText: String,
+    @Nls private val linkText: String,
     private val linkHandler: Runnable
   ) : GHRepositoryListItem(account) {
 

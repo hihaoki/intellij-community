@@ -1,9 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.impl
 
+import groovy.transform.CompileStatic
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.jps.model.java.JpsJavaClasspathKind
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.jetbrains.jps.model.library.JpsLibrary
+import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleReference
 
 import java.util.function.Consumer
@@ -17,7 +20,8 @@ import java.util.function.Consumer
  * (or prepared to be {@link org.jetbrains.intellij.build.ProductModulesLayout#setPluginModulesToPublish published}) with the product (except
  * project libraries which are explicitly included into layouts of all plugins depending on them by {@link BaseLayoutSpec#withProjectLibrary}).
  */
-class PlatformLayout extends BaseLayout {
+@CompileStatic
+final class PlatformLayout extends BaseLayout {
   List<String> excludedProjectLibraries = []
   final List<String> projectLibrariesWithRemovedVersionFromJarNames = []
 
@@ -34,7 +38,7 @@ class PlatformLayout extends BaseLayout {
     body()
   }
 
-  static class PlatformLayoutSpec extends BaseLayoutSpec {
+  static final class PlatformLayoutSpec extends BaseLayoutSpec {
     final PlatformLayout layout
 
     PlatformLayoutSpec(PlatformLayout layout) {
@@ -56,7 +60,7 @@ class PlatformLayout extends BaseLayout {
      * will be removed when build scripts automatically compose bootstrap classpath.
      */
     void removeVersionFromProjectLibraryJarNames(String libraryName) {
-      layout.projectLibrariesWithRemovedVersionFromJarNames << libraryName
+      layout.projectLibrariesWithRemovedVersionFromJarNames.add(libraryName)
     }
 
     /**
@@ -64,15 +68,19 @@ class PlatformLayout extends BaseLayout {
      */
     void withProjectLibrariesFromIncludedModules(BuildContext context) {
       context.messages.debug("Collecting project libraries used by platform modules")
-      layout.moduleJars.values().each {
-        def module = context.findRequiredModule(it)
-        JpsJavaExtensionService.dependencies(module).includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME).libraries.findAll {
-          !(it.createReference().parentReference instanceof JpsModuleReference) &&
-          !layout.projectLibrariesToUnpack.values().contains(it.name) &&
-          !layout.excludedProjectLibraries.contains(it.name)
-        }.each {
-          context.messages.debug(" module '$module.name': '$it.name'")
-          withProjectLibrary(it.name)
+
+      Collection<String> libsToUnpack = layout.projectLibrariesToUnpack.values()
+      for (String moduleName in layout.moduleJars.values()) {
+        JpsModule module = context.findRequiredModule(moduleName)
+        for (JpsLibrary library : JpsJavaExtensionService.dependencies(module).includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME).libraries) {
+          if (library.createReference().parentReference instanceof JpsModuleReference ||
+              libsToUnpack.contains(library.name) ||
+              layout.excludedProjectLibraries.contains(library.name)) {
+            continue
+          }
+
+          context.messages.debug(" module '${module.name}': '${library.name}'")
+          withProjectLibrary(library.name)
         }
       }
     }

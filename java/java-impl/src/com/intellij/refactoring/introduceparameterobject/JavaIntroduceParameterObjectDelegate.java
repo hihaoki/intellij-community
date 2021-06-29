@@ -3,6 +3,7 @@ package com.intellij.refactoring.introduceparameterobject;
 
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector;
 import com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -28,6 +29,7 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -101,7 +103,7 @@ public class JavaIntroduceParameterObjectDelegate
       if (argumentList == null) return null;
 
       final PsiExpression[] args = argumentList.getExpressions();
-      StringBuilder newExpression = new StringBuilder();
+      @NonNls StringBuilder newExpression = new StringBuilder();
       newExpression.append("new ").append(existingClass.getQualifiedName());
       if (descriptor instanceof JavaIntroduceParameterObjectClassDescriptor) {
         List<String> types = new ArrayList<>();
@@ -182,34 +184,51 @@ public class JavaIntroduceParameterObjectDelegate
     final PsiParameter parameter = params[parameterInfo.getOldIndex()];
     final ReadWriteAccessDetector detector = ReadWriteAccessDetector.findDetector(parameter);
     assert detector != null;
-    final String setter = classDescriptor.getSetterName(parameterInfo, overridingMethod);
-    final String getter = classDescriptor.getGetterName(parameterInfo, overridingMethod);
-    final ReadWriteAccessDetector.Access[] accessor = new ReadWriteAccessDetector.Access[]{null};
+    
+    final List<PsiReferenceExpression> readUsages = new ArrayList<>();
+    final List<PsiReferenceExpression> readWriteUsages = new ArrayList<>();
+    final List<PsiReferenceExpression> writeUsages = new ArrayList<>();
+    
     ReferencesSearch.search(parameter, localSearchScope).forEach(reference -> {
          final PsiElement refElement = reference.getElement();
          if (refElement instanceof PsiReferenceExpression) {
            final PsiReferenceExpression paramUsage = (PsiReferenceExpression)refElement;
-           final ReadWriteAccessDetector.Access access = detector.getExpressionAccess(refElement);
-           if (access == ReadWriteAccessDetector.Access.Read) {
-             usages.add(new ReplaceParameterReferenceWithCall(paramUsage, mergedParamName, getter));
-             if (accessor[0] == null) {
-               accessor[0] = ReadWriteAccessDetector.Access.Read;
-             }
-           }
-           else {
-             if (access == ReadWriteAccessDetector.Access.ReadWrite) {
-               usages.add(new ReplaceParameterIncrementDecrement(paramUsage, mergedParamName, setter, getter));
-             }
-             else {
-               usages.add(new ReplaceParameterAssignmentWithCall(paramUsage, mergedParamName, setter, getter));
-             }
-             accessor[0] = ReadWriteAccessDetector.Access.Write;
+           switch (detector.getExpressionAccess(refElement)) {
+             case Read:
+               readUsages.add(paramUsage);
+               break;
+             case ReadWrite:
+                 readWriteUsages.add(paramUsage);
+                 break;
+             case Write:
+                 writeUsages.add(paramUsage);
+                 break;
            }
          }
          return true;
        }
     );
-    return accessor[0];
+
+    ReadWriteAccessDetector.Access access =
+      readWriteUsages.isEmpty() && writeUsages.isEmpty() ? ReadWriteAccessDetector.Access.Read : ReadWriteAccessDetector.Access.Write;
+
+    if (access == ReadWriteAccessDetector.Access.Read && readUsages.isEmpty()) {
+      return null;
+    }
+
+    final String setter = classDescriptor.getSetterName(parameterInfo, overridingMethod);
+    final String getter = classDescriptor.getGetterName(parameterInfo, overridingMethod, access);
+    
+    readUsages.stream()
+      .map(paramUsage -> new ReplaceParameterReferenceWithCall(paramUsage, mergedParamName, getter)).forEach(usages::add);
+    readWriteUsages.stream()
+      .map(paramUsage -> new ReplaceParameterIncrementDecrement(paramUsage, mergedParamName, setter, getter))
+      .forEach(usages::add);
+    writeUsages.stream()
+      .map(paramUsage -> new ReplaceParameterAssignmentWithCall(paramUsage, mergedParamName, setter, getter))
+      .forEach(usages::add);
+
+    return access;
   }
 
   @Override
@@ -280,7 +299,7 @@ public class JavaIntroduceParameterObjectDelegate
     final MoveDestination moveDestination = classDescriptor.getMoveDestination();
     if (moveDestination != null) {
       if (!moveDestination.isTargetAccessible(method.getProject(), method.getContainingFile().getVirtualFile())) {
-        conflicts.putValue(method, "Created class won't be accessible");
+        conflicts.putValue(method, JavaRefactoringBundle.message("introduce.parameter.object.error.created.class.wont.be.accessible"));
       }
 
       if (!classDescriptor.isCreateInnerClass() && !classDescriptor.isUseExistingClass()) {
@@ -292,7 +311,7 @@ public class JavaIntroduceParameterObjectDelegate
           if (file != null) {
             VirtualFile virtualFile = PsiUtilCore.getVirtualFile(file);
             if (virtualFile != null) {
-              conflicts.putValue(method, "File already exits: " + virtualFile.getPresentableUrl());
+              conflicts.putValue(method, JavaRefactoringBundle.message("introduce.parameter.object.error.file.already.exits", virtualFile.getPresentableUrl()));
             }
           }
         }
@@ -308,11 +327,13 @@ public class JavaIntroduceParameterObjectDelegate
             final PsiElement overridingMethod = ((OverriderMethodUsageInfo)usageInfo).getOverridingMethod();
 
             if (!moveDestination.isTargetAccessible(overridingMethod.getProject(), overridingMethod.getContainingFile().getVirtualFile())) {
-              conflicts.putValue(overridingMethod, "Created class won't be accessible");
+              conflicts.putValue(overridingMethod,
+                                 JavaRefactoringBundle.message("introduce.parameter.object.error.created.class.wont.be.accessible"));
             }
           }
           if (!constructorMiss && classDescriptor.isUseExistingClass() && usageInfo instanceof MethodCallUsageInfo && classDescriptor.getExistingClassCompatibleConstructor() == null) {
-            conflicts.putValue(classDescriptor.getExistingClass(), "Existing class misses compatible constructor");
+            conflicts.putValue(classDescriptor.getExistingClass(), JavaRefactoringBundle
+              .message("introduce.parameter.object.error.existing.class.misses.compatible.constructor"));
             constructorMiss = true;
           }
         }
@@ -323,7 +344,8 @@ public class JavaIntroduceParameterObjectDelegate
       for (ParameterInfoImpl info : classDescriptor.getParamsToMerge()) {
         Object existingClassBean = classDescriptor.getBean(info);
         if (existingClassBean == null) {
-          conflicts.putValue(classDescriptor.getExistingClass(), "No field associated with " + info.getName() + " found");
+          conflicts.putValue(classDescriptor.getExistingClass(),
+                             JavaRefactoringBundle.message("introduce.parameter.object.error.no.field.associated.found", info.getName()));
         }
       }
     }

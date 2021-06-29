@@ -1,7 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.tooling.serialization
 
-import com.intellij.openapi.externalSystem.model.project.dependencies.ProjectDependenciesImpl
+import com.intellij.openapi.externalSystem.model.project.dependencies.*
 import io.github.classgraph.ClassGraph
 import io.github.classgraph.ClassInfo
 import org.assertj.core.api.Assertions.assertThat
@@ -24,7 +24,6 @@ import org.jetbrains.plugins.gradle.model.tests.DefaultExternalTestsModel
 import org.jetbrains.plugins.gradle.tooling.internal.AnnotationProcessingModelImpl
 import org.jetbrains.plugins.gradle.tooling.internal.BuildScriptClasspathModelImpl
 import org.jetbrains.plugins.gradle.tooling.internal.RepositoriesModelImpl
-import org.jetbrains.plugins.gradle.tooling.serialization.internal.IdeaProjectSerializationService
 import org.jetbrains.plugins.gradle.tooling.serialization.internal.adapter.*
 import org.jetbrains.plugins.gradle.tooling.util.GradleVersionComparator
 import org.junit.Before
@@ -103,7 +102,8 @@ class ToolingSerializerTest {
   @Test
   @Throws(Exception::class)
   fun `IDEA project serialization test`() {
-    val gradleVersion = GradleVersion.version("5.5")
+    // do not assert GradleVersion.buildTime and GradleVersion.commitId properties of GradleVersionComparator.myVersion field
+    val gradleVersion = GradleVersion.version(GradleVersion.current().version)
     myRandomParameters
       .randomize(
         ofType(GradleVersionComparator::class.java).and(inClass(InternalIdeaContentRoot::class.java)),
@@ -115,12 +115,9 @@ class ToolingSerializerTest {
       )
       .excludeField(named("parent").and(ofType(InternalIdeaProject::class.java)).and(inClass(InternalIdeaModule::class.java)))
       .excludeField(named("parent").and(ofType(InternalGradleProject::class.java)).and(inClass(InternalGradleProject::class.java)))
-      // relax InternalBuildIdentifier.rootDir absolute path assertion
-      .randomize(File::class.java) { File(myRandom.nextObject(String::class.java)).absoluteFile }
       .excludeField(named("gradleProject").and(inClass(InternalGradleTask::class.java)))
 
     val serializer = ToolingSerializer()
-    serializer.register(IdeaProjectSerializationService(gradleVersion))
     doTest(InternalIdeaProject::class.java, Consumer { ideaProject ->
       val buildIdentifier = InternalBuildIdentifier(myRandom.nextObject(File::class.java))
       ideaProject.children.forEach { ideaModule ->
@@ -145,6 +142,36 @@ class ToolingSerializerTest {
   @Throws(Exception::class)
   fun `project dependencies serialization test`() {
     doTest(ProjectDependenciesImpl::class.java)
+
+    val projectDependencies = ProjectDependenciesImpl()
+    val mainCompileDependencies = DependencyScopeNode(1, "compileClasspath", "project : (compileClasspath)", "")
+    val mainRuntimeDependencies = DependencyScopeNode(1, "runtimeClasspath", "project : (runtimeClasspath)", "")
+    val mainDependency = ArtifactDependencyNodeImpl(2, "dep", "dep", "1.0")
+    val mainNestedDependency = ArtifactDependencyNodeImpl(3, "nestedDep", "nestedDep", "1.1")
+    mainDependency.dependencies.add(mainNestedDependency)
+    mainRuntimeDependencies.dependencies.add(mainDependency)
+    mainRuntimeDependencies.dependencies.add(ReferenceNode(3))
+    val mainComponentDependencies = ComponentDependenciesImpl("main", mainCompileDependencies, mainRuntimeDependencies)
+    projectDependencies.add(mainComponentDependencies)
+
+    val testCompileDependencies = DependencyScopeNode(1, "testCompileClasspath", "project : (testCompileClasspath)", "")
+    val testRuntimeDependencies = DependencyScopeNode(1, "testRuntimeClasspath", "project : (testRuntimeClasspath)", "")
+    val testDependency = ArtifactDependencyNodeImpl(2, "dep", "dep", "1.0")
+    val testNestedDependency = ArtifactDependencyNodeImpl(3, "nestedDep", "nestedDep", "1.0")
+    testDependency.dependencies.add(testNestedDependency)
+    testRuntimeDependencies.dependencies.add(testDependency)
+    testRuntimeDependencies.dependencies.add(ReferenceNode(3))
+    val testComponentDependencies = ComponentDependenciesImpl("test", testCompileDependencies, testRuntimeDependencies)
+    projectDependencies.add(testComponentDependencies)
+
+    val bytes = ToolingSerializer().write(projectDependencies)
+    val deserializedObject = ToolingSerializer().read(bytes, ProjectDependenciesImpl::class.java)
+
+    val deserializedMainNestedDependency = deserializedObject!!.componentsDependencies[0].runtimeDependenciesGraph.dependencies[0].dependencies[0]
+    assertThat(deserializedMainNestedDependency).isEqualToComparingFieldByField(mainNestedDependency)
+
+    val deserializedTestNestedDependency = deserializedObject.componentsDependencies[1].runtimeDependenciesGraph.dependencies[0].dependencies[0]
+    assertThat(deserializedTestNestedDependency).isEqualToComparingFieldByField(testNestedDependency)
   }
 
   @Throws(IOException::class)
@@ -163,7 +190,7 @@ class ToolingSerializerTest {
                          serializer: ToolingSerializer) {
     val generatedObject = myRandom.nextObject(modelClazz)
     generatedObjectPatcher?.accept(generatedObject)
-    val bytes = serializer.write(generatedObject as Any, modelClazz)
+    val bytes = serializer.write(generatedObject as Any)
     val deserializedObject = serializer.read(bytes, modelClazz)
     assertThat(deserializedObject).usingRecursiveComparison().isEqualTo(generatedObject)
   }

@@ -66,14 +66,14 @@ public class ExternalSystemTaskActivator {
       @Override
       public void beforeRun(@NotNull ProjectTaskContext context) throws ExecutionException {
         if (!doExecuteBuildPhaseTriggers(true, context)) {
-          throw new ExecutionException("Before build triggering task failed");
+          throw new ExecutionException(ExternalSystemBundle.message("dialog.message.before.build.triggering.task.failed"));
         }
       }
 
       @Override
       public void afterRun(@NotNull ProjectTaskManager.Result result) throws ExecutionException {
         if (!doExecuteBuildPhaseTriggers(false, result.getContext())) {
-          throw new ExecutionException("After build triggering task failed");
+          throw new ExecutionException(ExternalSystemBundle.message("dialog.message.after.build.triggering.task.failed"));
         }
       }
     });
@@ -230,7 +230,7 @@ public class ExternalSystemTaskActivator {
     return projectSettings != null ? projectSettings.getExternalProjectPath() : null;
   }
 
-  private boolean runTasksQueue(final Queue<Pair<ProjectSystemId, ExternalSystemTaskExecutionSettings>> tasksQueue) {
+  private boolean runTasksQueue(final Queue<? extends Pair<ProjectSystemId, ExternalSystemTaskExecutionSettings>> tasksQueue) {
     final Pair<ProjectSystemId, ExternalSystemTaskExecutionSettings> pair = tasksQueue.poll();
     if (pair == null) {
       return true;

@@ -1,74 +1,71 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.customize;
 
-import com.intellij.ide.WelcomeWizardUtil;
-import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.ide.plugins.*;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
-import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.extensions.PluginId;
-import com.intellij.openapi.util.Pair;
-import com.intellij.util.containers.ContainerUtil;
-import icons.PlatformImplIcons;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
-import java.io.File;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class PluginGroups {
-  static final String CORE = "Core";
+  public static final String CORE = "Core";
   private static final int MAX_DESCR_LENGTH = 55;
 
-  static final String IDEA_VIM_PLUGIN_ID = "IdeaVIM";
-
   private final List<Group> myTree = new ArrayList<>();
-  private final Map<String, String> myFeaturedPlugins = new LinkedHashMap<>();
+  private final Map<PluginId, PluginGroupDescription> myFeaturedPlugins = new LinkedHashMap<>();
 
   private final Map<String, List<IdSet>> myGroups = new LinkedHashMap<>();
-  private final Map<String, String> myDescriptions = new LinkedHashMap<>();
-  private final List<PluginNode> myPluginsFromRepository = new ArrayList<>();
-  private final Collection<PluginId> myDisabledPluginIds = new HashSet<>();
-  private final List<IdeaPluginDescriptorImpl> myAllPlugins;
+  private final Map<String, @Nls String> myDescriptions = new LinkedHashMap<>();
+
+  private final Map<PluginId, PluginNode> myPluginsFromRepository = new HashMap<>();
+  private final Set<PluginId> myDisabledPluginIds = new HashSet<>(DisabledPluginsState.loadDisabledPlugins());
+  private final Map<PluginId, IdeaPluginDescriptorImpl> myEnabledPlugins = PluginDescriptorLoader
+    .loadUncachedDescriptors(PluginManagerCore.isUnitTestMode, PluginManagerCore.isRunningFromSources())
+    .stream()
+    .collect(Collectors.toUnmodifiableMap(IdeaPluginDescriptorImpl::getPluginId, Function.identity()));
+
   private boolean myInitialized;
-  private final Set<String> myFeaturedIds = new HashSet<>();
   private Runnable myLoadingCallback;
 
   public PluginGroups() {
-    myAllPlugins = PluginDescriptorLoader.loadUncachedDescriptors();
-    SwingWorker worker = new SwingWorker<List<PluginNode>, Object>() {
+    SwingWorker<List<PluginNode>, Object> worker = new SwingWorker<>() {
       @Override
-      protected List<PluginNode> doInBackground() {
+      protected @NotNull List<PluginNode> doInBackground() {
         try {
-          List<String> featuresPluginIds = ContainerUtil.map(getFeaturedPlugins().values(), value -> parsePluginId(value));
-          List<PluginNode> featuredPlugins = MarketplaceRequests.getInstance().loadLastCompatiblePluginDescriptors(featuresPluginIds);
-          List<@NotNull String> dependsIds =
-            featuredPlugins.stream()
-              .map(p -> p.getDependencies())
-              .flatMap(Collection::stream)
-              .filter(dep -> !dep.isOptional())
-              .map(dep -> dep.getPluginId().getIdString())
-              .collect(Collectors.toList());
-          List<PluginNode> dependsPlugins = MarketplaceRequests.getInstance().loadLastCompatiblePluginDescriptors(dependsIds);
-          featuredPlugins.addAll(dependsPlugins);
-          return featuredPlugins;
+          List<PluginNode> featuredPlugins = MarketplaceRequests.loadLastCompatiblePluginDescriptors(myFeaturedPlugins.keySet());
+
+          Set<PluginId> dependsIds = featuredPlugins.stream()
+            .map(PluginNode::getDependencies)
+            .flatMap(Collection::stream)
+            .filter(dep -> !dep.isOptional())
+            .map(IdeaPluginDependency::getPluginId)
+            .collect(Collectors.toUnmodifiableSet());
+
+          ArrayList<PluginNode> result = new ArrayList<>(featuredPlugins);
+          result.addAll(MarketplaceRequests.loadLastCompatiblePluginDescriptors(dependsIds));
+          return result;
         }
         catch (Exception e) {
           //OK, it's offline
-          return Collections.emptyList();
+          return List.of();
         }
       }
 
       @Override
       protected void done() {
         try {
-          myPluginsFromRepository.addAll(get());
+          for (PluginNode node : get()) {
+            myPluginsFromRepository.put(node.getPluginId(), node);
+          }
           if (myLoadingCallback != null) myLoadingCallback.run();
         }
         catch (InterruptedException | ExecutionException e) {
@@ -77,268 +74,100 @@ public class PluginGroups {
       }
     };
 
-    Map<String, Pair<Icon, List<String>>> treeMap = new LinkedHashMap<>();
-    initGroups(treeMap, myFeaturedPlugins);
-    for (Entry<String, Pair<Icon, List<String>>> entry : treeMap.entrySet()) {
-      myTree.add(new Group(entry.getKey(), entry.getValue().getFirst(), null, entry.getValue().getSecond()));
+    myTree.addAll(getInitialGroups());
+
+    Map<String, String> tempFeaturedPlugins = new LinkedHashMap<>();
+    initGroups(myTree, tempFeaturedPlugins);
+    // TODO:
+    //  1) remove initGroups, initFeaturedPlugins usages;
+    //  2) replace with for (PluginGroupDescription description : getInitialFeaturedPlugins());
+    //  3) remove parsePluginId, parseString, add*Plugin usages;
+    //  4) regenerate PluginGroupDescription#toString().
+    for (Entry<String, String> entry : tempFeaturedPlugins.entrySet()) {
+      @SuppressWarnings("HardCodedStringLiteral") String[] strings = parseString(entry.getValue());
+      PluginGroupDescription description = PluginGroupDescription.create(/* idString = */ strings[2],
+        /* name = */ entry.getKey(),
+        /* category = */     strings[0],
+        /* description = */     strings[1]);
+      myFeaturedPlugins.put(description.getPluginId(), description);
     }
+
     worker.execute();
-    DisabledPluginsState.loadDisabledPlugins(new File(PathManager.getConfigPath()).getPath(), myDisabledPluginIds);
-    initCloudPlugins();
   }
 
-  void setLoadingCallback(Runnable loadingCallback) {
+  public void setLoadingCallback(Runnable loadingCallback) {
     myLoadingCallback = loadingCallback;
     if (!myPluginsFromRepository.isEmpty()) {
       myLoadingCallback.run();
     }
   }
 
-  private void initCloudPlugins() {
-    CloudConfigProvider provider = CloudConfigProvider.getProvider();
-    if (provider == null) {
-      return;
-    }
-
-    List<PluginId> plugins = provider.getInstalledPlugins();
-    if (plugins.isEmpty()) {
-      return;
-    }
-
-    for (Iterator<Entry<String, String>> I = myFeaturedPlugins.entrySet().iterator(); I.hasNext(); ) {
-      String value = I.next().getValue();
-      if (ContainerUtil.find(plugins, plugin -> value.endsWith(":" + plugin)) != null) {
-        I.remove();
-      }
-    }
-
-    for (PluginId plugin : plugins) {
-      myFeaturedPlugins.put(plugin.getIdString(), "#Cloud:#Cloud:" + plugin);
-    }
-  }
-
   /**
-   * @deprecated use {@link #initGroups(List, Map)} instead
+   * @deprecated Please migrate to {@link #getInitialGroups()} and {@link #getInitialFeaturedPlugins()}
    */
   @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
-  protected void initGroups(Map<String, Pair<Icon, List<String>>> tree, Map<String, String> featuredPlugins) {
-    initGroups(myTree, myFeaturedPlugins);
-  }
-
-  protected void initGroups(@NotNull List<Group> groups, @NotNull Map<String, String> featuredPlugins) {
-    groups.add(new Group(CORE, null, null, Arrays.asList(
-      "com.intellij.copyright",
-      "com.intellij.java-i18n",
-      "org.intellij.intelliLang",
-      "com.intellij.properties",
-      "Refactor-X",//?
-      "Type Migration",
-      "ZKM"
-    )));
-    groups.add(new Group("Java Frameworks", PlatformImplIcons.JavaFrameworks, null, Arrays.asList(
-      "Spring:com.intellij.spring.batch," +
-      "com.intellij.spring.data," +
-      "com.intellij.spring.integration," +
-      "com.intellij.spring.osgi," +
-      "com.intellij.spring.security," +
-      "com.intellij.spring," +
-      "com.intellij.spring.webflow," +
-      "com.intellij.spring.ws,com.intellij.aop",
-
-      "Java EE:com.intellij.javaee.batch," +
-      "com.intellij.beanValidation," +
-      "com.intellij.cdi," +
-      "com.intellij.javaee," +
-      "com.intellij.jsf," +
-      "com.intellij.javaee.extensions," +
-      "com.jetbrains.restWebServices," +
-      "Web Services (JAX-WS)," +
-      "com.intellij.javaee.webSocket," +
-      "com.intellij.jsp",
-
-      "com.intellij.hibernate",
-      "com.intellij.reactivestreams",
-      "com.intellij.frameworks.java.sql",
-      // preview ends
-
-      "org.intellij.grails",
-
-      "com.intellij.micronaut",
-      "com.intellij.quarkus",
-      "com.intellij.helidon",
-
-      "com.intellij.guice",
-
-      "com.intellij.freemarker",
-      "com.intellij.velocity",
-      "com.intellij.aspectj"
-    )));
-    groups.add(new Group("Build Tools", PlatformImplIcons.BuildTools, null, Arrays.asList(
-      "AntSupport",
-      "Maven:org.jetbrains.idea.maven,org.jetbrains.idea.maven.ext",
-      "org.jetbrains.plugins.gradle"
-    )));
-    groups.add(new Group("JavaScript Development", PlatformImplIcons.WebDevelopment,
-                         "HTML, style sheets, JavaScript, TypeScript, Node.js...", Arrays.asList(
-      "HTML:HtmlTools,W3Validators",
-      "JavaScript and TypeScript:JavaScript,JavaScriptDebugger,JSIntentionPowerPack",
-      "Node.js:NodeJS",
-
-      "com.intellij.css",
-      "org.jetbrains.plugins.less",
-      "org.jetbrains.plugins.sass",
-
-      "org.jetbrains.plugins.stylus",
-      "org.jetbrains.plugins.haml",
-      "AngularJS",
-
-      "org.coffeescript",
-      "com.jetbrains.restClient",
-
-      "com.intellij.swagger"
-    )));
-
-    addVcsGroup(groups);
-
-    groups.add(new Group("Test Tools", PlatformImplIcons.TestTools, null, Arrays.asList(
-      "JUnit",
-      "TestNG-J",
-      "cucumber-java",
-      "cucumber",
-      "Coverage:Coverage,Emma"
-    )));
-    groups.add(new Group("Application Servers", PlatformImplIcons.ApplicationServers, null, Arrays.asList(
-      "com.intellij.javaee.view",
-      "Geronimo",
-      "GlassFish",
-      "JBoss",
-      "Jetty",
-      "Tomcat",
-      "Weblogic",
-      "WebSphere",
-      "JSR45Plugin"
-    )));
-    //myTree.put("Groovy", Arrays.asList("org.intellij.grails"));
-    //TODO Scala -> Play 2.x (Play 2.0 Support)
-    groups.add(new Group("Swing", PlatformImplIcons.Swing, null, Collections.singletonList(
-      "com.intellij.uiDesigner"//TODO JavaFX?
-    )));
-    groups.add(new Group("Android", PlatformImplIcons.Android, null, Arrays.asList(
-      "org.jetbrains.android",
-      "com.intellij.android-designer")));
-    groups.add(new Group("Database Tools", PlatformImplIcons.DatabaseTools, null, Collections.singletonList(
-      "com.intellij.database"
-    )));
-    groups.add(new Group("Other Tools", PlatformImplIcons.OtherTools, null, Arrays.asList(
-      "ByteCodeViewer",
-      "com.intellij.dsm",
-      "org.jetbrains.idea.eclipse",
-      "org.jetbrains.debugger.streams",
-      "Remote Access:com.jetbrains.plugins.webDeployment,org.jetbrains.plugins.remote-run",
-      "Task Management:com.intellij.tasks,com.intellij.tasks.timeTracking",
-      "org.jetbrains.plugins.terminal",
-      "com.intellij.diagram",
-      "org.jetbrains.plugins.yaml",
-      "XSLT and XPath:XPathView,XSLT-Debugger"
-    )));
-    groups.add(new Group("Plugin Development", PlatformImplIcons.PluginDevelopment, null, Collections.singletonList("DevKit")));
-
+  @Deprecated(since = "2020.2", forRemoval = true)
+  protected void initGroups(@NotNull List<? super Group> groups, @NotNull Map<String, String> featuredPlugins) {
     initFeaturedPlugins(featuredPlugins);
   }
 
+  protected @NotNull List<Group> getInitialGroups() {
+    return List.of();
+  }
+
+  /**
+   * @deprecated Please migrate to {@link #getInitialFeaturedPlugins()}
+   */
+  @Deprecated(since = "2020.2", forRemoval = true)
   protected void initFeaturedPlugins(@NotNull Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Scala", "Custom Languages:Plugin for Scala language support:org.intellij.scala");
-    featuredPlugins.put("Live Edit Tool",
-                        "Web Development:Provides live edit HTML/CSS/JavaScript:com.intellij.plugins.html.instantEditing");
-    addVimPlugin(featuredPlugins);
-    featuredPlugins.put("Atlassian Connector",
-                        "Tools Integration:Integration for Atlassian JIRA, Bamboo, Crucible, FishEye:atlassian-idea-plugin");
-    addTrainingPlugin(featuredPlugins);
+    for (PluginGroupDescription description : getInitialFeaturedPlugins()) {
+      featuredPlugins.put(description.getName(), description.toString());
+    }
   }
 
-  static String parsePluginId(String string) {
-    int i = string.indexOf(':');
-    int j = string.indexOf(':', i + 1);
-    return string.substring(j + 1);
+  protected @NotNull List<PluginGroupDescription> getInitialFeaturedPlugins() {
+    return List.of();
   }
 
-
-  protected static void addVcsGroup(@NotNull List<Group> groups) {
-    groups.add(new Group("Version Controls", PlatformImplIcons.VersionControls, null, Arrays.asList(
-      "CVS",
-      "Git4Idea",
-      "org.jetbrains.plugins.github",
-      "hg4idea",
-      "PerforceDirectPlugin",
-      "Subversion",
-      "TFS"
-    )));
+  /**
+   * @deprecated Please migrate to {@link PluginGroupDescription}.
+   */
+  @Deprecated(since = "2020.2", forRemoval = true)
+  public static @NotNull @NonNls String parsePluginId(@NotNull @Nls String string) {
+    return parseString(string)[2];
   }
 
-  public static void addVimPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("IdeaVim", "Editor:Emulates Vim editor:" + IDEA_VIM_PLUGIN_ID);
-  }
-
-  public static void addAwsPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("AWS Toolkit", "Cloud Support:Create, test, and debug serverless applications built using the AWS Serverless Application Model:aws.toolkit");
-  }
-
-  public static void addTrainingPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("IDE Features Trainer", "Code tools:Learn basic shortcuts and essential features interactively:training");
-  }
-
-  protected static void addLuaPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Lua", "Custom Languages:Lua language support:Lua");
-  }
-
-  public static void addRustPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Rust", "Custom Languages:Rust language support:org.rust.lang");
-  }
-
-  public static void addMarkdownPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Markdown", "Custom Languages:Markdown language support:org.intellij.plugins.markdown");
-  }
-
-  public static void addRPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("R", "Custom Languages:R language support:R4Intellij");
-  }
-
-  protected static void addConfigurationServerPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Configuration Server",
-                        "Team Work:Supports sharing settings between installations of IntelliJ Platform based products used by the same developer on different computers:IdeaServerPlugin");
-  }
-
-  public static void addTeamCityPlugin(Map<String, String> featuredPlugins) {
-    featuredPlugins.put("TeamCity Integration",
-                        "Tools Integration:Integration with JetBrains TeamCity - innovative solution for continuous integration and build management:JetBrains TeamCity Plugin");
-  }
-
-  public static void addBigDataToolsPlugin(@NotNull Map<String, String> featuredPlugins) {
-    featuredPlugins.put("Big Data Tools", "Tools Integration:Zeppelin notebooks and Spark applications support:com.intellij.bigdatatools");
+  /**
+   * @deprecated For migration purpose only.
+   */
+  @Deprecated(since = "2020.2", forRemoval = true)
+  private static @NotNull String @NotNull [] parseString(@NotNull @Nls String string) {
+    return string.split(":", 3);
   }
 
   private void initIfNeeded() {
     if (myInitialized) return;
     myInitialized = true;
     for (Group g : myTree) {
-      final String group = g.getName();
+      final String group = g.getId();
       if (CORE.equals(group)) continue;
 
       List<IdSet> idSets = new ArrayList<>();
-      StringBuilder description = new StringBuilder();
       for (String idDescription : g.getPluginIdDescription()) {
-        IdSet idSet = new IdSet(this, idDescription);
-        String idSetTitle = idSet.getTitle();
-        if (idSetTitle == null) continue;
-        idSets.add(idSet);
-        if (description.length() > 0) {
-          description.append(", ");
+        int i = idDescription.indexOf(":");
+        IdSet idSet = createIdSet(i > 0 ? idDescription.substring(0, i) /* NON-NLS */ : null,
+                                  i > 0 ? idDescription.substring(i + 1) : idDescription);
+        if (idSet != null) {
+          idSets.add(idSet);
         }
-        description.append(idSetTitle);
       }
       myGroups.put(group, idSets);
+
+      @Nls StringBuilder description = new StringBuilder();
+      StringUtil.join(idSets,
+                      IdSet::getTitle,
+                      ", ",
+                      description);
 
       if (description.length() > MAX_DESCR_LENGTH) {
         int lastWord = description.lastIndexOf(",", MAX_DESCR_LENGTH);
@@ -354,16 +183,26 @@ public class PluginGroups {
   }
 
   @NotNull
-  List<Group> getTree() {
+  public List<Group> getTree() {
     initIfNeeded();
     return myTree;
   }
 
-  Map<String, String> getFeaturedPlugins() {
-    return myFeaturedPlugins;
+  /**
+   * @deprecated Please use {@link #getFeaturedPluginDescriptions()} instead.
+   */
+  @Deprecated(forRemoval = true, since = "2020.2")
+  public Map<@NlsSafe String, @Nls String> getFeaturedPlugins() {
+    return myFeaturedPlugins.values()
+      .stream()
+      .collect(Collectors.toUnmodifiableMap(PluginGroupDescription::getName, PluginGroupDescription::toString));
   }
 
-  public String getDescription(String group) {
+  public @NotNull Map<PluginId, PluginGroupDescription> getFeaturedPluginDescriptions() {
+    return Collections.unmodifiableMap(myFeaturedPlugins);
+  }
+
+  public @Nls String getDescription(String group) {
     initIfNeeded();
     return myDescriptions.get(group);
   }
@@ -373,17 +212,12 @@ public class PluginGroups {
     return myGroups.get(group);
   }
 
-  final @Nullable IdeaPluginDescriptor findPlugin(@NotNull PluginId id) {
-    for (IdeaPluginDescriptor pluginDescriptor : myAllPlugins) {
-      if (pluginDescriptor.getPluginId() == id) {
-        return pluginDescriptor;
-      }
-    }
-    return null;
+  public final @Nullable IdeaPluginDescriptor findPlugin(@NotNull PluginId pluginId) {
+    return myEnabledPlugins.get(pluginId);
   }
 
-  boolean isIdSetAllEnabled(IdSet set) {
-    for (PluginId id : set.getIds()) {
+  public final boolean isIdSetAllEnabled(@NotNull IdSet set) {
+    for (PluginId id : set.getPluginIds()) {
       if (!isPluginEnabled(id)) {
         return false;
       }
@@ -391,119 +225,139 @@ public class PluginGroups {
     return true;
   }
 
-  void setIdSetEnabled(@NotNull IdSet set, boolean enabled) {
-    for (PluginId id : set.getIds()) {
+  public final void setIdSetEnabled(@NotNull IdSet set, boolean enabled) {
+    for (PluginId id : set.getPluginIds()) {
       setPluginEnabledWithDependencies(id, enabled);
     }
   }
 
-  @NotNull
-  Collection<PluginId> getDisabledPluginIds() {
-    return Collections.unmodifiableCollection(myDisabledPluginIds);
+  public final @NotNull Set<PluginId> getDisabledPluginIds() {
+    return Collections.unmodifiableSet(myDisabledPluginIds);
   }
 
-  List<PluginNode> getPluginsFromRepository() {
-    return myPluginsFromRepository;
+  public final @NotNull Collection<PluginNode> getPluginsFromRepository() {
+    return Collections.unmodifiableCollection(myPluginsFromRepository.values());
   }
 
-  boolean isPluginEnabled(@NotNull PluginId pluginId) {
+  public final boolean isPluginEnabled(@NotNull PluginId pluginId) {
     initIfNeeded();
     return !myDisabledPluginIds.contains(pluginId);
   }
 
-  private IdSet getSet(@NotNull PluginId pluginId) {
-    initIfNeeded();
-    for (List<IdSet> sets : myGroups.values()) {
-      for (IdSet set : sets) {
-        for (PluginId id : set.getIds()) {
-          if (id == pluginId) {
-            return set;
+  private @NotNull Set<PluginId> getAllPluginIds(@NotNull Set<PluginId> pluginIds) {
+    HashSet<PluginId> result = new HashSet<>(pluginIds);
+    for (PluginId pluginId : pluginIds) {
+      for (List<IdSet> sets : myGroups.values()) {
+        for (IdSet set : sets) {
+          Set<PluginId> ids = set.getPluginIds();
+          if (ids.contains(pluginId)) {
+            result.addAll(ids);
           }
         }
       }
     }
-    return null;
+    return Collections.unmodifiableSet(result);
   }
 
-  void setFeaturedPluginEnabled(String pluginId, boolean enabled) {
+  public void setPluginEnabledWithDependencies(@NotNull PluginId pluginId, boolean enabled) {
+    initIfNeeded();
+
+    Set<PluginId> accumulator = new HashSet<>();
     if (enabled) {
-      myFeaturedIds.add(pluginId);
+      collectIdsToEnable(pluginId, accumulator);
+      myDisabledPluginIds.removeAll(getAllPluginIds(accumulator));
     }
     else {
-      myFeaturedIds.remove(pluginId);
+      collectIdsToDisable(pluginId, accumulator);
+      myDisabledPluginIds.addAll(getAllPluginIds(accumulator));
     }
-    WelcomeWizardUtil.setFeaturedPluginsToInstall(myFeaturedIds);
   }
 
-  void setPluginEnabledWithDependencies(@NotNull PluginId pluginId, boolean enabled) {
-    initIfNeeded();
-    Set<PluginId> ids = new HashSet<>();
-    Map<PluginId, IdeaPluginDescriptorImpl> idToDescriptor = new HashMap<>(myAllPlugins.size());
-    for (IdeaPluginDescriptorImpl pluginDescriptor : myAllPlugins) {
-      idToDescriptor.put(pluginDescriptor.getPluginId(), pluginDescriptor);
+  private void collectIdsToEnable(@NotNull PluginId pluginId,
+                                  @NotNull Set<PluginId> accumulator) {
+    accumulator.add(pluginId);
+
+    IdeaPluginDescriptorImpl descriptor = myEnabledPlugins.get(pluginId);
+    if (descriptor == null) {
+      return;
     }
 
-    collectInvolvedIds(pluginId, enabled, ids, idToDescriptor);
-    Set<IdSet> sets = new HashSet<>();
-    for (PluginId id : ids) {
-      IdSet set = getSet(id);
-      if (set != null) {
-        sets.add(set);
-      }
-    }
-    for (IdSet set : sets) {
-      ids.addAll(set.getIds());
-    }
-    for (PluginId id : ids) {
-      if (enabled) {
-        myDisabledPluginIds.remove(id);
-      }
-      else {
-        myDisabledPluginIds.add(id);
+    for (PluginDependency dependency : descriptor.pluginDependencies) {
+      if (!dependency.isOptional() && !dependency.getPluginId().equals(PluginManagerCore.CORE_ID)) {
+        collectIdsToEnable(dependency.getPluginId(), accumulator);
       }
     }
   }
 
-  private void collectInvolvedIds(@NotNull PluginId pluginId,
-                                  boolean toEnable,
-                                  @NotNull Set<PluginId> ids,
-                                  @NotNull Map<PluginId, IdeaPluginDescriptorImpl> idToDescriptor) {
-    ids.add(pluginId);
-    if (toEnable) {
-      IdeaPluginDescriptorImpl descriptor = idToDescriptor.get(pluginId);
-      if (descriptor != null) {
-        for (PluginDependency dependency : descriptor.getPluginDependencies()) {
-          if (!dependency.isOptional && dependency.id != PluginManagerCore.CORE_ID) {
-            collectInvolvedIds(dependency.id, true, ids, idToDescriptor);
-          }
+  private void collectIdsToDisable(@NotNull PluginId pluginId,
+                                   @NotNull Set<PluginId> accumulator) {
+    accumulator.add(pluginId);
+
+    for (IdeaPluginDescriptorImpl descriptor : myEnabledPlugins.values()) {
+      for (PluginDependency dependency : descriptor.pluginDependencies) {
+        if (!dependency.isOptional() && dependency.getPluginId().equals(pluginId)) {
+          collectIdsToDisable(descriptor.getPluginId(), accumulator);
         }
       }
     }
-    else {
-      for (IdeaPluginDescriptorImpl plugin : myAllPlugins) {
-        for (PluginDependency dependency : plugin.getPluginDependencies()) {
-          if (!dependency.isOptional && dependency.id == pluginId) {
-            collectInvolvedIds(plugin.getPluginId(), false, ids, idToDescriptor);
-          }
-        }
-      }
+  }
+
+  private @Nullable IdSet createIdSet(@Nls @Nullable String title,
+                                      @NonNls @NotNull String ids) {
+    Ref<IdeaPluginDescriptorImpl> firstDescriptor = Ref.create();
+    Set<PluginId> pluginIds = Arrays.stream(ids.split(","))
+      .distinct()
+      .map(PluginId::getId)
+      .filter(pluginId -> {
+        IdeaPluginDescriptorImpl descriptor = myEnabledPlugins.get(pluginId);
+        firstDescriptor.setIfNull(descriptor);
+        return descriptor != null;
+      }).collect(Collectors.toUnmodifiableSet());
+
+    int size = pluginIds.size();
+    if (title == null && size > 1) {
+      throw new IllegalArgumentException("There is no common title for " + size + " ids: " + ids);
     }
+
+    return size != 0 ?
+           new IdSet(pluginIds, title != null ? title : firstDescriptor.get().getName()) :
+           null;
   }
 
   public static final class Group {
-    private final String myName;
+    private final @NonNls String myId;
+    private final @Nls String myName;
     private final Icon myIcon;
-    private final String myDescription;
+    private final @Nls String myDescription;
     private final List<String> myPluginIdDescription;
 
+    /**
+     * @deprecated Deprecated due to internationalization of name field
+     */
+    @SuppressWarnings("HardCodedStringLiteral")
+    @Deprecated
+    @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
     public Group(@NonNls @NotNull String name, @Nullable Icon icon, @Nullable String description, @NonNls @NotNull List<String> pluginIdDescription) {
+      this(name, name, icon, description, pluginIdDescription);
+
+    }
+    public Group(@NonNls @NotNull String id,
+                 @Nls @NotNull String name,
+                 @Nullable Icon icon,
+                 @Nullable @Nls String description,
+                 @NonNls @NotNull List<String> pluginIdDescription) {
+      myId = id;
       myName = name;
       myIcon = icon;
       myDescription = description;
       myPluginIdDescription = pluginIdDescription;
     }
 
-    public @NotNull String getName() {
+    public @NonNls String getId() {
+      return myId;
+    }
+
+    public @NotNull @Nls String getName() {
       return myName;
     }
 
@@ -511,7 +365,7 @@ public class PluginGroups {
       return myIcon;
     }
 
-    public @Nullable String getDescription() {
+    public @Nullable @Nls String getDescription() {
       return myDescription;
     }
 

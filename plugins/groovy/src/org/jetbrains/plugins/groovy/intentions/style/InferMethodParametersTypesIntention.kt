@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.intentions.style
 
 import com.intellij.openapi.editor.Editor
@@ -6,9 +6,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.PsiType
-import com.intellij.psi.search.GlobalSearchScope
+import org.jetbrains.plugins.groovy.GroovyBundle
 import org.jetbrains.plugins.groovy.codeStyle.GrReferenceAdjuster
-import org.jetbrains.plugins.groovy.intentions.GroovyIntentionsBundle
 import org.jetbrains.plugins.groovy.intentions.base.Intention
 import org.jetbrains.plugins.groovy.intentions.base.PsiElementPredicate
 import org.jetbrains.plugins.groovy.intentions.style.inference.*
@@ -34,7 +33,7 @@ internal class InferMethodParametersTypesIntention : Intention() {
    */
   override fun processIntention(element: PsiElement, project: Project, editor: Editor?) {
     val method: GrMethod = element as GrMethod
-    val options = SignatureInferenceOptions(GlobalSearchScope.allScope(project), false, DefaultInferenceContext, lazy { unreachable() })
+    val options = SignatureInferenceOptions(false, DefaultInferenceContext)
     val virtualMethod = runInferenceProcess(method, options)
     substituteMethodSignature(virtualMethod, method)
   }
@@ -96,12 +95,10 @@ internal class InferMethodParametersTypesIntention : Intention() {
   }
 
   override fun getText(): String {
-    return GroovyIntentionsBundle.message("infer.method.parameters.types")
+    return GroovyBundle.message("infer.method.parameters.types")
   }
 
   override fun getFamilyName(): String {
-    return GroovyIntentionsBundle.message("infer.method.parameters.types.for.method.declaration")
+    return GroovyBundle.message("infer.method.parameters.types.for.method.declaration")
   }
-
 }
-

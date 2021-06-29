@@ -19,7 +19,6 @@ import com.google.common.primitives.Chars;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonShortcuts;
-import com.intellij.openapi.actionSystem.impl.AutoPopupSupportingListener;
 import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAwareAction;
@@ -27,6 +26,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.LanguageTextField;
@@ -91,11 +91,11 @@ class MultilinePopupBuilder {
       }
     };
     okAction.registerCustomShortcutSet(CommonShortcuts.CTRL_ENTER, popup.getContent());
-    AutoPopupSupportingListener.installOn(popup);
     return popup;
   }
 
   @NotNull
+  @NlsContexts.PopupAdvertisement
   private String getAdText() {
     return VcsLogBundle.message("vcs.log.filter.popup.advertisement.with.key.text", getSeparatorsText(mySeparators),
                                 KeymapUtil.getShortcutsText(CommonShortcuts.CTRL_ENTER.getShortcuts()));
@@ -118,7 +118,7 @@ class MultilinePopupBuilder {
         s.append(separator);
       }
       else {
-        s.append(VcsLogBundle.message("vcs.log.filter.popup.advertisement.text.or.suffix", separator));
+        s.append(" ").append(VcsLogBundle.message("vcs.log.filter.popup.advertisement.text.or.suffix", separator));
       }
     }
     return s.toString();

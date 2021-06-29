@@ -3,6 +3,7 @@ package org.jetbrains.concurrency;
 
 import com.intellij.util.Consumer;
 import com.intellij.util.Function;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,7 +65,7 @@ public interface Promise<T> {
   <SUB_RESULT> Promise<SUB_RESULT> then(@NotNull Function<? super T, ? extends SUB_RESULT> done);
 
   /**
-   * The same as {@link #then(Function)}, but handler can be asynchronous.
+   * The same as {@link #then(Function)}, but the handler can be asynchronous.
    *
    * <pre>
    * {@code
@@ -104,13 +105,14 @@ public interface Promise<T> {
    * @deprecated Use {@link #onError(java.util.function.Consumer)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   default Promise<T> rejected(@NotNull Consumer<? super Throwable> rejected) {
     return onError(it -> rejected.consume(it));
   }
 
   /**
-   * Resolve or reject passed promise as soon as this promise resolved or rejected.
+   * Resolve or reject passed promise as soon as this promise is resolved or rejected.
    */
   @NotNull
   Promise<T> processed(@NotNull Promise<? super T> child);
@@ -129,6 +131,7 @@ public interface Promise<T> {
    * @deprecated use {@link #onProcessed(java.util.function.Consumer)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   default Promise<T> processed(@NotNull Consumer<? super T> action) {
     return onProcessed(it -> action.consume(it));

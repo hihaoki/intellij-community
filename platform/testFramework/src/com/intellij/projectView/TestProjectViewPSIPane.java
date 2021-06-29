@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
 import com.intellij.icons.AllIcons;
@@ -16,9 +16,6 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import javax.swing.tree.DefaultTreeModel;
 
-/**
-* @author yole
-*/
 class TestProjectViewPSIPane extends AbstractProjectViewPSIPane {
   private final TestProjectTreeStructure myTestTreeStructure;
   private final int myWeight;
@@ -53,9 +50,7 @@ class TestProjectViewPSIPane extends AbstractProjectViewPSIPane {
   @NotNull
   @Override
   protected AbstractTreeUpdater createTreeUpdater(@NotNull AbstractTreeBuilder treeBuilder) {
-    return new AbstractTreeUpdater(treeBuilder) {
-      // unique class to simplify search through the logs
-    };
+    return new MyAbstractTreeUpdater(treeBuilder);
   }
 
   @Override
@@ -72,8 +67,7 @@ class TestProjectViewPSIPane extends AbstractProjectViewPSIPane {
   @NotNull
   @Override
   protected ProjectViewTree createTree(@NotNull DefaultTreeModel treeModel) {
-    return new ProjectViewTree(treeModel) {
-    };
+    return new MyProjectViewTree(treeModel);
   }
 
   @NotNull
@@ -102,5 +96,18 @@ class TestProjectViewPSIPane extends AbstractProjectViewPSIPane {
   @Override
   public boolean supportsManualOrder() {
     return true;
+  }
+
+  // unique class to simplify search through the logs
+  private static class MyAbstractTreeUpdater extends AbstractTreeUpdater {
+    private MyAbstractTreeUpdater(@NotNull AbstractTreeBuilder treeBuilder) {
+      super(treeBuilder);
+    }
+  }
+
+  private static class MyProjectViewTree extends ProjectViewTree {
+    private MyProjectViewTree(@NotNull DefaultTreeModel treeModel) {
+      super(treeModel);
+    }
   }
 }

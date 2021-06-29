@@ -1,11 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging.ui;
 
-import com.google.common.collect.Lists;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.RunCanceledByUserException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.util.NlsContexts.DetailedDescription;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.scale.JBUIScale;
@@ -15,6 +15,8 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.webcore.packaging.InstalledPackage;
 import com.intellij.webcore.packaging.PackageManagementServiceEx;
 import com.intellij.webcore.packaging.RepoPackage;
+import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PySdkBundle;
 import com.jetbrains.python.packaging.*;
 import com.jetbrains.python.packaging.PyPIPackageUtil.PackageDetails;
 import com.jetbrains.python.packaging.requirement.PyRequirementRelation;
@@ -31,9 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author yole
- */
+
 public class PyPackageManagementService extends PackageManagementServiceEx {
   @NotNull private static final Pattern PATTERN_ERROR_LINE = Pattern.compile(".*error:.*", Pattern.CASE_INSENSITIVE);
   @NonNls private static final String TEXT_PREFIX = buildHtmlStylePrefix();
@@ -124,6 +124,16 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
     return result;
   }
 
+  public Map<String, List<RepoPackage>> getAllPackagesByRepository() {
+    Map<String, List<RepoPackage>> result = new HashMap<>();
+    result.put(PyPIPackageUtil.PYPI_LIST_URL, getCachedPyPIPackages());
+    List<String> repositories = getAdditionalRepositories();
+    for (String repo : repositories) {
+      result.put(repo, PyPIPackageUtil.INSTANCE.getAdditionalPackages(List.of(repo)));
+    }
+    return result;
+  }
+
   @NotNull
   private static List<String> getAdditionalRepositories() {
     return PyPackageService.getInstance().additionalRepositories;
@@ -145,7 +155,7 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
   @NotNull
   @Override
   public String getInstallToUserText() {
-    String userSiteText = "Install to user's site packages directory";
+    String userSiteText = PyBundle.message("button.install.to.user.site.packages.directory");
     if (!PythonSdkUtil.isRemote(mySdk))
       userSiteText += " (" + PythonSdkUtil.getUserSite() + ")";
     return userSiteText;
@@ -161,20 +171,11 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
     PyPackageService.getInstance().addSdkToUserSite(mySdk.getHomePath(), newValue);
   }
 
-  @NotNull
   @Override
-  public Collection<InstalledPackage> getInstalledPackages() throws IOException {
-
-    final PyPackageManager manager = PyPackageManager.getInstance(mySdk);
-    final List<PyPackage> packages;
-    try {
-      packages = Lists.newArrayList(manager.refreshAndGetPackages(true));
-    }
-    catch (ExecutionException e) {
-      throw new IOException(e);
-    }
+  public @NotNull List<? extends InstalledPackage> getInstalledPackagesList() throws ExecutionException {
+    List<PyPackage> packages = new ArrayList<>(PyPackageManager.getInstance(mySdk).refreshAndGetPackages(true));
     packages.sort(Comparator.comparing(InstalledPackage::getName));
-    return new ArrayList<>(packages);
+    return packages;
   }
 
   @Override
@@ -254,7 +255,7 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
 
   @Override
   public void fetchPackageDetails(@NotNull String packageName, @NotNull CatchingConsumer<String, Exception> consumer) {
-    PyPIPackageUtil.INSTANCE.fillPackageDetails(packageName, new CatchingConsumer<PackageDetails.Info, Exception>() {
+    PyPIPackageUtil.INSTANCE.fillPackageDetails(packageName, new CatchingConsumer<>() {
       @Override
       public void consume(PackageDetails.Info details) {
         consumer.consume(formatPackageInfo(details));
@@ -331,22 +332,20 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
   }
 
   @Nullable
-  private static String findErrorSolution(@NotNull PyExecutionException e, @Nullable String cause, @Nullable Sdk sdk) {
+  private static @DetailedDescription String findErrorSolution(@NotNull PyExecutionException e, @Nullable String cause, @Nullable Sdk sdk) {
     if (cause != null) {
       if (StringUtil.containsIgnoreCase(cause, "SyntaxError")) {
         final LanguageLevel languageLevel = PythonSdkType.getLanguageLevelForSdk(sdk);
-        return "Make sure that you use a version of Python supported by this package. Currently you are using Python " +
-               languageLevel + ".";
+        return PySdkBundle.message("python.sdk.use.python.version.supported.by.this.package", languageLevel);
       }
     }
 
     if (SystemInfo.isLinux && (containsInOutput(e, "pyconfig.h") || containsInOutput(e, "Python.h"))) {
-      return "Make sure that you have installed Python development packages for your operating system.";
+      return PySdkBundle.message("python.sdk.check.python.development.packages.installed");
     }
 
     if ("pip".equals(e.getCommand()) && sdk != null) {
-      return "Try to run this command from the system terminal. Make sure that you use the correct version of 'pip' " +
-             "installed for your Python interpreter located at '" + sdk.getHomePath() + "'.";
+      return PySdkBundle.message("python.sdk.try.to.run.command.from.system.terminal", sdk.getHomePath());
     }
 
     return null;
@@ -384,6 +383,7 @@ public class PyPackageManagementService extends PackageManagementServiceEx {
   @Override
   public void fetchLatestVersion(@NotNull InstalledPackage pkg, @NotNull CatchingConsumer<String, Exception> consumer) {
     myExecutorService.execute(() -> {
+      if (myProject.isDisposed()) return;
       try {
         PyPIPackageUtil.INSTANCE.loadPackages();
         final String version = PyPIPackageUtil.INSTANCE.fetchLatestPackageVersion(myProject, pkg.getName());

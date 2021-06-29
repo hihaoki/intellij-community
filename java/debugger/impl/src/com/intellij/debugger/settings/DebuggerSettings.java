@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.settings;
 
 import com.intellij.configurationStore.XmlSerializer;
@@ -6,7 +6,6 @@ import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
@@ -59,6 +58,7 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
     new ClassFilter("javassist.*"),
     new ClassFilter("org.apache.webbeans.*"),
     new ClassFilter("com.ibm.ws.*"),
+    new ClassFilter("org.mockito.*")
   };
 
   public boolean TRACING_FILTERS_ENABLED = true;
@@ -66,7 +66,6 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
   @OptionTag("DEBUGGER_TRANSPORT")
   private int DEBUGGER_TRANSPORT;
 
-  public boolean FORCE_CLASSIC_VM = true;
   public boolean DISABLE_JIT;
   public boolean SHOW_ALTERNATIVE_SOURCE = true;
   public boolean HOTSWAP_IN_BACKGROUND = true;
@@ -112,7 +111,7 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
   }
 
   public static DebuggerSettings getInstance() {
-    return ServiceManager.getService(DebuggerSettings.class);
+    return ApplicationManager.getApplication().getService(DebuggerSettings.class);
   }
 
   public void setSteppingFilters(ClassFilter[] steppingFilters) {
@@ -167,7 +166,6 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
       TRACING_FILTERS_ENABLED == secondSettings.TRACING_FILTERS_ENABLED &&
       DEBUGGER_TRANSPORT == secondSettings.DEBUGGER_TRANSPORT &&
       StringUtil.equals(EVALUATE_FINALLY_ON_POP_FRAME, secondSettings.EVALUATE_FINALLY_ON_POP_FRAME) &&
-      FORCE_CLASSIC_VM == secondSettings.FORCE_CLASSIC_VM &&
       DISABLE_JIT == secondSettings.DISABLE_JIT &&
       SHOW_ALTERNATIVE_SOURCE == secondSettings.SHOW_ALTERNATIVE_SOURCE &&
       KILL_PROCESS_IMMEDIATELY == secondSettings.KILL_PROCESS_IMMEDIATELY &&

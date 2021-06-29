@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class BreakpointManager
@@ -6,15 +6,12 @@
  */
 package com.intellij.debugger.ui.breakpoints;
 
-import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.DebuggerInvocationUtil;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.BreakpointStepMethodFilter;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
-import com.intellij.debugger.impl.DebuggerContextImpl;
-import com.intellij.debugger.impl.DebuggerContextListener;
-import com.intellij.debugger.impl.DebuggerManagerImpl;
-import com.intellij.debugger.impl.DebuggerSession;
+import com.intellij.debugger.impl.*;
 import com.intellij.debugger.ui.JavaDebuggerSupport;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -32,7 +29,6 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiField;
@@ -51,10 +47,10 @@ import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointImpl;
 import com.jetbrains.jdi.EventRequestManagerImpl;
 import com.sun.jdi.InternalException;
 import com.sun.jdi.ThreadReference;
+import com.sun.jdi.VMDisconnectedException;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.InvalidRequestStateException;
-import gnu.trove.THashMap;
 import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
@@ -64,6 +60,7 @@ import org.jetbrains.java.debugger.breakpoints.properties.JavaExceptionBreakpoin
 import org.jetbrains.java.debugger.breakpoints.properties.JavaMethodBreakpointProperties;
 
 import javax.swing.*;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,7 +105,7 @@ public class BreakpointManager {
   private static boolean checkAndNotifyPossiblySlowBreakpoint(XBreakpoint breakpoint) {
     XBreakpointProperties properties = breakpoint.getProperties();
     if (breakpoint.isEnabled() && properties instanceof JavaMethodBreakpointProperties && !((JavaMethodBreakpointProperties)properties).EMULATED) {
-      XDebuggerManagerImpl.NOTIFICATION_GROUP
+      XDebuggerManagerImpl.getNotificationGroup()
         .createNotification(JavaDebuggerBundle.message("method.breakpoints.slowness.warning"), MessageType.WARNING)
         .notify(((XBreakpointBase)breakpoint).getProject());
       return true;
@@ -117,7 +114,7 @@ public class BreakpointManager {
   }
 
   public void addListeners(@NotNull MessageBusConnection busConnection) {
-    busConnection.subscribe(XBreakpointListener.TOPIC, new XBreakpointListener<XBreakpoint<?>>() {
+    busConnection.subscribe(XBreakpointListener.TOPIC, new XBreakpointListener<>() {
       @Override
       public void breakpointAdded(@NotNull XBreakpoint<?> xBreakpoint) {
         Breakpoint breakpoint = getJavaBreakpoint(xBreakpoint);
@@ -304,7 +301,7 @@ public class BreakpointManager {
 
   private void doRead(@NotNull final Element parentNode) {
     ApplicationManager.getApplication().runReadAction(() -> {
-      final Map<String, Breakpoint> nameToBreakpointMap = new THashMap<>();
+      final Map<String, Breakpoint> nameToBreakpointMap = new HashMap<>();
       try {
         final List groups = parentNode.getChildren();
         for (final Object group1 : groups) {
@@ -538,15 +535,23 @@ public class BreakpointManager {
     }
     requestManager.setFilterThread(newFilterThread);
     EventRequestManager eventRequestManager = requestManager.getVMRequestManager();
-    if (Registry.is("debugger.async.jdi") && eventRequestManager instanceof EventRequestManagerImpl) {
+    if (DebuggerUtilsAsync.isAsyncEnabled() && eventRequestManager instanceof EventRequestManagerImpl) {
       Stream<EventRequestManagerImpl.ThreadVisibleEventRequestImpl> requests =
         StreamEx.<EventRequest>of(eventRequestManager.breakpointRequests())
           .append(eventRequestManager.methodEntryRequests())
           .append(eventRequestManager.methodExitRequests())
           .select(EventRequestManagerImpl.ThreadVisibleEventRequestImpl.class);
-      Stream<CompletableFuture> futures = requests
-        .map(r -> newFilterThread != null ? r.addThreadFilterAsync(newFilterThread) : r.removeThreadFilterAsync(oldFilterThread));
-      CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+      try {
+        Stream<CompletableFuture> futures = requests
+          .map(r -> newFilterThread != null ? r.addThreadFilterAsync(newFilterThread) : r.removeThreadFilterAsync(oldFilterThread));
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+      }
+      catch (VMDisconnectedException e) {
+        throw e;
+      }
+      catch (Exception e) {
+        LOG.error(new Exception(e));
+      }
     }
     else if (newFilterThread == null || oldFilterThread != null) {
       final List<Breakpoint> breakpoints = getBreakpoints();

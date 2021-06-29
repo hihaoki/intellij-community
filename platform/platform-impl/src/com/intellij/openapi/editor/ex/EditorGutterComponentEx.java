@@ -1,13 +1,14 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex;
 
 import com.intellij.codeInsight.daemon.GutterMark;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.impl.LineNumberConverterAdapter;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorGutter;
+import com.intellij.openapi.editor.FoldRegion;
+import com.intellij.openapi.editor.TextAnnotationGutterProvider;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
-import gnu.trove.TIntFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,20 +31,18 @@ public abstract class EditorGutterComponentEx extends JComponent implements Edit
    */
   public static final DataKey<Point> ICON_CENTER_POSITION = DataKey.create("EditorGutter.ICON_CENTER_POSITION");
 
-  @Nullable
-  public abstract FoldRegion findFoldingAnchorAt(int x, int y);
+  public abstract @Nullable FoldRegion findFoldingAnchorAt(int x, int y);
 
-  @NotNull
-  public abstract List<GutterMark> getGutterRenderers(int line);
+  public abstract @NotNull List<GutterMark> getGutterRenderers(int line);
 
   public abstract int getWhitespaceSeparatorOffset();
 
   public abstract void revalidateMarkup();
 
   public abstract int getLineMarkerAreaOffset();
-  
+
   public abstract int getIconAreaOffset();
-  
+
   public abstract int getLineMarkerFreePaintersAreaOffset();
 
   public abstract int getIconsAreaWidth();
@@ -52,27 +51,7 @@ public abstract class EditorGutterComponentEx extends JComponent implements Edit
 
   public abstract int getAnnotationsAreaWidth();
 
-  @Nullable
-  public abstract Point getCenterPoint(GutterIconRenderer renderer);
-
-  /**
-   * @deprecated Use {@link #setLineNumberConverter(LineNumberConverter)} instead.
-   * @see LineNumberConverterAdapter
-   */
-  @Deprecated
-  public void setLineNumberConvertor(@Nullable TIntFunction lineNumberConvertor) {
-    setLineNumberConvertor(lineNumberConvertor, null);
-  }
-
-  /**
-   * @deprecated Use {@link #setLineNumberConverter(LineNumberConverter, LineNumberConverter)} instead.
-   * @see LineNumberConverterAdapter
-   */
-  @Deprecated
-  public void setLineNumberConvertor(@Nullable TIntFunction convertor1, @Nullable TIntFunction convertor2) {
-    setLineNumberConverter(convertor1 == null ? LineNumberConverter.DEFAULT : new LineNumberConverterAdapter(convertor1),
-                           convertor2 == null ? null : new LineNumberConverterAdapter(convertor2));
-  }
+  public abstract @Nullable Point getCenterPoint(GutterIconRenderer renderer);
 
   public abstract void setShowDefaultGutterPopup(boolean show);
 
@@ -80,7 +59,9 @@ public abstract class EditorGutterComponentEx extends JComponent implements Edit
   public abstract void setCanCloseAnnotations(boolean canCloseAnnotations);
 
   public abstract void setGutterPopupGroup(@Nullable ActionGroup group);
-  
+
+  public abstract boolean isPaintBackground();
+
   public abstract void setPaintBackground(boolean value);
 
   public abstract void setForceShowLeftFreePaintersArea(boolean value);
@@ -93,8 +74,7 @@ public abstract class EditorGutterComponentEx extends JComponent implements Edit
 
   public abstract void setInitialIconAreaWidth(int width);
 
-  @Nullable
-  public GutterMark getGutterRenderer(final Point p) {
-    return null;
-  }
+  public abstract @Nullable GutterMark getGutterRenderer(Point p);
+
+  public abstract @Nullable Runnable setLoadingIconForCurrentGutterMark();
 }

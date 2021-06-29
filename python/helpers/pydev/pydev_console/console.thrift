@@ -121,6 +121,10 @@ exception PythonUnhandledException {
   1: string traceback,
 }
 
+exception PythonTableException {
+  1: string message,
+}
+
 /**
  * Indicates that the related array has more than two dimensions.
  **/
@@ -183,11 +187,15 @@ service PythonConsoleBackendService {
     throws (1: UnsupportedArrayTypeException unsupported, 2: ExceedingArrayDimensionsException exceedingDimensions,
     3: PythonUnhandledException unhandledException),
 
+  void execDataViewerAction(1: string varName, 2: string action, 3: string myArgs)
+    throws (1: PythonUnhandledException unhandledException),
 
   /**
    * The result is returned asyncronously with `PythonConsoleFrontendService.returnFullValue`.
    */
   void loadFullValue(1: LoadFullValueRequestSeq seq, 2: list<string> variables) throws (1: PythonUnhandledException unhandledException),
+
+  string execTableCommand(1: string command, 2: string commandType) throws (1: PythonUnhandledException unhandledException, 2: PythonTableException tableException)
 }
 
 exception KeyboardInterruptException {

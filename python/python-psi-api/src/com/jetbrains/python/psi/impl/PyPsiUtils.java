@@ -627,18 +627,18 @@ public final class PyPsiUtils {
 
   private static abstract class TopLevelVisitor extends PyRecursiveElementVisitor {
     @Override
-    public void visitPyElement(final PyElement node) {
+    public void visitPyElement(final @NotNull PyElement node) {
       super.visitPyElement(node);
       checkAddElement(node);
     }
 
     @Override
-    public void visitPyClass(final PyClass node) {
+    public void visitPyClass(final @NotNull PyClass node) {
       checkAddElement(node);  // do not recurse into functions
     }
 
     @Override
-    public void visitPyFunction(final PyFunction node) {
+    public void visitPyFunction(final @NotNull PyFunction node) {
       checkAddElement(node);  // do not recurse into classes
     }
 
@@ -661,5 +661,22 @@ public final class PyPsiUtils {
     else {
       return element.getText();
     }
+  }
+
+  @Nullable
+  public static PsiComment findSameLineComment(@NotNull PsiElement elem) {
+    // If `elem` is a compound multi-line element, stick to its first line nonetheless
+    PsiElement next = PsiTreeUtil.getDeepestFirst(elem);
+    do {
+      if (next instanceof PsiComment) {
+        return (PsiComment)next;
+      }
+      if (next != elem && next.textContains('\n')) {
+        break;
+      }
+      next = PsiTreeUtil.nextLeaf(next);
+    }
+    while (next != null);
+    return null;
   }
 }

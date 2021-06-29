@@ -1,28 +1,30 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.config;
 
 import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.GuiUtils;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.util.ModalityUiUtil;
 import git4idea.i18n.GitBundle;
 import org.jetbrains.annotations.CalledInAny;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.nio.file.NoSuchFileException;
 
 import static com.intellij.notification.NotificationsManager.getNotificationsManager;
 import static git4idea.config.GitExecutableProblemHandlersKt.findGitExecutableProblemHandler;
+import static java.util.Objects.requireNonNullElse;
 
-public class GitExecutableProblemsNotifier {
-
+@Service(Service.Level.PROJECT)
+public final class GitExecutableProblemsNotifier {
   public static GitExecutableProblemsNotifier getInstance(@NotNull Project project) {
-    return ServiceManager.getService(project, GitExecutableProblemsNotifier.class);
+    return project.getService(GitExecutableProblemsNotifier.class);
   }
 
   @NotNull private final Project myProject;
@@ -39,7 +41,7 @@ public class GitExecutableProblemsNotifier {
   }
 
   static void notify(@NotNull Project project, @NotNull BadGitExecutableNotification notification) {
-    GuiUtils.invokeLaterIfNeeded(() -> {
+    ModalityUiUtil.invokeLaterIfNeeded(() -> {
       if (ensureSingularOfType(project, notification.getClass())) {
         notification.notify(project);
       }
@@ -83,19 +85,17 @@ public class GitExecutableProblemsNotifier {
 
   static class BadGitExecutableNotification extends Notification {
     BadGitExecutableNotification(@NotNull String groupDisplayId,
-                                        @Nullable Icon icon,
-                                        @Nullable String title,
-                                        @Nullable String subtitle,
-                                        @Nullable String content,
-                                        @NotNull NotificationType type,
-                                        @Nullable NotificationListener listener) {
-      super(groupDisplayId, icon, title, subtitle, content, type, listener);
+                                 @Nullable @NlsContexts.NotificationTitle String title,
+                                 @NotNull @NlsContexts.NotificationContent String content,
+                                 @NotNull NotificationType type) {
+      super(groupDisplayId, requireNonNullElse(title, ""), content, type);
     }
   }
 
   /**
    * Convert validation exception to pretty error message
    */
+  @Nls
   @NotNull
   public static String getPrettyErrorMessage(@NotNull Throwable exception) {
     String errorMessage = null;
@@ -115,7 +115,7 @@ public class GitExecutableProblemsNotifier {
         return exception.getMessage();
       }
       else {
-        return exception.getClass().getName();
+        return VcsBundle.message("exception.text.unknown.error");
       }
     }
     return errorMessage;

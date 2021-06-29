@@ -66,11 +66,15 @@ public class MockWolfTheProblemSolver extends WolfTheProblemSolver {
     return myDelegate == null ? null : myDelegate.convertToProblem(virtualFile, line, column, message);
   }
 
-  void setDelegate(@NotNull WolfTheProblemSolver delegate) {
+  public void setDelegate(@NotNull WolfTheProblemSolver delegate) {
     if (myDelegate != null) {
       throw new IllegalStateException();
     }
     myDelegate = delegate;
+  }
+
+  public void resetDelegate() {
+    myDelegate = null;
   }
 
   @Override

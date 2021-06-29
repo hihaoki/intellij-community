@@ -2,13 +2,20 @@
 package com.intellij.java.codeInsight.daemon.problems
 
 import com.intellij.codeInsight.daemon.problems.pass.ProjectProblemUtils
+import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.testFramework.LightProjectDescriptor
+import com.intellij.testFramework.TestModeFlags
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 
 internal abstract class ProjectProblemsViewTest : LightJavaCodeInsightFixtureTestCase() {
+  override fun setUp() {
+    TestModeFlags.set(ProjectProblemUtils.ourTestingProjectProblems, true, testRootDisposable)
+    super.setUp()
+  }
+
   protected fun doTest(targetClass: PsiClass, testBody: () -> Unit) {
     myFixture.openFileInEditor(targetClass.containingFile.virtualFile)
     myFixture.doHighlighting()
@@ -22,7 +29,8 @@ internal abstract class ProjectProblemsViewTest : LightJavaCodeInsightFixtureTes
     return JAVA_15
   }
 
-  protected fun getProblems() = ProjectProblemUtils.getReportedProblems(myFixture.editor).flatMap { it.value }.map { it.reportedElement }
+  protected fun getProblems(editor: Editor = myFixture.editor) =
+    ProjectProblemUtils.getReportedProblems(editor).flatMap { it.value }.map { it.reportedElement }
 
   protected inline fun <reified T : PsiElement> hasReportedProblems(vararg refClasses: PsiClass): Boolean {
     for (refClass in refClasses) {

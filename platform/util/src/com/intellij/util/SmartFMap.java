@@ -1,8 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.util.Comparing;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -13,6 +12,7 @@ import java.util.function.BiConsumer;
  * An immutable map optimized for storing few entries with relatively rare updates.
  *
  * @author peter
+ * @see com.intellij.util.fmap.FMap
  */
 public final class SmartFMap<K,V> implements Map<K,V> {
   private static final SmartFMap<?, ?> EMPTY = new SmartFMap<>(ArrayUtilRt.EMPTY_OBJECT_ARRAY);
@@ -35,7 +35,7 @@ public final class SmartFMap<K,V> implements Map<K,V> {
   private static Object doPlus(Object oldMap, Object key, Object value) {
     if (oldMap instanceof Map) {
       //noinspection unchecked
-      Map<Object, Object> newMap = new THashMap<>((Map<Object, Object>)oldMap);
+      Map<Object, Object> newMap = new HashMap<>((Map<Object, Object>)oldMap);
       newMap.put(key, value);
       return newMap;
     }
@@ -43,14 +43,13 @@ public final class SmartFMap<K,V> implements Map<K,V> {
     Object[] array = (Object[])oldMap;
     for (int i = 0; i < array.length; i += 2) {
       if (key.equals(array[i])) {
-        Object[] newArray = new Object[array.length];
-        System.arraycopy(array, 0, newArray, 0, array.length);
+        Object[] newArray = array.clone();
         newArray[i + 1] = value;
         return newArray;
       }
     }
     if (array.length == 2 * ARRAY_THRESHOLD) {
-      Map<Object,Object> map = new THashMap<>();
+      Map<Object,Object> map = new HashMap<>();
       for (int i = 0; i < array.length; i += 2) {
         map.put(array[i], array[i + 1]);
       }
@@ -58,8 +57,7 @@ public final class SmartFMap<K,V> implements Map<K,V> {
       return map;
     }
 
-    Object[] newArray = new Object[array.length + 2];
-    System.arraycopy(array, 0, newArray, 0, array.length);
+    Object[] newArray = Arrays.copyOf(array, array.length + 2);
     newArray[array.length] = key;
     newArray[array.length + 1] = value;
     return newArray;
@@ -67,7 +65,7 @@ public final class SmartFMap<K,V> implements Map<K,V> {
 
   public SmartFMap<K, V> minus(@NotNull K key) {
     if (myMap instanceof Map) {
-      Map<K, V> newMap = new THashMap<>(asMap());
+      Map<K, V> newMap = new HashMap<>(asMap());
       newMap.remove(key);
       if (newMap.size() <= ARRAY_THRESHOLD) {
         Object[] newArray = new Object[newMap.size() * 2];

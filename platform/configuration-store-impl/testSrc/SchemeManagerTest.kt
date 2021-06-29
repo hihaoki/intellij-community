@@ -5,6 +5,7 @@ import com.intellij.configurationStore.schemeManager.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.StateStorageOperation
+import com.intellij.openapi.diagnostic.DefaultLogger
 import com.intellij.openapi.options.ExternalizableScheme
 import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.util.Disposer
@@ -31,13 +32,12 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.function.Function
 
-internal const val FILE_SPEC = "REMOTE"
-
 /**
  * Functionality without stream provider covered, ICS has own test suite
  */
 internal class SchemeManagerTest {
   companion object {
+    internal const val FILE_SPEC = "REMOTE"
     @JvmField
     @ClassRule
     val projectRule = ProjectRule()
@@ -50,6 +50,9 @@ internal class SchemeManagerTest {
   @Rule
   @JvmField
   val fsRule = InMemoryFsRule()
+  @Rule
+  @JvmField
+  val disposableRule = DisposableRule()
 
   private var localBaseDir: Path? = null
   private var remoteBaseDir: Path? = null
@@ -275,7 +278,7 @@ internal class SchemeManagerTest {
     doReloadTest(RemoveScheme::class.java)
   }
 
-  private fun doReloadTest(kind: Class<out SchemeChangeEvent>) {
+  private fun doReloadTest(kind: Class<out SchemeChangeEvent<*,*>>) {
     val dir = fsRule.fs.getPath("/test").createDirectories()
     fun writeScheme(index: Int, value: String): TestScheme {
       val name = "s$index"
@@ -293,7 +296,7 @@ internal class SchemeManagerTest {
       return LightVirtualFile(fileName, null, file.readText(), Charsets.UTF_8, Files.getLastModifiedTime(file).toMillis())
     }
 
-    val schemeManager = createSchemeManager(dir)
+    val schemeManager: SchemeManagerImpl<TestScheme, TestScheme> = createSchemeManager(dir)
     schemeManager.loadSchemes()
     assertThat(schemeManager.allSchemes).containsExactly(s1, s2)
 
@@ -301,19 +304,19 @@ internal class SchemeManagerTest {
     s2 = writeScheme(2, "bar")
 
     @Suppress("UNCHECKED_CAST")
-    val schemeChangeApplicator = SchemeChangeApplicator(schemeManager as SchemeManagerImpl<Any, Any>)
+    val schemeChangeApplicator = SchemeChangeApplicator(schemeManager)
     if (kind == UpdateScheme::class.java) {
       schemeChangeApplicator.reload(listOf(UpdateScheme(createVirtualFile(s1)), UpdateScheme(createVirtualFile(s2))))
     }
     else {
       val sF2 = createVirtualFile(s2)
-      val updateEventS1 = UpdateScheme(createVirtualFile(s1))
-      val updateEventS2 = UpdateScheme(sF2)
+      val updateEventS1 = UpdateScheme<TestScheme,TestScheme>(createVirtualFile(s1))
+      val updateEventS2 = UpdateScheme<TestScheme,TestScheme>(sF2)
       val events = listOf(updateEventS1, RemoveScheme(sF2.name), updateEventS2)
 
       assertThat(sortSchemeChangeEvents(events)).containsExactly(updateEventS1, updateEventS2)
 
-      val removeAllSchemes = RemoveAllSchemes()
+      val removeAllSchemes = RemoveAllSchemes<TestScheme,TestScheme>()
       assertThat(sortSchemeChangeEvents(listOf(updateEventS1, RemoveScheme("foo"), updateEventS2, removeAllSchemes))).containsExactly(removeAllSchemes)
       assertThat(sortSchemeChangeEvents(listOf(updateEventS1, RemoveScheme("foo"), removeAllSchemes, updateEventS2))).containsExactly(removeAllSchemes, updateEventS2)
       assertThat(sortSchemeChangeEvents(listOf(removeAllSchemes, updateEventS2, RemoveScheme(sF2.name)))).containsExactly(removeAllSchemes, RemoveScheme(sF2.name))
@@ -422,8 +425,8 @@ internal class SchemeManagerTest {
   @Test fun `save only if scheme differs from bundled`() {
     val dir = tempDirManager.newPath()
     var schemeManager = createSchemeManager(dir)
-    val bundledPath = "/com/intellij/configurationStore/bundledSchemes/default"
-    schemeManager.loadBundledScheme(bundledPath, this)
+    val bundledPath = "/com/intellij/configurationStore/bundledSchemes/default.xml"
+    schemeManager.loadBundledScheme(bundledPath, this, null)
     val customScheme = TestScheme("default")
     assertThat(schemeManager.allSchemes).containsOnly(customScheme)
 
@@ -441,7 +444,7 @@ internal class SchemeManagerTest {
     assertThat(dir.resolve("default.xml")).isRegularFile()
 
     schemeManager = createSchemeManager(dir)
-    schemeManager.loadBundledScheme(bundledPath, this)
+    schemeManager.loadBundledScheme(bundledPath, this, null)
     schemeManager.loadSchemes()
 
     assertThat(schemeManager.allSchemes).containsOnly(customScheme)
@@ -542,7 +545,7 @@ internal class SchemeManagerTest {
     try {
       val schemeManager = SchemeManagerImpl(FILE_SPEC, TestSchemeProcessor(), null, dir, fileChangeSubscriber = { schemeManager ->
         @Suppress("UNCHECKED_CAST")
-        val schemeFileTracker = SchemeFileTracker(schemeManager as SchemeManagerImpl<Any, Any>, projectRule.project)
+        val schemeFileTracker = SchemeFileTracker(schemeManager as SchemeManagerImpl<TestScheme, TestScheme>, projectRule.project)
         ApplicationManager.getApplication().messageBus.connect(busDisposable).subscribe(VirtualFileManager.VFS_CHANGES, schemeFileTracker)
       })
 
@@ -592,6 +595,7 @@ internal class SchemeManagerTest {
   }
 
   @Test fun `path must be system-independent`() {
+    DefaultLogger.disableStderrDumping(disposableRule.disposable);
     assertThatThrownBy { SchemeManagerFactory.getInstance().create("foo\\bar", TestSchemeProcessor())}.hasMessage("Path must be system-independent, use forward slash instead of backslash")
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.daemon;
 
@@ -10,11 +10,9 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.DeprecatedMethodException;
 import com.intellij.util.messages.Topic;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
@@ -28,26 +26,16 @@ public abstract class DaemonCodeAnalyzer {
 
   public abstract void settingsChanged();
 
-  /**
-   * @deprecated Does nothing, unused, keeping alive for outdated plugins sake only. Please use {@code} (nothing) instead.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion="2020.2")
-  public void updateVisibleHighlighters(@NotNull Editor editor) {
-    DeprecatedMethodException.report("Please remove usages of this method deprecated eons ago");
-    // no need, will not work anyway
-  }
-
   public abstract void setUpdateByTimerEnabled(boolean value);
   public abstract void disableUpdateByTimer(@NotNull Disposable parentDisposable);
 
-  public abstract boolean isHighlightingAvailable(@Nullable PsiFile file);
+  public abstract boolean isHighlightingAvailable(@NotNull PsiFile file);
 
   public abstract void setImportHintsEnabled(@NotNull PsiFile file, boolean value);
   public abstract void resetImportHintsEnabledForProject();
   public abstract void setHighlightingEnabled(@NotNull PsiFile file, boolean value);
   public abstract boolean isImportHintsEnabled(@NotNull PsiFile file);
-  public abstract boolean isAutohintsAvailable(@Nullable PsiFile file);
+  public abstract boolean isAutohintsAvailable(@NotNull PsiFile file);
 
   /**
    * Force re-highlighting for all files.
@@ -62,7 +50,7 @@ public abstract class DaemonCodeAnalyzer {
 
   public abstract void autoImportReferenceAtCursor(@NotNull Editor editor, @NotNull PsiFile file);
 
-  public static final Topic<DaemonListener> DAEMON_EVENT_TOPIC = new Topic<>("DAEMON_EVENT_TOPIC", DaemonListener.class, Topic.BroadcastDirection.NONE);
+  public static final Topic<DaemonListener> DAEMON_EVENT_TOPIC = new Topic<>(DaemonListener.class, Topic.BroadcastDirection.NONE, true);
 
   public interface DaemonListener {
     /**
@@ -93,7 +81,7 @@ public abstract class DaemonCodeAnalyzer {
      * Internal class for reporting annotator-related statistics
      */
     @ApiStatus.Internal
-    public class AnnotatorStatistics {
+    class AnnotatorStatistics {
       /** the annotator this statistics is generated for */
       public final Annotator annotator;
       /** timestamp (in {@link System#nanoTime} sense) of the {@link #annotator} creation in {@link com.intellij.codeInsight.daemon.impl.DefaultHighlightVisitor} */
@@ -125,6 +113,7 @@ public abstract class DaemonCodeAnalyzer {
    * @deprecated Use {@link DaemonListener} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract static class DaemonListenerAdapter implements DaemonListener {
   }
 }

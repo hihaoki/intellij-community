@@ -1,9 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.branch
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -19,7 +18,7 @@ import com.intellij.openapi.vcs.VcsException
 import com.intellij.openapi.vcs.VcsNotifier
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.util.ui.JBPoint
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.vcs.log.*
 import com.intellij.vcs.log.data.DataPack
 import com.intellij.vcs.log.data.VcsLogData
@@ -27,9 +26,13 @@ import com.intellij.vcs.log.impl.HashImpl
 import com.intellij.vcs.log.ui.VcsLogUiEx
 import com.intellij.vcs.log.ui.highlighters.MergeCommitsHighlighter
 import com.intellij.vcs.log.ui.highlighters.VcsLogHighlighterFactory
-import com.intellij.vcs.log.util.*
+import com.intellij.vcs.log.util.StopWatch
+import com.intellij.vcs.log.util.VcsLogUtil
+import com.intellij.vcs.log.util.findBranch
+import com.intellij.vcs.log.util.subgraphDifference
 import com.intellij.vcs.log.visible.VisiblePack
 import git4idea.GitBranch
+import git4idea.GitNotificationIdsHolder.Companion.COULD_NOT_COMPARE_WITH_BRANCH
 import git4idea.GitUtil
 import git4idea.commands.Git
 import git4idea.commands.GitCommand
@@ -37,9 +40,10 @@ import git4idea.commands.GitLineHandler
 import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
-import gnu.trove.TIntHashSet
-import org.jetbrains.annotations.CalledInAwt
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import it.unimi.dsi.fastutil.ints.IntSet
 import org.jetbrains.annotations.NonNls
+import java.awt.Point
 
 class DeepComparator(private val project: Project,
                      private val repositoryManager: GitRepositoryManager,
@@ -52,7 +56,7 @@ class DeepComparator(private val project: Project,
   private var progressIndicator: ProgressIndicator? = null
   private var comparedBranch: String? = null
   private var repositoriesWithCurrentBranches: Map<GitRepository, GitBranch>? = null
-  private var nonPickedCommits: TIntHashSet? = null
+  private var nonPickedCommits: IntOpenHashSet? = null
 
   init {
     Disposer.register(parent, this)
@@ -93,7 +97,7 @@ class DeepComparator(private val project: Project,
     }
   }
 
-  @CalledInAwt
+  @RequiresEdt
   fun startTask(dataPack: VcsLogDataPack, branchToCompare: String) {
     ApplicationManager.getApplication().assertIsDispatchThread()
     if (comparedBranch != null) {
@@ -112,14 +116,14 @@ class DeepComparator(private val project: Project,
     startTask(dataPack)
   }
 
-  @CalledInAwt
+  @RequiresEdt
   fun stopTaskAndUnhighlight() {
     ApplicationManager.getApplication().assertIsDispatchThread()
     stopTask()
     unhighlight()
   }
 
-  @CalledInAwt
+  @RequiresEdt
   fun hasHighlightingOrInProgress(): Boolean {
     ApplicationManager.getApplication().assertIsDispatchThread()
     return comparedBranch != null
@@ -161,7 +165,7 @@ class DeepComparator(private val project: Project,
         .setFadeoutTime(5000)
         .createBalloon()
       val component = ui.table
-      balloon.show(RelativePoint(component, JBPoint(component.width / 2, component.visibleRect.y)), Balloon.Position.below)
+      balloon.show(RelativePoint(component, Point(component.width / 2, component.visibleRect.y)), Balloon.Position.below)
       Disposer.register(this, balloon)
     }
   }
@@ -176,7 +180,7 @@ class DeepComparator(private val project: Project,
     Task.Backgroundable(project, GitBundle.message("git.log.cherry.picked.highlighter.process")) {
 
     private val dataPack = (vcsLogDataPack as? VisiblePack)?.dataPack as? DataPack
-    private val collectedNonPickedCommits = TIntHashSet()
+    private val collectedNonPickedCommits = IntOpenHashSet()
     private var exception: VcsException? = null
 
     override fun run(indicator: ProgressIndicator) {
@@ -193,7 +197,7 @@ class DeepComparator(private val project: Project,
           else {
             getCommitsByPatch(repo.root, comparedBranch, currentBranch.name)
           }
-          TroveUtil.addAll(collectedNonPickedCommits, commits)
+          collectedNonPickedCommits.addAll(commits)
         }
       }
       catch (e: VcsException) {
@@ -209,7 +213,8 @@ class DeepComparator(private val project: Project,
     override fun onSuccess() {
       if (exception != null) {
         nonPickedCommits = null
-        VcsNotifier.getInstance(project).notifyError(GitBundle.message("git.log.cherry.picked.highlighter.error.message", comparedBranch),
+        VcsNotifier.getInstance(project).notifyError(COULD_NOT_COMPARE_WITH_BRANCH,
+                                                     GitBundle.message("git.log.cherry.picked.highlighter.error.message", comparedBranch),
                                                      exception!!.message)
         return
       }
@@ -218,13 +223,13 @@ class DeepComparator(private val project: Project,
 
     private fun getCommitsByPatch(root: VirtualFile,
                                   targetBranch: String,
-                                  sourceBranch: String): TIntHashSet {
+                                  sourceBranch: String): IntSet {
       return measureTimeMillis(root, "Getting non picked commits with git") {
         getCommitsFromGit(root, targetBranch, sourceBranch)
       }
     }
 
-    private fun getCommitsByIndexReliable(root: VirtualFile, sourceBranch: String, targetBranch: String): TIntHashSet {
+    private fun getCommitsByIndexReliable(root: VirtualFile, sourceBranch: String, targetBranch: String): IntSet {
       val resultFromGit = getCommitsByPatch(root, targetBranch, sourceBranch)
       if (dataPack == null || !dataPack.isFull) return resultFromGit
 
@@ -237,7 +242,7 @@ class DeepComparator(private val project: Project,
       return resultFromIndex ?: resultFromGit
     }
 
-    private fun getCommitsByIndexFast(root: VirtualFile, sourceBranch: String): TIntHashSet? {
+    private fun getCommitsByIndexFast(root: VirtualFile, sourceBranch: String): IntSet? {
       if (!vcsLogData.index.isIndexed(root) || dataPack == null || !dataPack.isFull) return null
 
       return measureTimeMillis(root, "Getting non picked commits with index fast") {
@@ -251,11 +256,11 @@ class DeepComparator(private val project: Project,
     @Throws(VcsException::class)
     private fun getCommitsFromGit(root: VirtualFile,
                                   currentBranch: String,
-                                  comparedBranch: String): TIntHashSet {
+                                  comparedBranch: String): IntSet {
       val handler = GitLineHandler(project, root, GitCommand.CHERRY)
       handler.addParameters(currentBranch, comparedBranch) // upstream - current branch; head - compared branch
 
-      val pickedCommits = TIntHashSet()
+      val pickedCommits = IntOpenHashSet()
       handler.addLineListener { l, _ ->
         var line = l
         // + 645caac042ff7fb1a5e3f7d348f00e9ceea5c317
@@ -280,20 +285,20 @@ class DeepComparator(private val project: Project,
 
     private fun getCommitsFromIndex(dataPack: DataPack?, root: VirtualFile,
                                     sourceBranchRef: VcsRef, targetBranchRef: VcsRef,
-                                    sourceBranchCommits: TIntHashSet, reliable: Boolean): TIntHashSet? {
+                                    sourceBranchCommits: IntSet, reliable: Boolean): IntSet? {
       if (dataPack == null) return null
-      if (sourceBranchCommits.isEmpty) return sourceBranchCommits
+      if (sourceBranchCommits.isEmpty()) return sourceBranchCommits
       if (!vcsLogData.index.isIndexed(root)) return null
 
       val dataGetter = vcsLogData.index.dataGetter ?: return null
 
       val targetBranchCommits = dataPack.subgraphDifference(targetBranchRef, sourceBranchRef, storage) ?: return null
-      if (targetBranchCommits.isEmpty) return sourceBranchCommits
+      if (targetBranchCommits.isEmpty()) return sourceBranchCommits
 
       val match = dataGetter.match(root, sourceBranchCommits, targetBranchCommits, reliable)
-      TroveUtil.removeAll(sourceBranchCommits, match)
-      if (!match.isEmpty) {
-        LOG.debug("Using index, detected ${match.size()} commits in ${sourceBranchRef.name}#${root.name}" +
+      sourceBranchCommits.removeAll(match)
+      if (!match.isEmpty()) {
+        LOG.debug("Using index, detected ${match.size} commits in ${sourceBranchRef.name}#${root.name}" +
                   " that were picked to the current branch" +
                   (if (reliable) " with different patch id but matching cherry-picked suffix"
                   else " with matching author, author time and message"))
@@ -332,7 +337,7 @@ class DeepComparator(private val project: Project,
 
     @JvmStatic
     fun getInstance(project: Project, dataProvider: VcsLogData, logUi: VcsLogUi): DeepComparator {
-      return ServiceManager.getService(project, DeepComparatorHolder::class.java).getInstance(dataProvider, logUi)
+      return project.getService(DeepComparatorHolder::class.java).getInstance(dataProvider, logUi)
     }
 
     @JvmStatic

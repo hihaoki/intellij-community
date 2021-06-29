@@ -25,9 +25,7 @@ import org.jetbrains.annotations.NotNull;
 import static com.jetbrains.python.PyPsiBundle.message;
 import static com.jetbrains.python.parsing.StatementParsing.TOK_ASYNC;
 
-/**
- * @author yole
- */
+
 public class FunctionParsing extends Parsing {
   private static final IElementType FUNCTION_TYPE = PyElementTypes.FUNCTION_DECLARATION;
 
@@ -103,7 +101,7 @@ public class FunctionParsing extends Parsing {
    * Parses decorator expression after {@code @} according to PEP-614
    */
   public void parseDecoratorExpression() {
-    if (!getExpressionParser().parseSingleExpression(false)) {
+    if (!getExpressionParser().parseNamedTestExpression(false, false)) {
       myBuilder.error(message("PARSE.expected.expression"));
     }
   }
@@ -214,7 +212,7 @@ public class FunctionParsing extends Parsing {
         if (myContext.getLanguageLevel().isPython2()) {
           parameter.rollbackTo();
           parameter = myBuilder.mark();
-          advanceError(myBuilder, "Single star parameter is not supported in Python 2");
+          advanceError(myBuilder, message("PARSE.single.star.parameter.not.supported.py2"));
         }
         parameter.done(PyElementTypes.SINGLE_STAR_PARAMETER);
         return true;

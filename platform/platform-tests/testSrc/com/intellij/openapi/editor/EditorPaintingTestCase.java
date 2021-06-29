@@ -53,11 +53,11 @@ public abstract class EditorPaintingTestCase extends AbstractEditorTest {
 
   @Override
   protected void tearDown() {
-    new RunAll()
-      .append(() -> JBUIScale.setUserScaleFactorForTest(oldUserScaleFactor))
-      .append(() -> FontLayoutService.setInstance(null))
-      .append(() -> super.tearDown())
-      .run();
+    new RunAll(
+      () -> JBUIScale.setUserScaleFactorForTest(oldUserScaleFactor),
+      () -> FontLayoutService.setInstance(null),
+      () -> super.tearDown()
+    ).run();
   }
 
   protected void checkResult() throws IOException {
@@ -72,8 +72,8 @@ public abstract class EditorPaintingTestCase extends AbstractEditorTest {
     BufferedImage originalImage = paintEditor(false, null, null);
     BufferedImage updatedImage = createImageForPainting(originalImage.getWidth(), originalImage.getHeight());
     originalImage.copyData(updatedImage.getRaster());
-    paintEditor(false, updatedImage,
-                new Rectangle(0, getEditor().visualLineToY(visualLine), updatedImage.getWidth(), getEditor().getLineHeight()));
+    int[] yRange = getEditor().visualLineToYRange(visualLine);
+    paintEditor(false, updatedImage, new Rectangle(0, yRange[0], updatedImage.getWidth(), yRange[1] - yRange[0]));
     assertImagesEqual(originalImage, updatedImage, null);
   }
 
@@ -265,6 +265,7 @@ public abstract class EditorPaintingTestCase extends AbstractEditorTest {
 
   private File saveTmpImage(RenderedImage image, String nameSuffix) throws IOException {
     File savedImage = FileUtil.createTempFile(getName() + "-" + nameSuffix, ".png", false);
+    addTmpFileToKeep(savedImage.toPath());
     ImageIO.write(image, "png", savedImage);
     return savedImage;
   }
@@ -315,7 +316,7 @@ public abstract class EditorPaintingTestCase extends AbstractEditorTest {
     }
 
     private void drawChar(char c, int x, int y) {
-      (((getFont().getStyle() & Font.BOLD) == 0) ? myPlainFont : myBoldFont).draw(myDelegate, c, x, y);
+      (getFont().getFontName().contains("Bold") ? myBoldFont : myPlainFont).draw(myDelegate, c, x, y);
     }
   }
 

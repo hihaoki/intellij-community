@@ -15,14 +15,17 @@
  */
 package com.intellij.util;
 
+import org.jetbrains.annotations.ApiStatus;
+
 /**
- * Please use {@link java.util.function.Consumer} instead
+ * Deprecated. Please use {@link java.util.function.Consumer} instead
  */
 public interface Consumer<T> {
   /**
    * @deprecated use {@link com.intellij.util.EmptyConsumer#getInstance()} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   Consumer<Object> EMPTY_CONSUMER = new Consumer<Object>() {
     public void consume(Object t) { }
   };

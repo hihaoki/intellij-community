@@ -101,7 +101,7 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
         // commit one document to avoid OOME
         for (Document document : myUncommittedDocuments) {
           if (document != event.getDocument()) {
-            doCommitWithoutReparse(document);
+            commitDocument(document);
             break;
           }
         }
@@ -120,9 +120,8 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   protected boolean finishCommitInWriteAction(@NotNull Document document,
                                               @NotNull List<? extends BooleanRunnable> finishProcessors,
                                               @NotNull List<? extends BooleanRunnable> reparseInjectedProcessors,
-                                              boolean synchronously,
-                                              boolean forceNoPsiCommit) {
-    boolean success = super.finishCommitInWriteAction(document, finishProcessors, reparseInjectedProcessors, synchronously, forceNoPsiCommit);
+                                              boolean synchronously) {
+    boolean success = super.finishCommitInWriteAction(document, finishProcessors, reparseInjectedProcessors, synchronously);
     PsiFile file = getCachedPsiFile(document);
     if (file != null) {
       InjectedLanguageManagerImpl.clearInvalidInjections(file);
@@ -196,19 +195,6 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   @Override
   protected DocumentWindow freezeWindow(@NotNull DocumentWindow document) {
     return InjectedLanguageManager.getInstance(myProject).freezeWindow(document);
-  }
-
-  @Override
-  public void associatePsi(@NotNull Document document, @Nullable PsiFile file) {
-    if (file != null) {
-      VirtualFile vFile = file.getViewProvider().getVirtualFile();
-      Document cachedDocument = FileDocumentManager.getInstance().getCachedDocument(vFile);
-      if (cachedDocument != null && cachedDocument != document) {
-        throw new IllegalStateException("Can't replace existing document");
-      }
-
-      FileDocumentManagerImpl.registerDocument(document, vFile);
-    }
   }
 
   @Override

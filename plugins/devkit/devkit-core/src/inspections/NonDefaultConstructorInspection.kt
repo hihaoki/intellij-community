@@ -1,12 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.devkit.inspections
 
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.lang.jvm.JvmClassKind
+import com.intellij.openapi.components.ServiceDescriptor
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiClassType
 import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiParameterList
@@ -14,7 +15,9 @@ import com.intellij.psi.util.InheritanceUtil
 import com.intellij.psi.util.PsiUtil
 import com.intellij.psi.xml.XmlTag
 import com.intellij.util.SmartList
-import gnu.trove.THashSet
+import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.NonNls
+import org.jetbrains.idea.devkit.DevKitBundle
 import org.jetbrains.idea.devkit.dom.Extension
 import org.jetbrains.idea.devkit.dom.ExtensionPoint
 import org.jetbrains.idea.devkit.dom.ExtensionPoint.Area
@@ -44,6 +47,7 @@ class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass::class.j
 
     val area: Area?
     val isService: Boolean
+    var serviceClientKind: ServiceDescriptor.ClientKind? = null
     // hack, allow Project-level @Service
     var isServiceAnnotation = false
     var extensionPoint: ExtensionPoint? = null
@@ -65,13 +69,19 @@ class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass::class.j
 
       area = getArea(extensionPoint)
       isService = extensionPoint?.beanClass?.stringValue == serviceBeanFqn
+      serviceClientKind = when (extensionPoint?.xmlTag?.getAttribute("client")?.value) {
+        "ALL" -> ServiceDescriptor.ClientKind.ALL
+        "GUEST" -> ServiceDescriptor.ClientKind.GUEST
+        "LOCAL" -> ServiceDescriptor.ClientKind.LOCAL
+        else -> null
+      }
     }
 
     val isAppLevelExtensionPoint = area == null || area == Area.IDEA_APPLICATION
 
     var errors: MutableList<ProblemDescriptor>? = null
     loop@ for (method in constructors) {
-      if (isAllowedParameters(method.parameterList, extensionPoint, isAppLevelExtensionPoint, isServiceAnnotation)) {
+      if (isAllowedParameters(method.parameterList, extensionPoint, isAppLevelExtensionPoint, serviceClientKind, isServiceAnnotation)) {
         // allow to have empty constructor and extra (e.g. DartQuickAssistIntention)
         return null
       }
@@ -87,20 +97,25 @@ class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass::class.j
       }
 
 
-      val kind = if (isService) "Service" else "Extension"
-      val suffix = if (area == null) {
-        " (except Project or Module if requested on corresponding level)"
-      }
-      else {
-        if (isAppLevelExtensionPoint) "" else " (except ${if (area == Area.IDEA_PROJECT) "Project" else "Module"})"
-      }
+      @NlsSafe val kind = if (isService) DevKitBundle.message("inspections.non.default.warning.type.service") else DevKitBundle.message("inspections.non.default.warning.type.extension")
+      @Nls val suffix =
+        if (area == null) DevKitBundle.message("inspections.non.default.warning.suffix.project.or.module")
+        else {
+          when {
+            isAppLevelExtensionPoint -> ""
+            area == Area.IDEA_PROJECT -> DevKitBundle.message("inspections.non.default.warning.suffix.project")
+            else -> DevKitBundle.message("inspections.non.default.warning.suffix.module")
+          }
+        }
       errors.add(manager.createProblemDescriptor(anchorElement,
-                                                 "$kind should not have constructor with parameters${suffix}.\nDo not instantiate services in constructor because they should be requested only when needed.", true,
+                                                 DevKitBundle.message("inspections.non.default.warning.and.suffix.message", kind, suffix),
+                                                 true,
                                                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING, isOnTheFly))
     }
     return errors?.toTypedArray()
   }
 
+  @Suppress("HardCodedStringLiteral")
   private fun getArea(extensionPoint: ExtensionPoint?): Area {
     val areaName = (extensionPoint ?: return Area.IDEA_APPLICATION).area.stringValue
     when (areaName) {
@@ -135,6 +150,10 @@ private fun findExtensionPointByImplementationClass(searchString: String, qualif
   val strictMatch = searchString === qualifiedName
   processExtensionDeclarations(searchString, project, strictMatch = strictMatch) { extension, tag ->
     val point = extension.extensionPoint ?: return@processExtensionDeclarations true
+    if (point.name.value == "psi.symbolReferenceProvider") {
+      return@processExtensionDeclarations true
+    }
+
     when (point.beanClass.stringValue) {
       null -> {
         if (tag.attributes.any { it.name == Extension.IMPLEMENTATION_ATTRIBUTE && it.value == qualifiedName }) {
@@ -150,7 +169,9 @@ private fun findExtensionPointByImplementationClass(searchString: String, qualif
       }
       else -> {
         // bean EP
-        if (tag.name == "className" || tag.subTags.any { it.name == "className" && (strictMatch || it.textMatches(qualifiedName)) } || checkAttributes(tag, qualifiedName)) {
+        if (tag.name == "className" || tag.subTags.any {
+            it.name == "className" && (strictMatch || it.textMatches(qualifiedName))
+          } || checkAttributes(tag, qualifiedName)) {
           result = point
           return@processExtensionDeclarations false
         }
@@ -162,7 +183,11 @@ private fun findExtensionPointByImplementationClass(searchString: String, qualif
 }
 
 // todo can we use attribute `with`?
-private val ignoredTagNames = THashSet(listOf("semContributor", "modelFacade", "scriptGenerator", "editorActionHandler", "editorTypedHandler", "dataImporter", "java.error.fix", "explainPlanProvider"))
+@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+@NonNls
+private val ignoredTagNames = java.util.Set.of("semContributor", "modelFacade", "scriptGenerator",
+                                               "editorActionHandler", "editorTypedHandler",
+                                               "dataImporter", "java.error.fix", "explainPlanProvider", "typeIcon")
 
 // problem - tag
 //<lang.elementManipulator forClass="com.intellij.psi.css.impl.CssTokenImpl"
@@ -180,6 +205,29 @@ private fun checkAttributes(tag: XmlTag, qualifiedName: String): Boolean {
   }
 }
 
+@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+@NonNls
+private val allowedClientSessionsQualifiedNames = setOf(
+  "com.intellij.openapi.client.ClientSession",
+  "com.jetbrains.rdserver.core.GuestSession",
+)
+
+@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+@NonNls
+private val allowedClientAppSessionsQualifiedNames = setOf(
+  "com.intellij.openapi.client.ClientAppSession",
+  "com.jetbrains.rdserver.core.GuestAppSession",
+) + allowedClientSessionsQualifiedNames
+
+@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+@NonNls
+private val allowedClientProjectSessionsQualifiedNames = setOf(
+  "com.intellij.openapi.client.ClientProjectSession",
+  "com.jetbrains.rdserver.core.GuestProjectSession",
+) + allowedClientSessionsQualifiedNames
+
+@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+@NonNls
 private val allowedServiceQualifiedNames = setOf(
   "com.intellij.openapi.project.Project",
   "com.intellij.openapi.module.Module",
@@ -187,12 +235,15 @@ private val allowedServiceQualifiedNames = setOf(
   "com.intellij.openapi.options.SchemeManagerFactory",
   "com.intellij.openapi.editor.actionSystem.TypedActionHandler",
   "com.intellij.database.Dbms"
-)
-private val allowedServiceNames = allowedServiceQualifiedNames.map { StringUtil.getShortName(it) }
+) + allowedClientAppSessionsQualifiedNames + allowedClientProjectSessionsQualifiedNames
 
+private val allowedServiceNames = allowedServiceQualifiedNames.mapTo(HashSet(allowedServiceQualifiedNames.size)) { it.substringAfterLast('.') }
+
+@Suppress("HardCodedStringLiteral")
 private fun isAllowedParameters(list: PsiParameterList,
                                 extensionPoint: ExtensionPoint?,
                                 isAppLevelExtensionPoint: Boolean,
+                                clientKind: ServiceDescriptor.ClientKind?,
                                 isServiceAnnotation: Boolean): Boolean {
   if (list.isEmpty) {
     return true
@@ -221,6 +272,15 @@ private fun isAllowedParameters(list: PsiParameterList,
       return false
     }
 
+    if (clientKind != ServiceDescriptor.ClientKind.GUEST &&
+        qualifiedName?.startsWith("com.jetbrains.rdserver.core") == true) {
+      return false
+    }
+
+    if (clientKind == null && allowedClientProjectSessionsQualifiedNames.contains(qualifiedName)) {
+      return false
+    }
+
     if (isAppLevelExtensionPoint && !isServiceAnnotation && name == "Project") {
       return false
     }
@@ -229,12 +289,12 @@ private fun isAllowedParameters(list: PsiParameterList,
   return true
 }
 
-private val interfacesToCheck = THashSet(listOf(
+private val interfacesToCheck = HashSet(listOf(
   "com.intellij.codeInsight.daemon.LineMarkerProvider",
   "com.intellij.openapi.fileTypes.SyntaxHighlighterFactory"
 ))
 
-private val classesToCheck = THashSet(listOf(
+private val classesToCheck = HashSet(listOf(
   "com.intellij.codeInsight.completion.CompletionContributor",
   "com.intellij.codeInsight.completion.CompletionConfidence",
   "com.intellij.psi.PsiReferenceContributor"

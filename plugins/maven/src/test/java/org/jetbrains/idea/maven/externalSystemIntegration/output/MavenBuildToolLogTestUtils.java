@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.externalSystemIntegration.output;
 
 import com.intellij.build.DefaultBuildDescriptor;
@@ -11,18 +11,19 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.testFramework.LightIdeaTestCase;
 import com.intellij.testFramework.LoggedErrorProcessor;
-import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ResourceUtil;
 import com.intellij.util.containers.ContainerUtil;
-import org.apache.log4j.Logger;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 import org.hamcrest.SelfDescribing;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.execution.MavenRunConfiguration;
+import org.jetbrains.idea.maven.execution.MavenRunConfigurationType;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import java.io.File;
@@ -37,7 +38,7 @@ import static com.intellij.build.events.MessageEvent.Kind.WARNING;
 import static com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.EXECUTE_TASK;
 import static org.hamcrest.MatcherAssert.assertThat;
 
-public abstract class MavenBuildToolLogTestUtils extends UsefulTestCase {
+public abstract class MavenBuildToolLogTestUtils extends LightIdeaTestCase {
   protected ExternalSystemTaskId myTaskId;
 
   public interface ThrowingRunnable {
@@ -50,9 +51,9 @@ public abstract class MavenBuildToolLogTestUtils extends UsefulTestCase {
     try {
       LoggedErrorProcessor.setNewInstance(new LoggedErrorProcessor() {
         @Override
-        public void processWarn(String message, Throwable t, @NotNull Logger logger) {
-          super.processWarn(message, t, logger);
+        public boolean processWarn(@NotNull String category, String message, Throwable t) {
           fail(message + t);
+          return false;
         }
       });
       runnable.run();
@@ -69,7 +70,7 @@ public abstract class MavenBuildToolLogTestUtils extends UsefulTestCase {
   }
 
   protected static String @NotNull [] fromFile(String resource) throws IOException {
-    try (InputStream stream = ResourceUtil.getResourceAsStream(MavenBuildToolLogTestUtils.class, "", resource);
+    try (InputStream stream = ResourceUtil.getResourceAsStream(MavenBuildToolLogTestUtils.class.getClassLoader(), "", resource);
          Scanner scanner = new Scanner(stream)) {
       List<String> result = new ArrayList<>();
       while (scanner.hasNextLine()) {
@@ -205,10 +206,11 @@ public abstract class MavenBuildToolLogTestUtils extends UsefulTestCase {
     }
 
     private List<BuildEvent> collect() {
+      MavenRunConfiguration configuration =
+        (MavenRunConfiguration)new MavenRunConfigurationType.MavenRunConfigurationFactory(MavenRunConfigurationType.getInstance())
+          .createTemplateConfiguration(getProject());
       CollectConsumer collectConsumer = new CollectConsumer();
-      MavenLogOutputParser parser =
-        new MavenLogOutputParser(myTaskId, myParsers);
-
+      MavenLogOutputParser parser = new MavenLogOutputParser(configuration, myTaskId, myParsers);
 
       collectConsumer.accept(new StartBuildEventImpl(
         new DefaultBuildDescriptor(myTaskId, "Maven Run", System.getProperty("user.dir"), System.currentTimeMillis()), "Maven Run"));

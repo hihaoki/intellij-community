@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.codeInsight.completion.*;
@@ -27,15 +13,13 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 
-/**
- * @author yole
- */
+
 public class PyConstructorArgumentCompletionContributor extends CompletionContributor {
   public PyConstructorArgumentCompletionContributor() {
     extend(CompletionType.BASIC,
            psiElement()
              .withParents(PyReferenceExpression.class, PyArgumentList.class, PyCallExpression.class),
-           new CompletionProvider<CompletionParameters>() {
+           new CompletionProvider<>() {
              @Override
              protected void addCompletions(@NotNull CompletionParameters parameters,
                                            @NotNull ProcessingContext context,
@@ -48,7 +32,7 @@ public class PyConstructorArgumentCompletionContributor extends CompletionContri
                  if (callee instanceof PsiClass) {
                    addSettersAndListeners(result, (PsiClass)callee, parameters.getOriginalFile());
                  }
-                 else if (callee instanceof PsiMethod && ((PsiMethod) callee).isConstructor()) {
+                 else if (callee instanceof PsiMethod && ((PsiMethod)callee).isConstructor()) {
                    final PsiClass containingClass = ((PsiMethod)callee).getContainingClass();
                    assert containingClass != null;
                    addSettersAndListeners(result, containingClass, parameters.getOriginalFile());

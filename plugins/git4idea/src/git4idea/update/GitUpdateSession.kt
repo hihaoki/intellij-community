@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.update
 
 import com.intellij.dvcs.DvcsUtil.getShortNames
@@ -7,6 +7,7 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.vcs.VcsException
 import com.intellij.openapi.vcs.VcsNotifier
 import com.intellij.openapi.vcs.update.UpdateSession
@@ -92,13 +93,15 @@ class GitUpdateSession(private val project: Project,
       content += additionalContent
     }
 
-    return VcsNotifier.STANDARD_NOTIFICATION.createNotification(title, content, type, null)
+    return VcsNotifier.STANDARD_NOTIFICATION.createNotification(title, content, type)
   }
 }
 
+@NlsContexts.NotificationTitle
 fun getTitleForUpdateNotification(updatedFilesNumber: Int, updatedCommitsNumber: Int): String =
   GitBundle.message("git.update.files.updated.in.commits", updatedFilesNumber, updatedCommitsNumber)
 
+@NlsContexts.NotificationContent
 fun getBodyForUpdateNotification(filteredCommitsNumber: Int?): String {
   return when (filteredCommitsNumber) {
     null -> ""

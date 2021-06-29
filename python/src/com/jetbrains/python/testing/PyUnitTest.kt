@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 
 package com.jetbrains.python.testing
@@ -23,6 +9,7 @@ import com.intellij.execution.configurations.RuntimeConfigurationWarning
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PyNames
@@ -36,12 +23,7 @@ import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
 class PyUnitTestSettingsEditor(configuration: PyAbstractTestConfiguration) :
   PyAbstractTestSettingsEditor(
     PyTestSharedForm.create(configuration,
-                            PyTestSharedForm.CustomOption(
-                              PyUnitTestConfiguration::pattern.name,
-                              PyBundle.message("python.testing.nose.custom.options.additional.arguments"),
-                              PyRunTargetVariant.PATH
-                            )
-    ))
+                            PyTestCustomOption(PyUnitTestConfiguration::pattern, PyRunTargetVariant.PATH)))
 
 class PyUnitTestExecutionEnvironment(configuration: PyUnitTestConfiguration, environment: ExecutionEnvironment) :
   PyTestExecutionEnvironment<PyUnitTestConfiguration>(configuration, environment) {
@@ -59,9 +41,8 @@ class PyUnitTestExecutionEnvironment(configuration: PyUnitTestConfiguration, env
 
 
 class PyUnitTestConfiguration(project: Project, factory: PyUnitTestFactory) :
-  PyAbstractTestConfiguration(project, factory,
-                              PythonTestConfigurationsModel.getPythonsUnittestName()) { // Bare functions not supported in unittest: classes only
-  @ConfigField
+  PyAbstractTestConfiguration(project, factory) { // Bare functions not supported in unittest: classes only
+  @ConfigField("runcfg.unittest.config.pattern")
   var pattern: String? = null
 
   override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? =
@@ -108,9 +89,15 @@ class PyUnitTestConfiguration(project: Project, factory: PyUnitTestFactory) :
 }
 
 class PyUnitTestFactory : PyAbstractTestFactory<PyUnitTestConfiguration>() {
+  companion object {
+    const val id: String = "Unittests"
+  }
+
   override fun createTemplateConfiguration(project: Project): PyUnitTestConfiguration = PyUnitTestConfiguration(project, this)
 
-  override fun getName(): String = PythonTestConfigurationsModel.getPythonsUnittestName()
+  override fun getName(): String = PyBundle.message("runcfg.unittest.display_name")
 
-  override fun getId(): String = "Unittests"
+  override fun getId(): String = PyUnitTestFactory.id
+
+  override fun onlyClassesAreSupported(sdk: Sdk): Boolean = true
 }

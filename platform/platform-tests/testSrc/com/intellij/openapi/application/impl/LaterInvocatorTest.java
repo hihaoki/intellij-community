@@ -4,6 +4,7 @@ package com.intellij.openapi.application.impl;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.DefaultLogger;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -20,6 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -192,10 +194,10 @@ public class LaterInvocatorTest extends HeavyPlatformTestCase {
           public String toString() {
             return "ass2";
           }
-        }, ModalityState.NON_MODAL, true);
-        LaterInvocator.invokeLater(ENTER_MODAL, ModalityState.NON_MODAL, true);
+        }, ModalityState.NON_MODAL);
+        LaterInvocator.invokeLater(ENTER_MODAL, ModalityState.NON_MODAL);
 
-        LaterInvocator.invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL, true);
+        LaterInvocator.invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL);
 
         //some weird things like MyFireIdleRequest may still sneak in
         //java.util.List<Object> dump = LaterInvocator.dumpQueue();
@@ -443,7 +445,7 @@ public class LaterInvocatorTest extends HeavyPlatformTestCase {
       LaterInvocator.enterModal(myWindow2);
       ModalityState window2State = ModalityState.current();
       LaterInvocator.leaveModal(myWindow2);
-      LaterInvocator.invokeLater(new MyRunnable("1"), window2State, true);
+      LaterInvocator.invokeLater(new MyRunnable("1"), window2State);
 
       LaterInvocator.enterModal(myWindow1);
       flushSwingQueue();
@@ -453,7 +455,7 @@ public class LaterInvocatorTest extends HeavyPlatformTestCase {
       flushSwingQueue();
       checkOrder(1);
 
-      LaterInvocator.invokeLater(new MyRunnable("2"), window2State, true);
+      LaterInvocator.invokeLater(new MyRunnable("2"), window2State);
       flushSwingQueue();
       checkOrder(2);
     });
@@ -518,7 +520,7 @@ public class LaterInvocatorTest extends HeavyPlatformTestCase {
   }
 
   public void testModalityStateCurrentAllowedOnlyFromEDT() throws Exception {
-    LoggedErrorProcessor.getInstance().disableStderrDumping(getTestRootDisposable());
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
     Future<ModalityState> future = ApplicationManager.getApplication().executeOnPooledThread(() -> ModalityState.current());
     try {
       future.get(1000, TimeUnit.MILLISECONDS);
@@ -562,8 +564,8 @@ public class LaterInvocatorTest extends HeavyPlatformTestCase {
   public void testDifferentStatesAreNotEqualAfterGc() {
     String s1 = new String("foo");
     String s2 = new String("bar");
-    ModalityStateEx state1 = new ModalityStateEx("common", s1);
-    ModalityStateEx state2 = new ModalityStateEx("common", s2);
+    ModalityStateEx state1 = new ModalityStateEx(Arrays.asList("common", s1));
+    ModalityStateEx state2 = new ModalityStateEx(Arrays.asList("common", s2));
     assertNotEquals(state1, state2);
 
     GCWatcher watcher = GCWatcher.tracking(s1, s2);

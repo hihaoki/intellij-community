@@ -1,12 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.compiler;
 
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.dupLocator.util.NodeFilter;
+import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -28,17 +29,15 @@ import com.intellij.structuralsearch.impl.matcher.predicates.*;
 import com.intellij.structuralsearch.plugin.ui.Configuration;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
-import gnu.trove.THashSet;
-import gnu.trove.TIntArrayList;
-import gnu.trove.TIntHashSet;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,10 +45,11 @@ import java.util.regex.Pattern;
  * Compiles the handlers for usability
  */
 public final class PatternCompiler {
-
-  private static final Logger LOG = Logger.getInstance(PatternCompiler.class);
   private static String ourLastSearchPlan;
 
+  /**
+   * @return the compiled pattern, or null when there is no structural search profile found for the file type in the match options.
+   */
   public static CompiledPattern compilePattern(Project project, MatchOptions options, boolean checkForErrors, boolean optimizeScope)
     throws MalformedPatternException, NoMatchFoundException {
     return ReadAction.compute(() -> doCompilePattern(project, options, checkForErrors, optimizeScope));
@@ -62,7 +62,6 @@ public final class PatternCompiler {
 
     final StructuralSearchProfile profile = StructuralSearchUtil.getProfileByFileType(options.getFileType());
     if (profile == null) {
-      LOG.warn("no profile found for " + options.getFileType().getDescription());
       return null;
     }
     final CompiledPattern result = profile.createCompiledPattern();
@@ -74,6 +73,9 @@ public final class PatternCompiler {
 
     try {
       final List<PsiElement> elements = compileByAllPrefixes(project, options, result, context, prefixes, checkForErrors);
+      if (elements.isEmpty()) {
+        return null;
+      }
       final CompiledPattern pattern = context.getPattern();
       collectVariableNodes(pattern, elements, checkForErrors);
       pattern.setNodes(elements);
@@ -285,8 +287,7 @@ public final class PatternCompiler {
           if (result == Boolean.FALSE) {
             return finalElements;
           }
-          alternativeVariant = new String[prefixSequence.length];
-          System.arraycopy(prefixSequence, 0, alternativeVariant, 0, prefixSequence.length);
+          alternativeVariant = prefixSequence.clone();
         }
       }
     }
@@ -297,7 +298,7 @@ public final class PatternCompiler {
   }
 
   private static int @NotNull [] findAllTypedVarOffsets(final PsiFile file, final Pattern[] substitutionPatterns) {
-    final TIntHashSet result = new TIntHashSet();
+    final IntSet result = new IntOpenHashSet();
 
     file.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
@@ -318,7 +319,7 @@ public final class PatternCompiler {
       }
     });
 
-    final int[] resultArray = result.toArray();
+    final int[] resultArray = result.toIntArray();
     Arrays.sort(resultArray);
     return resultArray;
   }
@@ -335,9 +336,9 @@ public final class PatternCompiler {
                                             final int patternEndOffset,
                                             final int[] varEndOffsets,
                                             final boolean strict) {
-    final TIntArrayList errorOffsets = new TIntArrayList();
+    final IntList errorOffsets = new IntArrayList();
     final boolean[] containsErrorTail = {false};
-    final TIntHashSet varEndOffsetsSet = new TIntHashSet(varEndOffsets);
+    final IntSet varEndOffsetsSet = new IntOpenHashSet(varEndOffsets);
 
     element.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
@@ -357,7 +358,7 @@ public final class PatternCompiler {
     });
 
     for (int i = 0; i < errorOffsets.size(); i++) {
-      final int errorOffset = errorOffsets.get(i);
+      final int errorOffset = errorOffsets.getInt(i);
       if (errorOffset <= offset) {
         return true;
       }
@@ -413,8 +414,10 @@ public final class PatternCompiler {
     final int segmentsCount = template.getSegmentsCount();
     final String text = template.getTemplateText();
     int prevOffset = 0;
-    final Set<String> variableNames = new THashSet<>();
+    final Set<String> variableNames = new HashSet<>();
 
+    final LanguageFileType fileType = options.getFileType();
+    assert fileType != null;
     for(int i = 0; i < segmentsCount; i++) {
       final int offset = template.getSegmentOffset(i);
       final String name = template.getSegmentName(i);
@@ -476,7 +479,7 @@ public final class PatternCompiler {
           }
 
           if (!StringUtil.isEmptyOrSpaces(constraint.getReferenceConstraint())) {
-            MatchPredicate predicate = new ReferencePredicate(constraint.getReferenceConstraint(), options.getFileType(), project);
+            MatchPredicate predicate = new ReferencePredicate(constraint.getReferenceConstraint(), fileType, project);
             if (constraint.isInvertReference()) {
               predicate = new NotPredicate(predicate);
             }
@@ -517,7 +520,7 @@ public final class PatternCompiler {
 
       try {
         if (!StringUtil.isEmptyOrSpaces(constraint.getWithinConstraint())) {
-          MatchPredicate predicate = new WithinPredicate(constraint.getWithinConstraint(), options.getFileType(), project);
+          MatchPredicate predicate = new WithinPredicate(constraint.getWithinConstraint(), fileType, project);
           if (constraint.isInvertWithinConstraint()) {
             predicate = new NotPredicate(predicate);
           }
@@ -539,8 +542,9 @@ public final class PatternCompiler {
       final PatternContextInfo contextInfo = new PatternContextInfo(PatternTreeContext.Block,
                                                                     options.getPatternContext(),
                                                                     constraint != null ? constraint.getContextConstraint() : null);
-      patternElements = MatcherImplUtil.createTreeFromText(buf.toString(), contextInfo, options.getFileType(),
-                                                           options.getDialect(), project, false);
+      final Language dialect = options.getDialect();
+      assert dialect != null;
+      patternElements = MatcherImplUtil.createTreeFromText(buf.toString(), contextInfo, fileType, dialect, project, false);
       if (patternElements.length == 0 && checkForErrors) throw new MalformedPatternException();
     }
     catch (IncorrectOperationException e) {
@@ -585,7 +589,7 @@ public final class PatternCompiler {
       final String problem = ScriptSupport.checkValidScript(script, matchOptions);
       if (problem != null) {
         if (checkForErrors) {
-          throw new MalformedPatternException("Script constraint for " + constraint.getName() + " has problem " + problem);
+          throw new MalformedPatternException(SSRBundle.message("error.script.constraint.for.0.has.problem.1", constraint.getName(), problem));
         }
         else {
           return;

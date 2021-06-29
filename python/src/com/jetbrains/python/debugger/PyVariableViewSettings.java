@@ -31,20 +31,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class PyVariableViewSettings {
-  public static final String LOADING_TIMED_OUT = PyBundle.message("debugger.variables.view.loading.timed.out");
-  public static final String ON_DEMAND_LINK_TEXT = PyBundle.message("debugger.variables.view.switch.to.loading.on.demand");
-  public static final String WARNING_MESSAGE = PyBundle.message("debugger.variables.view.warning.message");
-
   public static class SimplifiedView extends ToggleAction {
     private final PyDebugProcess myProcess;
-    private final String myText;
     private volatile boolean mySimplifiedView;
 
     public SimplifiedView(@Nullable PyDebugProcess debugProcess) {
-      super("", PyBundle.message("debugger.simplified.view.description"), null);
+      super(PyBundle.message("debugger.simplified.view.text"), PyBundle.message("debugger.simplified.view.description"), null);
       mySimplifiedView = PyDebuggerSettings.getInstance().isSimplifiedView();
       myProcess = debugProcess;
-      myText = PyBundle.message("debugger.simplified.view.text");
     }
 
     @Override
@@ -52,7 +46,6 @@ public class PyVariableViewSettings {
       super.update(e);
       final Presentation presentation = e.getPresentation();
       presentation.setEnabled(true);
-      presentation.setText(myText);
     }
 
     @Override
@@ -76,8 +69,10 @@ public class PyVariableViewSettings {
     if (debuggerSettings.getValuesPolicy() == PyDebugValue.ValuesPolicy.ON_DEMAND) return;
 
     node.setMessage(
-      WARNING_MESSAGE, AllIcons.General.BalloonWarning, SimpleTextAttributes.REGULAR_ATTRIBUTES,
-      new XDebuggerTreeNodeHyperlink(ON_DEMAND_LINK_TEXT) {
+      PyBundle.message("debugger.variables.view.warning.message"),
+      AllIcons.General.BalloonWarning,
+      SimpleTextAttributes.REGULAR_ATTRIBUTES,
+      new XDebuggerTreeNodeHyperlink(PyBundle.message("debugger.variables.view.switch.to.loading.on.demand")) {
         private boolean linkClicked = false;
 
         @Override
@@ -93,7 +88,7 @@ public class PyVariableViewSettings {
             return "";
           }
           else {
-            return ON_DEMAND_LINK_TEXT;
+            return PyBundle.message("debugger.variables.view.switch.to.loading.on.demand");
           }
         }
       });
@@ -143,7 +138,6 @@ public class PyVariableViewSettings {
   }
 
   public static class PolicyAction extends ToggleAction {
-    @NotNull private final String myText;
     @NotNull private final PyDebugValue.ValuesPolicy myPolicy;
     @NotNull private final VariablesPolicyGroup myActionGroup;
     private volatile boolean isEnabled;
@@ -152,8 +146,7 @@ public class PyVariableViewSettings {
                         @NotNull @Nls String description,
                         @NotNull PyDebugValue.ValuesPolicy policy,
                         @NotNull VariablesPolicyGroup actionGroup) {
-      super("", description, null);
-      myText = text;
+      super(text, description, null);
       myPolicy = policy;
       myActionGroup = actionGroup;
       isEnabled = PyDebuggerSettings.getInstance().getValuesPolicy() == policy;
@@ -165,7 +158,6 @@ public class PyVariableViewSettings {
       myActionGroup.updatePolicyActions();
       final Presentation presentation = e.getPresentation();
       presentation.setEnabled(true);
-      presentation.setText(myText);
     }
 
     @NotNull

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.services;
 
 import com.intellij.execution.ExecutionBundle;
@@ -24,10 +24,11 @@ import com.intellij.ui.tree.AsyncTreeModel;
 import com.intellij.ui.tree.RestoreSelectionListener;
 import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.containers.JBTreeTraverser;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.tree.TreeUtil;
 import gnu.trove.THashSet;
@@ -93,7 +94,7 @@ class ServiceTreeView extends ServiceView {
           }
         }));
     myNavBarPanel = new ServiceViewNavBarPanel(getProject(), true, getModel(), selector);
-    myNavBarPanel.getModel().updateModel(null);
+    myNavBarPanel.getModel().updateModel((Object)null);
     myUi.setNavBar(myNavBarPanel);
 
     if (model instanceof ServiceViewModel.AllServicesModel) {
@@ -141,7 +142,7 @@ class ServiceTreeView extends ServiceView {
     for (int i = 0; i < rows.length; i++) {
       objectRows.add(Pair.create(objects.get(i), rows[i]));
     }
-    objectRows.sort(Comparator.comparing(pair -> pair.second));
+    objectRows.sort(Pair.comparingBySecond());
     return ContainerUtil.mapNotNull(objectRows, pair -> ObjectUtils.tryCast(pair.first, ServiceViewItem.class));
   }
 
@@ -177,6 +178,22 @@ class ServiceTreeView extends ServiceView {
           .onSuccess(expandedPath -> {
             result.setResult(null);
           });
+      });
+    return result;
+  }
+
+  @Override
+  Promise<Void> extract(@NotNull Object service, @NotNull Class<?> contributorClass) {
+    AsyncPromise<Void> result = new AsyncPromise<>();
+    myTreeModel.findPath(service, contributorClass)
+      .onError(result::setError)
+      .onSuccess(path -> {
+        ServiceViewItem item = (ServiceViewItem)path.getLastPathComponent();
+        AppUIExecutor.onUiThread().expireWith(getProject()).submit(() -> {
+          ServiceViewManagerImpl manager = (ServiceViewManagerImpl)ServiceViewManager.getInstance(getProject());
+          manager.extract(new ServiceViewDragHelper.ServiceViewDragBean(this, Collections.singletonList(item)));
+          result.setResult(null);
+        });
       });
     return result;
   }
@@ -357,7 +374,7 @@ class ServiceTreeView extends ServiceView {
   /**
    * @return {@code true} if selection and updated paths are equal but contain at least one nonidentical element, otherwise {@code false}
    */
-  private static boolean isSelectionUpdateNeeded(List<TreePath> selectionPaths, List<TreePath> updatedPaths) {
+  private static boolean isSelectionUpdateNeeded(List<? extends TreePath> selectionPaths, List<? extends TreePath> updatedPaths) {
     if (selectionPaths.size() != updatedPaths.size()) return false;
 
     boolean result = false;
@@ -391,28 +408,26 @@ class ServiceTreeView extends ServiceView {
   }
 
   @Override
-  List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath) {
+  List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath, @NotNull Class<?> contributorClass) {
     Queue<Object> values = new LinkedList<>(valueSubPath);
     Object visibleRoot = values.poll();
     if (visibleRoot == null) return Collections.emptyList();
 
-    int count = myTree.getRowCount();
-    for (int i = 0; i < count; i++) {
-      TreePath path = myTree.getPathForRow(i);
-      Object node = path.getLastPathComponent();
-      if (!(node instanceof ServiceViewItem)) continue;
+    List<? extends ServiceViewItem> roots = getModel().getVisibleRoots();
+    ServiceViewItem item = JBTreeTraverser.from((Function<ServiceViewItem, List<ServiceViewItem>>)node ->
+      contributorClass.isInstance(node.getRootContributor()) ? new ArrayList<>(getModel().getChildren(node)) : null)
+      .withRoots(roots)
+      .traverse(ServiceModel.ONLY_LOADED_BFS)
+      .filter(node -> node.getValue().equals(visibleRoot))
+      .first();
+    if (item == null) return Collections.emptyList();
 
-      ServiceViewItem item = (ServiceViewItem)node;
-      if (!visibleRoot.equals(item.getValue())) continue;
-
-      while (!values.isEmpty()) {
-        Object value = values.poll();
-        item = ContainerUtil.find(getModel().getChildren(item), child -> value.equals(child.getValue()));
-        if (item == null) return Collections.emptyList();
-      }
-      return ContainerUtil.map(getModel().getChildren(item), ServiceViewItem::getValue);
+    while (!values.isEmpty()) {
+      Object value = values.poll();
+      item = ContainerUtil.find(getModel().getChildren(item), child -> value.equals(child.getValue()));
+      if (item == null) return Collections.emptyList();
     }
-    return Collections.emptyList();
+    return ContainerUtil.map(getModel().getChildren(item), ServiceViewItem::getValue);
   }
 
   private void cancelSelectionUpdate() {
@@ -425,7 +440,7 @@ class ServiceTreeView extends ServiceView {
   private static void setEmptyText(JComponent component, StatusText emptyText) {
     emptyText.setText(ExecutionBundle.message("service.view.empty.tree.text"));
     emptyText.appendSecondaryText(ExecutionBundle.message("service.view.add.service.action.name"),
-                                  new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBUI.CurrentTheme.Link.linkColor()),
+                                  SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES,
                                   new ActionListener() {
                                     @Override
                                     public void actionPerformed(ActionEvent e) {
@@ -433,12 +448,21 @@ class ServiceTreeView extends ServiceView {
                                         ActionManager.getInstance().getAction(ADD_SERVICE_ACTION_ID), ActionGroup.class);
                                       if (addActionGroup == null) return;
 
+                                      Point position = component.getMousePosition();
+                                      if (position == null) {
+                                        Rectangle componentBounds = component.getBounds();
+                                        Rectangle textBounds = emptyText.getComponent().getBounds();
+                                        position = new Point(componentBounds.width / 2,
+                                                             componentBounds.height / (emptyText.isShowAboveCenter() ? 3 : 2) +
+                                                             textBounds.height / 4);
+
+                                      }
                                       DataContext dataContext = DataManager.getInstance().getDataContext(component);
                                       JBPopupFactory.getInstance().createActionGroupPopup(
                                         addActionGroup.getTemplatePresentation().getText(), addActionGroup, dataContext,
                                         JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
                                         false, null, -1, null, ActionPlaces.getActionGroupPopupPlace(ADD_SERVICE_ACTION_ID))
-                                        .show(new RelativePoint(component, component.getMousePosition()));
+                                        .show(new RelativePoint(component, position));
                                     }
                                   });
     AnAction addAction = ActionManager.getInstance().getAction(ADD_SERVICE_ACTION_ID);
@@ -449,15 +473,13 @@ class ServiceTreeView extends ServiceView {
     }
   }
 
-  private static List<TreePath> adjustPaths(List<TreePath> paths, Collection<? extends ServiceViewItem> roots, Object treeRoot) {
+  private static List<TreePath> adjustPaths(List<? extends TreePath> paths, Collection<? extends ServiceViewItem> roots, Object treeRoot) {
     List<TreePath> result = new SmartList<>();
     for (TreePath path : paths) {
       Object[] items = path.getPath();
       for (int i = 1; i < items.length; i++) {
         if (roots.contains(items[i])) {
-          Object[] adjustedItems = new Object[items.length - i + 1];
-          adjustedItems[0] = treeRoot;
-          System.arraycopy(items, i, adjustedItems, 1, items.length - i);
+          Object[] adjustedItems = ArrayUtil.insert(items, 0, treeRoot);
           result.add(new TreePath(adjustedItems));
           break;
         }
@@ -478,7 +500,7 @@ class ServiceTreeView extends ServiceView {
         AsyncTreeModel asyncTreeModel = new AsyncTreeModel(myTreeModel, ServiceTreeView.this);
         myTree.setModel(asyncTreeModel);
         myNavBarPanel.hidePopup();
-        myNavBarPanel.getModel().updateModel(null);
+        myNavBarPanel.getModel().updateModel((Object)null);
         myNavBarPanel.getUpdateQueue().rebuildUi();
         updateLastSelection();
       }
@@ -522,9 +544,9 @@ class ServiceTreeView extends ServiceView {
   }
 
   private static class PathExpandVisitor implements TreeVisitor {
-    private final List<TreePath> myPaths;
+    private final List<? extends TreePath> myPaths;
 
-    PathExpandVisitor(List<TreePath> paths) {
+    PathExpandVisitor(List<? extends TreePath> paths) {
       myPaths = paths;
     }
 

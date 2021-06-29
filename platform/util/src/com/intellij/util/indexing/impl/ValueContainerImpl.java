@@ -1,5 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.indexing.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,12 +20,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.IntPredicate;
 
 /**
  * @author Eugene Zhuravlev
  */
 @ApiStatus.Internal
-public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implements Cloneable{
+public final class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implements Cloneable{
   private static final Logger LOG = Logger.getInstance(ValueContainerImpl.class);
   private static final Object myNullValue = new Object();
 
@@ -97,7 +97,7 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
     for (final InvertedIndexValueIterator<Value> valueIterator = getValueIterator(); valueIterator.hasNext();) {
       final Value value = valueIterator.next();
 
-      if (valueIterator.getValueAssociationPredicate().contains(inputId)) {
+      if (valueIterator.getValueAssociationPredicate().test(inputId)) {
         if (fileSetObjects == null) {
           fileSetObjects = new SmartList<>();
           valueObjects = new SmartList<>();
@@ -286,8 +286,7 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
     }
   }
 
-  @NotNull
-  private static IntPredicate getPredicateOutOfFileSetObject(@Nullable Object input) {
+  private static @NotNull IntPredicate getPredicateOutOfFileSetObject(@Nullable Object input) {
     if (input == null) return EMPTY_PREDICATE;
 
     if (input instanceof Integer) {
@@ -463,14 +462,25 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
       final int valueCount = DataInputOutputUtil.readINT(stream);
       if (valueCount < 0) {
         // ChangeTrackingValueContainer marked inputId as invalidated, see ChangeTrackingValueContainer.saveTo
-        final int[] inputIds = remapping.remap(-valueCount);
+        @NotNull Object inputIds = remapping.remap(-valueCount);
 
         if (mapping == null && size() > NUMBER_OF_VALUES_THRESHOLD) { // avoid O(NumberOfValues)
           mapping = new FileId2ValueMapping<>(this);
         }
 
         boolean doCompact = false;
-        for (int inputId : inputIds) {
+        if (inputIds instanceof int[]) {
+          for (int inputId : (int[])inputIds) {
+            if(mapping != null) {
+              if (mapping.removeFileId(inputId)) doCompact = true;
+            } else {
+              removeAssociatedValue(inputId);
+              doCompact = true;
+            }
+          }
+        }
+        else {
+          int inputId = (int)inputIds;
           if(mapping != null) {
             if (mapping.removeFileId(inputId)) doCompact = true;
           } else {
@@ -487,8 +497,16 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
           int idCountOrSingleValue = DataInputOutputUtil.readINT(stream);
 
           if (idCountOrSingleValue > 0) {
-            int[] inputIds = remapping.remap(idCountOrSingleValue);
-            for (int inputId : inputIds) {
+            @NotNull Object inputIds = remapping.remap(idCountOrSingleValue);
+
+            if (inputIds instanceof int[]) {
+              for (int inputId : (int[])inputIds) {
+                addValue(inputId, value);
+                if (mapping != null) mapping.associateFileIdToValue(inputId, value);
+              }
+            }
+            else {
+              int inputId = (int)inputIds;
               addValue(inputId, value);
               if (mapping != null) mapping.associateFileIdToValue(inputId, value);
             }
@@ -500,8 +518,17 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
 
             for (int i = 0; i < idCountOrSingleValue; i++) {
               final int id = DataInputOutputUtil.readINT(stream);
-              int[] inputIds = remapping.remap(prev + id);
-              for (int inputId : inputIds) {
+              @NotNull Object inputIds = remapping.remap(prev + id);
+
+              if (inputIds instanceof int[]) {
+                for (int inputId : (int[])inputIds) {
+                  if (changeBufferingList != null) changeBufferingList.add(inputId);
+                  else addValue(inputId, value);
+                  if (mapping != null) mapping.associateFileIdToValue(inputId, value);
+                }
+              }
+              else {
+                int inputId = (int)inputIds;
                 if (changeBufferingList != null) changeBufferingList.add(inputId);
                 else addValue(inputId, value);
                 if (mapping != null) mapping.associateFileIdToValue(inputId, value);
@@ -553,7 +580,7 @@ public class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> im
   private static final IntPredicate EMPTY_PREDICATE = __ -> false;
 
   // a class to distinguish a difference between user-value with THashMap type and internal value container
-  private static class ValueToInputMap<Value> extends THashMap<Value, Object> {
+  private static final class ValueToInputMap<Value> extends THashMap<Value, Object> {
     ValueToInputMap(int size) {
       super(size);
     }

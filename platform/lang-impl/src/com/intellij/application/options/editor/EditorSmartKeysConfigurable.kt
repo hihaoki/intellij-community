@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.editor
 
 import com.intellij.codeInsight.CodeInsightSettings.*
@@ -11,7 +11,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.keymap.impl.ModifierKeyDoubleClickHandler
-import com.intellij.openapi.options.*
+import com.intellij.openapi.options.BoundCompositeSearchableConfigurable
+import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.SearchableConfigurable
+import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.EnumComboBoxModel
@@ -67,8 +70,6 @@ const val ID = "editor.preferences.smartKeys"
  * &lt;/extensions&gt;
  * <p>
  * A new instance of the specified class will be created each time then the Settings dialog is opened
- *
- * @author yole
  */
 class EditorSmartKeysConfigurable : Configurable.WithEpDependencies, BoundCompositeSearchableConfigurable<UnnamedConfigurable>(
   ApplicationBundle.message("group.smart.keys"),
@@ -179,8 +180,8 @@ class EditorSmartKeysConfigurable : Configurable.WithEpDependencies, BoundCompos
   override fun hasOwnContent() = true
 
   override fun getDependencies() = listOf(EP_NAME)
-  
+
   companion object {
-    private val EP_NAME = ExtensionPointName.create<EditorSmartKeysConfigurableEP>("com.intellij.editorSmartKeysConfigurable")
+    private val EP_NAME = ExtensionPointName<EditorSmartKeysConfigurableEP>("com.intellij.editorSmartKeysConfigurable")
   }
 }

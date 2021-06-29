@@ -5,7 +5,6 @@ import com.intellij.CommonBundle
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.JavaUiBundle
 import com.intellij.ide.highlighter.ProjectFileType
-import com.intellij.ide.impl.NewProjectUtil
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.util.projectWizard.WizardContext
@@ -18,6 +17,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
+import com.intellij.openapi.projectRoots.ex.JavaSdkUtil
 import com.intellij.openapi.roots.CompilerProjectExtension
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider
@@ -25,6 +25,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.Files
 import javax.swing.Icon
@@ -52,6 +53,7 @@ abstract class ProjectOpenProcessorBase<T : ProjectImportBuilder<*>> : ProjectOp
   private val myBuilder: T?
 
   @Deprecated("Override {@link #doGetBuilder()} and use {@code ProjectImportBuilder.EXTENSIONS_POINT_NAME.findExtensionOrFail(yourClass.class)}.")
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected constructor(builder: T) {
     myBuilder = builder
   }
@@ -187,7 +189,7 @@ abstract class ProjectOpenProcessorBase<T : ProjectImportBuilder<*>> : ProjectOp
 
       ApplicationManager.getApplication().runWriteAction {
         wizardContext.projectJdk?.let {
-          NewProjectUtil.applyJdkToProject(projectToOpen, it)
+          JavaSdkUtil.applyJdkToProject(projectToOpen, it)
         }
 
         val projectDirPath = wizardContext.projectFileDirectory

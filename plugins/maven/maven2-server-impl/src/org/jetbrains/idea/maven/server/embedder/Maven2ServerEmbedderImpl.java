@@ -1,11 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server.embedder;
 
 import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtilRt;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.InvalidRepositoryException;
@@ -128,7 +126,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
   }
 
   private static Collection<String> collectProfilesIds(List<Profile> profiles) {
-    Collection<String> result = new THashSet<String>();
+    Collection<String> result = new HashSet<String>();
     for (Profile each : profiles) {
       if (each.getId() != null) {
         result.add(each.getId());
@@ -308,7 +306,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
   private MavenServerExecutionResult createExecutionResult(File file, MavenExecutionResult result, DependencyNode rootNode)
     throws RemoteException {
     Collection<MavenProjectProblem> problems = MavenProjectProblem.createProblemsList();
-    THashSet<MavenId> unresolvedArtifacts = new THashSet<MavenId>();
+    Set<MavenId> unresolvedArtifacts = new HashSet<MavenId>();
 
     validate(file, result.getExceptions(), problems, unresolvedArtifacts);
 
@@ -389,7 +387,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
       }
 
       return Maven2ModelConverter.convertArtifacts(myImpl.resolveTransitively(toResolve, convertRepositories(remoteRepositories)),
-                                                   new THashMap<Artifact, MavenArtifact>(), getLocalRepositoryFile());
+                                                   new HashMap<Artifact, MavenArtifact>(), getLocalRepositoryFile());
     }
     catch (ArtifactResolutionException e) {
       Maven2ServerGlobals.getLogger().info(e);
@@ -461,7 +459,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
           PluginDescriptor result = getComponent(PluginManager.class).verifyPlugin(mavenPlugin, project,
                                                                                    myImpl.getSettings(), myImpl.getLocalRepository());
 
-          Map<MavenArtifactInfo, MavenArtifact> resolvedArtifacts = new THashMap<MavenArtifactInfo, MavenArtifact>();
+          Map<MavenArtifactInfo, MavenArtifact> resolvedArtifacts = new HashMap<MavenArtifactInfo, MavenArtifact>();
 
           Artifact pluginArtifact = result.getPluginArtifact();
 
@@ -484,7 +482,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
             }
           }
 
-          return new THashSet<MavenArtifact>(resolvedArtifacts.values());
+          return new HashSet<MavenArtifact>(resolvedArtifacts.values());
         }
         catch (Exception e) {
           Maven2ServerGlobals.getLogger().info(e);
@@ -553,7 +551,7 @@ public final class Maven2ServerEmbedderImpl extends MavenRemoteObject implements
   }
 
   private Set<MavenId> retrieveUnresolvedArtifactIds() {
-    Set<MavenId> result = new THashSet<MavenId>();
+    Set<MavenId> result = new HashSet<MavenId>();
     ((CustomWagonManager)getComponent(WagonManager.class)).getUnresolvedCollector().retrieveUnresolvedIds(result);
     ((CustomArtifactResolver)getComponent(ArtifactResolver.class)).getUnresolvedCollector().retrieveUnresolvedIds(result);
     return result;

@@ -1,7 +1,6 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
-import com.intellij.openapi.extensions.AbstractExtensionPointBean
 import com.intellij.openapi.options.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
@@ -50,11 +49,11 @@ interface SchemeExtensionProvider {
 }
 
 // applicable only for LazySchemeProcessor
-interface SchemeContentChangedHandler<MUTABLE_SCHEME> {
+interface SchemeContentChangedHandler<MUTABLE_SCHEME: Scheme> {
   fun schemeContentChanged(scheme: MUTABLE_SCHEME, name: String, dataHolder: SchemeDataHolder<MUTABLE_SCHEME>)
 }
 
-abstract class LazySchemeProcessor<SCHEME : Any, MUTABLE_SCHEME : SCHEME>(private val nameAttribute: String = "name") : SchemeProcessor<SCHEME, MUTABLE_SCHEME>() {
+abstract class LazySchemeProcessor<SCHEME : Scheme, MUTABLE_SCHEME : SCHEME>(private val nameAttribute: String = "name") : SchemeProcessor<SCHEME, MUTABLE_SCHEME>() {
   open fun getSchemeKey(attributeProvider: Function<String, String?>, fileNameWithoutExtension: String): String? {
     return attributeProvider.apply(nameAttribute)
   }
@@ -155,7 +154,7 @@ fun wrapState(element: Element, project: Project): Element {
   return wrapper
 }
 
-class BundledSchemeEP : AbstractExtensionPointBean() {
+class BundledSchemeEP {
   @Attribute("path")
   var path: String? = null
 }

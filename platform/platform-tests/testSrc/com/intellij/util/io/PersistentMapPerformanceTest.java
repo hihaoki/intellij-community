@@ -11,11 +11,11 @@ import com.intellij.util.containers.IntObjectCache;
 import com.intellij.util.io.storage.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Eugene Zhuravlev
@@ -44,7 +44,7 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
   }
 
   interface MapIntAppender<T> {
-    void append(PersistentHashMap<T, ?> map, int indexKey, PersistentHashMap.ValueDataAppender appender) throws IOException;
+    void append(PersistentHashMap<T, ?> map, int indexKey, AppendablePersistentMap.ValueDataAppender appender) throws IOException;
   }
 
   private static <T> void run2GTest(MapConstructor<T, String> constructor, MapIntSetter<T, String> setter, MapGetter<T, String> getter)
@@ -113,18 +113,20 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
         }
       }
       map.close();
+      //noinspection ConstantConditions
       final boolean isSmall = stringsCount < 1000000;
-      assertTrue(map.makesSenseToCompact());
+      assertTrue(makesSenseToCompact(map));
       long started = System.currentTimeMillis();
 
       map = constructor.createMap(file);
+      //noinspection ConstantConditions
       if (isSmall) {
-        map.compact();
+        PersistentMapImpl.unwrap(map).compact();
       }
       else {
         assertTrue(map.isDirty());  // autocompact on open should leave the map dirty
       }
-      assertFalse(map.makesSenseToCompact());
+      assertFalse(makesSenseToCompact(map));
       LOG.debug(String.valueOf(System.currentTimeMillis() - started));
       for (int i = 0; i < stringsCount; ++i) {
         if (i >= 2 * stringsCount / 3) {
@@ -139,6 +141,10 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
     finally {
       clearMap(file, map);
     }
+  }
+
+  private static <T> boolean makesSenseToCompact(PersistentHashMap<T, Integer> map) {
+    return PersistentMapImpl.unwrap(map).makesSenseToCompact();
   }
 
   public void testOpeningWithCompact3() throws IOException {
@@ -164,7 +170,7 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
     FileUtil.createParentDirs(file);
 
     int size = 10000000;
-    Int2IntOpenHashMap checkMap = new Int2IntOpenHashMap(size);
+    Int2IntMap checkMap = new Int2IntOpenHashMap(size);
     Random r = new Random(1);
     while (size != checkMap.size()) {
       if (checkMap.size() == 0) {
@@ -181,16 +187,13 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
     PersistentHashMap<Integer, Integer> map = null;
 
     try {
-      map = new PersistentHashMap<Integer, Integer>(file, EnumeratorIntegerDescriptor.INSTANCE, EnumeratorIntegerDescriptor.INSTANCE) {
-        @Override
-        protected boolean wantNonNegativeIntegralValues() {
-          return true;
-        }
-      };
+      map = PersistentMapBuilder
+        .newBuilder(file.toPath(), EnumeratorIntegerDescriptor.INSTANCE, EnumeratorIntegerDescriptor.INSTANCE)
+        .inlineValues()
+        .build();
 
       final PersistentHashMap<Integer, Integer> mapFinal = map;
-      for (ObjectIterator<Int2IntMap.Entry> iterator = checkMap.int2IntEntrySet().fastIterator(); iterator.hasNext(); ) {
-        Int2IntMap.Entry entry = iterator.next();
+      for (Int2IntMap.Entry entry : checkMap.int2IntEntrySet()) {
         try {
           mapFinal.put(entry.getIntKey(), entry.getIntValue());
         }
@@ -203,16 +206,13 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
       map.close();
       LOG.debug("Done:" + (System.currentTimeMillis() - started));
       started = System.currentTimeMillis();
-      map = new PersistentHashMap<Integer, Integer>(file, EnumeratorIntegerDescriptor.INSTANCE, EnumeratorIntegerDescriptor.INSTANCE) {
-        @Override
-        protected boolean wantNonNegativeIntegralValues() {
-          return true;
-        }
-      };
+      map = PersistentMapBuilder.newBuilder(file.toPath(), EnumeratorIntegerDescriptor.INSTANCE, EnumeratorIntegerDescriptor.INSTANCE)
+        .inlineValues()
+        .build();
+
       final PersistentHashMap<Integer, Integer> mapFinal2 = map;
-      for (ObjectIterator<Int2IntMap.Entry> iterator = checkMap.int2IntEntrySet().fastIterator(); iterator.hasNext(); ) {
+      for (Int2IntMap.Entry entry : checkMap.int2IntEntrySet()) {
         try {
-          Int2IntMap.Entry entry = iterator.next();
           assertEquals(entry.getIntValue(), (int)mapFinal2.get(entry.getIntKey()));
         }
         catch (IOException e) {
@@ -313,39 +313,38 @@ public class PersistentMapPerformanceTest extends PersistentMapTestBase {
 
   public void testPerformance() throws IOException {
     final IntObjectCache<String> stringCache = new IntObjectCache<>(2000);
-    final IntObjectCache.DeletedPairsListener listener = (key, mapKey) -> {
+    IntObjectCache.DeletedPairsListener<String> listener = (key, mapKey) -> {
       try {
-        final String _mapKey = (String)mapKey;
-        assertEquals(myMap.enumerate(_mapKey), key);
-
-        final String expectedMapValue = _mapKey == null ? null : _mapKey + "_value";
-        final String actual = myMap.get(_mapKey);
+        final String expectedMapValue = mapKey == null ? null : mapKey + "_value";
+        final String actual = myMap.get(mapKey);
         assertEquals(expectedMapValue, actual);
 
-        myMap.remove(_mapKey);
+        myMap.remove(mapKey);
 
-        assertNull(myMap.get(_mapKey));
+        assertNull(myMap.get(mapKey));
       }
       catch (IOException e) {
         throw new RuntimeException(e);
       }
     };
 
+    AtomicInteger count = new AtomicInteger();
     PlatformTestUtil.startPerformanceTest("put/remove", 9000, () -> {
       try {
         stringCache.addDeletedPairsListener(listener);
         for (int i = 0; i < 100000; ++i) {
           final String string = createRandomString();
-          final int id = myMap.enumerate(string);
-          stringCache.put(id, string);
-          myMap.put(string, string + "_value");
+          if (!myMap.containsMapping(string)) {
+            stringCache.put(count.incrementAndGet(), string);
+            myMap.put(string, string + "_value");
+          }
         }
         stringCache.removeDeletedPairsListener(listener);
         for (String key : stringCache) {
           myMap.remove(key);
         }
         stringCache.removeAll();
-        myMap.compact();
+        PersistentMapImpl.unwrap(myMap).compact();
       }
       catch (IOException e) {
         throw new RuntimeException(e);

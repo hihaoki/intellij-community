@@ -10,118 +10,121 @@ fun TimeNano.toMillis(): TimeMillis = this / 1_000_000
 // Can be used to skip int value from JSON if it is equal to 0 (to not pollute the JSON report).
 typealias PositiveInt = Int?
 
-fun Int.toPositiveInt() = takeIf { it > 0 }
+fun ScanningStatistics.toJsonStatistics(): JsonScanningStatistics {
+  val jsonScannedFiles = if (IndexDiagnosticDumper.shouldDumpPathsOfIndexedFiles) {
+    scannedFiles.map { it.toJson() }
+  }
+  else {
+    null
+  }
 
-fun FileProviderIndexStatistics.toJson(): JsonFileProviderIndexStatistics {
-  val statsPerFileType = aggregateStatsPerFileType()
-  val allStatsPerIndexer = aggregateStatsPerIndexer()
-  val (statsPerIndexer, fastIndexers) = allStatsPerIndexer.partition { it.partOfTotalIndexingTime.percentages > 0.01 }
-
-  return JsonFileProviderIndexStatistics(
-    providerDebugName,
-    numberOfFiles,
-    JsonDuration(totalTime),
-    indexingStatistics.numberOfTooLargeForIndexingFiles.get().toPositiveInt(),
-    indexingStatistics.tooLargeForIndexingFiles.biggestElements.map { it.toJson() }.takeIf { it.isNotEmpty() },
-    statsPerFileType.sortedByDescending { it.partOfTotalIndexingTime.percentages },
-    statsPerIndexer.sortedByDescending { it.partOfTotalIndexingTime.percentages },
-    fastIndexers.map { it.indexId }.sorted()
+  return JsonScanningStatistics(
+    providerName = fileSetName,
+    numberOfScannedFiles = numberOfScannedFiles,
+    numberOfFilesForIndexing = numberOfFilesForIndexing,
+    numberOfSkippedFiles = numberOfSkippedFiles,
+    numberOfFilesFullyIndexedByInfrastructureExtensions = numberOfFilesFullyIndexedByInfrastructureExtension,
+    scanningTime = JsonDuration(scanningTime),
+    timeProcessingUpToDateFiles = JsonDuration(timeProcessingUpToDateFiles),
+    timeUpdatingContentLessIndexes = JsonDuration(timeUpdatingContentLessIndexes),
+    timeIndexingWithoutContent = JsonDuration(timeIndexingWithoutContent),
+    scannedFiles = jsonScannedFiles
   )
 }
 
-private fun FileProviderIndexStatistics.aggregateStatsPerFileType(): List<JsonFileProviderIndexStatistics.JsonStatsPerFileType> {
-  val totalIndexingTimePerFileType = indexingStatistics.statsPerFileType.values
-    .filterNot { it.indexingTime.isEmpty }
-    .map { it.indexingTime.sumTime }
-    .sum()
+fun ScanningStatistics.ScannedFile.toJson(): JsonScanningStatistics.JsonScannedFile =
+  JsonScanningStatistics.JsonScannedFile(
+    path = portableFilePath,
+    isUpToDate = isUpToDate,
+    wasFullyIndexedByInfrastructureExtension = wasFullyIndexedByInfrastructureExtension
+  )
 
-  val totalContentLoadingTimePerFileType = indexingStatistics.statsPerFileType.values
-    .filterNot { it.contentLoadingTime.isEmpty }
-    .map { it.contentLoadingTime.sumTime }
-    .sum()
+@Suppress("DuplicatedCode")
+fun IndexingJobStatistics.toJsonStatistics(): JsonFileProviderIndexStatistics {
+  val jsonIndexedFiles = if (IndexDiagnosticDumper.shouldDumpPathsOfIndexedFiles) {
+    indexedFiles.map { it.toJson() }
+  }
+  else {
+    null
+  }
 
-  return indexingStatistics.statsPerFileType
-    .mapNotNull { (fileTypeName, stats) ->
-      JsonFileProviderIndexStatistics.JsonStatsPerFileType(
-        fileTypeName,
-        stats.numberOfFiles,
-        JsonFileSize(stats.totalBytes),
-        calculatePercentages(stats.indexingTime.sumTime, totalIndexingTimePerFileType),
-        calculatePercentages(stats.contentLoadingTime.sumTime, totalContentLoadingTimePerFileType)
-      )
-    }
+  return JsonFileProviderIndexStatistics(
+    providerName = fileSetName,
+    totalNumberOfIndexedFiles = numberOfIndexedFiles,
+    totalNumberOfFilesFullyIndexedByExtensions = numberOfFilesFullyIndexedByExtensions,
+    totalIndexingTime = JsonDuration(indexingVisibleTime),
+    contentLoadingTime = JsonDuration(contentLoadingVisibleTime),
+    numberOfTooLargeForIndexingFiles = numberOfTooLargeForIndexingFiles,
+    slowIndexedFiles = slowIndexedFiles.biggestElements.map { it.toJson() },
+    indexedFiles = jsonIndexedFiles
+  )
 }
 
-private fun FileProviderIndexStatistics.aggregateStatsPerIndexer(): List<JsonFileProviderIndexStatistics.JsonStatsPerIndexer> {
-  val totalIndexingTimePerIndexer = indexingStatistics.statsPerIndexer.values
-    .filterNot { it.indexingTime.isEmpty }
-    .map { it.indexingTime.sumTime }
-    .sum()
+fun SlowIndexedFile.toJson() = JsonFileProviderIndexStatistics.JsonSlowIndexedFile(
+  fileName = fileName,
+  processingTime = JsonDuration(processingTime),
+  indexingTime = JsonDuration(indexingTime),
+  contentLoadingTime = JsonDuration(contentLoadingTime)
+)
 
-  return indexingStatistics.statsPerIndexer
-    .mapNotNull { (indexId, stats) ->
-      JsonFileProviderIndexStatistics.JsonStatsPerIndexer(
-        indexId,
-        calculatePercentages(stats.indexingTime.sumTime, totalIndexingTimePerIndexer)
-      )
-    }
-}
+fun IndexingJobStatistics.IndexedFile.toJson() = JsonFileProviderIndexStatistics.JsonIndexedFile(
+  path = portableFilePath,
+  wasFullyIndexedByExtensions = wasFullyIndexedByExtensions
+)
 
 fun ProjectIndexingHistory.IndexingTimes.toJson() =
   JsonProjectIndexingHistoryTimes(
-    JsonDuration(Duration.between(indexingStart, indexingEnd).toNanos()),
-    JsonDuration(Duration.between(scanFilesStart, scanFilesEnd).toNanos()),
-    JsonDuration(Duration.between(pushPropertiesStart, pushPropertiesEnd).toNanos()),
-    JsonDuration(Duration.between(indexExtensionsStart, indexExtensionsEnd).toNanos()),
-    JsonDateTime(pushPropertiesStart!!),
-    JsonDateTime(pushPropertiesEnd!!),
-    JsonDateTime(scanFilesStart!!),
-    JsonDateTime(scanFilesEnd!!),
-    JsonDateTime(indexExtensionsStart!!),
-    JsonDateTime(indexExtensionsEnd!!),
-    JsonDateTime(indexingStart!!),
-    JsonDateTime(indexingEnd!!)
+    indexingReason = indexingReason,
+    totalUpdatingTime = JsonDuration(totalUpdatingTime),
+    indexingTime = JsonDuration(indexingDuration.toNanos()),
+    contentLoadingTime = JsonDuration(contentLoadingDuration.toNanos()),
+    scanFilesTime = JsonDuration(scanFilesDuration.toNanos()),
+    pushPropertiesTime = JsonDuration(pushPropertiesDuration.toNanos()),
+    indexExtensionsTime = JsonDuration(indexExtensionsDuration.toNanos()),
+    updatingStart = JsonDateTime(updatingStart),
+    updatingEnd = JsonDateTime(updatingEnd),
+    totalSuspendedTime = JsonDuration(suspendedDuration.toNanos()),
+    wasInterrupted = wasInterrupted
   )
 
-private fun calculatePercentages(part: Long, total: Long): JsonPercentages =
-  if (total == 0L) {
-    JsonPercentages(1.0)
-  }
-  else {
-    JsonPercentages(part.toDouble() / total)
-  }
+private fun calculatePercentages(part: Long, total: Long): JsonPercentages = JsonPercentages(part, total)
 
-fun ProjectIndexingHistory.toJson() =
-  JsonProjectIndexingHistory(
-    projectName,
-    providerStatistics.size,
-    aggregateTotalNumberOfFiles(),
-    times.toJson(),
-    numberOfIndexingThreads,
-    totalNumberOfTooLargeFiles.toPositiveInt(),
-    totalTooLargeFiles.biggestElements.map { it.toJson() }.takeIf { it.isNotEmpty() },
-    aggregateStatsPerFileType().sortedByDescending { it.partOfTotalIndexingTime.percentages },
-    aggregateStatsPerIndexer().sortedByDescending { it.partOfTotalIndexingTime.percentages },
-    providerStatistics.sortedByDescending { it.totalIndexingTime.nano }
+fun ProjectIndexingHistory.toJson(): JsonProjectIndexingHistory {
+  times.contentLoadingDuration = Duration.ofNanos(providerStatistics.sumOf { it.contentLoadingTime.nano })
+  return JsonProjectIndexingHistory(
+    projectName = project.name,
+    times = times.toJson(),
+    fileCount = getFileCount(),
+    totalStatsPerFileType = aggregateStatsPerFileType().sortedByDescending { it.partOfTotalProcessingTime.doublePercentages },
+    totalStatsPerIndexer = aggregateStatsPerIndexer().sortedByDescending { it.partOfTotalIndexingTime.doublePercentages },
+    scanningStatistics = scanningStatistics.sortedByDescending { it.scanningTime.nano },
+    fileProviderStatistics = providerStatistics.sortedByDescending { it.totalIndexingTime.nano }
   )
+}
 
-private fun ProjectIndexingHistory.aggregateTotalNumberOfFiles() =
-  providerStatistics.map { it.totalNumberOfFiles }.sum()
+private fun ProjectIndexingHistory.getFileCount() = JsonProjectIndexingFileCount(
+  numberOfFileProviders = scanningStatistics.size,
+  numberOfScannedFiles = scanningStatistics.sumBy { it.numberOfScannedFiles },
+  numberOfFilesIndexedByInfrastructureExtensionsDuringScan = scanningStatistics.sumOf { it.numberOfFilesFullyIndexedByInfrastructureExtensions },
+  numberOfFilesScheduledForIndexingAfterScan = scanningStatistics.sumBy { it.numberOfFilesForIndexing },
+  numberOfFilesIndexedByInfrastructureExtensionsDuringIndexingStage = providerStatistics.sumOf { it.totalNumberOfFilesFullyIndexedByExtensions },
+  numberOfFilesIndexedWithLoadingContent = providerStatistics.sumOf { it.totalNumberOfIndexedFiles }
+)
 
 private fun ProjectIndexingHistory.aggregateStatsPerFileType(): List<JsonProjectIndexingHistory.JsonStatsPerFileType> {
-  val totalIndexingTime = totalStatsPerFileType.values.map { it.totalIndexingTimeInAllThreads }.sum()
-  val fileTypeToIndexingTimePart = totalStatsPerFileType.mapValues {
-    calculatePercentages(it.value.totalIndexingTimeInAllThreads, totalIndexingTime)
+  val totalProcessingTime = totalStatsPerFileType.values.sumOf { it.totalProcessingTimeInAllThreads }
+  val fileTypeToProcessingTimePart = totalStatsPerFileType.mapValues {
+    calculatePercentages(it.value.totalProcessingTimeInAllThreads, totalProcessingTime)
   }
 
   @Suppress("DuplicatedCode")
-  val totalContentLoadingTime = totalStatsPerFileType.values.map { it.totalContentLoadingTimeInAllThreads }.sum()
+  val totalContentLoadingTime = totalStatsPerFileType.values.sumOf { it.totalContentLoadingTimeInAllThreads }
   val fileTypeToContentLoadingTimePart = totalStatsPerFileType.mapValues {
     calculatePercentages(it.value.totalContentLoadingTimeInAllThreads, totalContentLoadingTime)
   }
 
   val fileTypeToProcessingSpeed = totalStatsPerFileType.mapValues {
-    JsonProcessingSpeed(it.value.totalBytes, it.value.totalIndexingTimeInAllThreads)
+    JsonProcessingSpeed(it.value.totalBytes, it.value.totalProcessingTimeInAllThreads)
   }
 
   return totalStatsPerFileType.map { (fileType, stats) ->
@@ -130,25 +133,23 @@ private fun ProjectIndexingHistory.aggregateStatsPerFileType(): List<JsonProject
         it.providerName,
         it.numberOfFiles,
         JsonFileSize(it.totalBytes),
-        calculatePercentages(it.indexingTimeInAllThreads, stats.totalIndexingTimeInAllThreads)
+        calculatePercentages(it.processingTimeInAllThreads, stats.totalProcessingTimeInAllThreads)
       )
     }
     JsonProjectIndexingHistory.JsonStatsPerFileType(
       fileType,
-      fileTypeToIndexingTimePart.getValue(fileType),
+      fileTypeToProcessingTimePart.getValue(fileType),
       fileTypeToContentLoadingTimePart.getValue(fileType),
       stats.totalNumberOfFiles,
       JsonFileSize(stats.totalBytes),
       fileTypeToProcessingSpeed.getValue(fileType),
-      jsonBiggestFileTypeContributors.sortedByDescending { it.partOfTotalIndexingTimeOfThisFileType.percentages }
+      jsonBiggestFileTypeContributors.sortedByDescending { it.partOfTotalProcessingTimeOfThisFileType.doublePercentages }
     )
   }
 }
 
-private fun TooLargeForIndexingFile.toJson() = JsonTooLargeForIndexingFile(fileName, JsonFileSize(fileSize))
-
 private fun ProjectIndexingHistory.aggregateStatsPerIndexer(): List<JsonProjectIndexingHistory.JsonStatsPerIndexer> {
-  val totalIndexingTime = totalStatsPerIndexer.values.map { it.totalIndexingTimeInAllThreads }.sum()
+  val totalIndexingTime = totalStatsPerIndexer.values.sumOf { it.totalIndexingTimeInAllThreads }
   val indexIdToIndexingTimePart = totalStatsPerIndexer.mapValues {
     calculatePercentages(it.value.totalIndexingTimeInAllThreads, totalIndexingTime)
   }
@@ -159,11 +160,17 @@ private fun ProjectIndexingHistory.aggregateStatsPerIndexer(): List<JsonProjectI
 
   return totalStatsPerIndexer.map { (indexId, stats) ->
     JsonProjectIndexingHistory.JsonStatsPerIndexer(
-      indexId,
-      indexIdToIndexingTimePart.getValue(indexId),
-      stats.totalNumberOfFiles,
-      JsonFileSize(stats.totalBytes),
-      indexIdToProcessingSpeed.getValue(indexId)
+      indexId = indexId,
+      partOfTotalIndexingTime = indexIdToIndexingTimePart.getValue(indexId),
+      totalNumberOfFiles = stats.totalNumberOfFiles,
+      totalNumberOfFilesIndexedByExtensions = stats.totalNumberOfFilesIndexedByExtensions,
+      totalFilesSize = JsonFileSize(stats.totalBytes),
+      indexingSpeed = indexIdToProcessingSpeed.getValue(indexId),
+      snapshotInputMappingStats = JsonProjectIndexingHistory.JsonStatsPerIndexer.JsonSnapshotInputMappingStats(
+        totalRequests = stats.snapshotInputMappingStats.requests,
+        totalMisses = stats.snapshotInputMappingStats.misses,
+        totalHits = stats.snapshotInputMappingStats.hits
+      )
     )
   }
 }

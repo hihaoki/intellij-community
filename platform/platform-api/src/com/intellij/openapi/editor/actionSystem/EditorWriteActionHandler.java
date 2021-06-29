@@ -32,13 +32,14 @@ public abstract class EditorWriteActionHandler extends EditorActionHandler {
   protected EditorWriteActionHandler() {
   }
 
+  /** Consider subclassing {@link ForEachCaret} instead. */
   protected EditorWriteActionHandler(boolean runForEachCaret) {
     super(runForEachCaret);
   }
 
   @Override
   public void doExecute(@NotNull final Editor editor, @Nullable final Caret caret, final DataContext dataContext) {
-    if (editor.isViewer()) return;
+    if (!EditorModificationUtil.checkModificationAllowed(editor)) return;
     if (!ApplicationManager.getApplication().isWriteAccessAllowed() && !EditorModificationUtil.requestWriting(editor)) return;
 
     DocumentRunnable runnable = new DocumentRunnable(editor.getDocument(), editor.getProject()) {
@@ -74,7 +75,7 @@ public abstract class EditorWriteActionHandler extends EditorActionHandler {
     executeWriteAction(editor, editor.getCaretModel().getCurrentCaret(), dataContext);
   }
 
-  public void executeWriteAction(Editor editor, @Nullable Caret caret, DataContext dataContext) {
+  public void executeWriteAction(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
     if (inExecution) {
       return;
     }
@@ -85,5 +86,16 @@ public abstract class EditorWriteActionHandler extends EditorActionHandler {
     finally {
       inExecution = false;
     }
+  }
+
+  public static abstract class ForEachCaret extends EditorWriteActionHandler {
+    protected ForEachCaret() {
+      super(true);
+    }
+
+    @Override
+    public abstract void executeWriteAction(@NotNull Editor editor,
+                                            @SuppressWarnings("NullableProblems") @NotNull Caret caret,
+                                            DataContext dataContext);
   }
 }

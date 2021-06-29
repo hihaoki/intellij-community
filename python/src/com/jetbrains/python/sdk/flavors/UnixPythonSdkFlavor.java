@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.sdk.flavors;
 
 import com.intellij.openapi.module.Module;
@@ -15,9 +15,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * @author yole
- */
+
 public final class UnixPythonSdkFlavor extends CPythonSdkFlavor {
   private UnixPythonSdkFlavor() {
   }
@@ -36,8 +34,13 @@ public final class UnixPythonSdkFlavor extends CPythonSdkFlavor {
   @NotNull
   @Override
   public Collection<String> suggestHomePaths(@Nullable Module module, @Nullable UserDataHolder context) {
+    return getDefaultUnixPythons(null);
+  }
+
+  @NotNull
+  public static Set<String> getDefaultUnixPythons(@Nullable String rootPrefix) {
     Set<String> candidates = new HashSet<>();
-    collectUnixPythons("/usr/bin", candidates);
+    collectUnixPythons((rootPrefix != null ? rootPrefix : "") + "/usr/bin", candidates);
     return candidates;
   }
 

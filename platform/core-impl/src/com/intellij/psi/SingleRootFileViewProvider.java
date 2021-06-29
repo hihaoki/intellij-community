@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.lang.FileASTNode;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.diagnostic.Logger;
@@ -14,12 +15,11 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.PsiFileEx;
 import com.intellij.psi.impl.source.PsiFileImpl;
-import com.intellij.psi.impl.source.tree.FileElement;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ThreeState;
-import com.intellij.util.concurrency.AtomicFieldUpdater;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,13 +27,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 public class SingleRootFileViewProvider extends AbstractFileViewProvider implements FileViewProvider {
   private static final Key<Boolean> OUR_NO_SIZE_LIMIT_KEY = Key.create("no.size.limit");
   private static final Logger LOG = Logger.getInstance(SingleRootFileViewProvider.class);
-  @SuppressWarnings("unused")
   private volatile PsiFile myPsiFile;
-  private static final AtomicFieldUpdater<SingleRootFileViewProvider, PsiFile> myPsiFileUpdater = AtomicFieldUpdater.forFieldOfType(SingleRootFileViewProvider.class, PsiFile.class);
+  private static final AtomicReferenceFieldUpdater<SingleRootFileViewProvider, PsiFile>
+    myPsiFileUpdater = AtomicReferenceFieldUpdater.newUpdater(SingleRootFileViewProvider.class, PsiFile.class, "myPsiFile");
   @NotNull private final Language myBaseLanguage;
 
   public SingleRootFileViewProvider(@NotNull PsiManager manager, @NotNull VirtualFile file) {
@@ -71,7 +72,7 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
     if (fileType.isBinary()) return Language.ANY;
     if (isTooLargeForIntelligence(file)) return PlainTextLanguage.INSTANCE;
 
-    Language language = LanguageUtil.getLanguageForPsi(project, file);
+    Language language = LanguageUtil.getLanguageForPsi(project, file, fileType);
 
     return language != null ? language : PlainTextLanguage.INSTANCE;
   }
@@ -94,35 +95,34 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
     if (target != getBaseLanguage()) {
       return null;
     }
-    PsiFile psiFile = myPsiFile;
-    if (psiFile == null) {
-      psiFile = createFile();
-      if (psiFile == null) {
-        psiFile = PsiUtilCore.NULL_PSI_FILE;
+    PsiFile file = myPsiFile;
+    if (file == null) {
+      file = createFile();
+      if (file == null) {
+        file = PsiUtilCore.NULL_PSI_FILE;
       }
-      boolean set = myPsiFileUpdater.compareAndSet(this, null, psiFile);
-      if (!set && psiFile != PsiUtilCore.NULL_PSI_FILE) {
+      boolean set = myPsiFileUpdater.compareAndSet(this, null, file);
+      if (!set && file != PsiUtilCore.NULL_PSI_FILE) {
         PsiFile alreadyCreated = myPsiFile;
-        if (alreadyCreated == psiFile) {
-          LOG.error(this + ".createFile() must create new file instance but got the same: " + psiFile);
+        if (alreadyCreated == file) {
+          LOG.error(this + ".createFile() must create new file instance but got the same: " + file);
         }
-        if (psiFile instanceof PsiFileEx) {
-          PsiFile finalPsiFile = psiFile;
+        if (file instanceof PsiFileEx) {
+          PsiFile finalPsiFile = file;
           DebugUtil.performPsiModification("invalidating throw-away copy", () ->
             ((PsiFileEx)finalPsiFile).markInvalidated()
           );
         }
-        psiFile = alreadyCreated;
+        file = alreadyCreated;
       }
     }
-    return psiFile == PsiUtilCore.NULL_PSI_FILE ? null : psiFile;
+    return ObjectUtils.nullizeIfDefaultValue(file, PsiUtilCore.NULL_PSI_FILE);
   }
 
   @Override
   public final PsiFile getCachedPsi(@NotNull Language target) {
     if (target != getBaseLanguage()) return null;
-    PsiFile file = myPsiFile;
-    return file == PsiUtilCore.NULL_PSI_FILE ? null : file;
+    return ObjectUtils.nullizeIfDefaultValue(myPsiFile, PsiUtilCore.NULL_PSI_FILE);
   }
 
   @NotNull
@@ -132,11 +132,10 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
   }
 
   @Override
-  @NotNull
-  public final List<FileElement> getKnownTreeRoots() {
+  public final @NotNull List<FileASTNode> getKnownTreeRoots() {
     PsiFile psiFile = getCachedPsi(getBaseLanguage());
     if (!(psiFile instanceof PsiFileImpl)) return Collections.emptyList();
-    FileElement element = ((PsiFileImpl)psiFile).getTreeElement();
+    FileASTNode element = ((PsiFileImpl)psiFile).getNodeIfLoaded();
     return ContainerUtil.createMaybeSingletonList(element);
   }
 
@@ -198,7 +197,7 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
   }
 
   public static boolean fileSizeIsGreaterThan(@NotNull VirtualFile vFile, final long maxBytes) {
-    if (vFile instanceof LightVirtualFile) {
+    if (vFile instanceof LightVirtualFile && !vFile.getFileType().isBinary()) {
       // This is optimization in order to avoid conversion of [large] file contents to bytes
       int lengthInChars = ((LightVirtualFile)vFile).getContent().length();
       if (lengthInChars < maxBytes / 2) {

@@ -1,19 +1,22 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.util;
 
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInspection.ui.InspectionOptionsPanel;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.java.JavaBundle;
+import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -21,12 +24,12 @@ import com.intellij.ui.*;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.IconUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ui.UI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
-import java.awt.*;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Predicate;
@@ -35,18 +38,18 @@ import java.util.function.Predicate;
  * @author Gregory.Shrago
  */
 public final class SpecialAnnotationsUtil {
-  public static JPanel createSpecialAnnotationsListControl(final List<String> list, final String borderTitle) {
+  public static JPanel createSpecialAnnotationsListControl(final List<String> list, final @NlsContexts.Label String borderTitle) {
     return createSpecialAnnotationsListControl(list, borderTitle, false);
   }
 
   public static JPanel createSpecialAnnotationsListControl(final List<String> list,
-                                                           final String borderTitle,
+                                                           final @NlsContexts.Label String borderTitle,
                                                            final boolean acceptPatterns) {
     return createSpecialAnnotationsListControl(list, borderTitle, acceptPatterns, aClass -> aClass.isAnnotationType());
   }
 
   public static JPanel createSpecialAnnotationsListControl(final List<String> list,
-                                                           final String borderTitle,
+                                                           final @NlsContexts.Label String borderTitle,
                                                            final boolean acceptPatterns,
                                                            final Predicate<? super PsiClass> isApplicable) {
     @SuppressWarnings("Convert2Diamond")
@@ -80,14 +83,15 @@ public final class SpecialAnnotationsUtil {
     return createSpecialAnnotationsListControl(borderTitle, acceptPatterns, listModel, isApplicable);
   }
 
-  public static JPanel createSpecialAnnotationsListControl(final String borderTitle,
+  public static JPanel createSpecialAnnotationsListControl(final @NlsContexts.Label String borderTitle,
                                                            final boolean acceptPatterns,
-                                                           final SortedListModel<? super String> listModel,
+                                                           final SortedListModel<String> listModel,
                                                            final Predicate<? super PsiClass> isApplicable) {
-    final JList injectionList = new JBList(listModel);
+    final JList<String> injectionList = new JBList<>(listModel);
 
     injectionList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
-    ToolbarDecorator toolbarDecorator = ToolbarDecorator.createDecorator(injectionList)
+    ToolbarDecorator toolbarDecorator = ToolbarDecorator
+      .createDecorator(injectionList)
       .setAddAction(new AnActionButtonRunnable() {
         @Override
         public void run(AnActionButton button) {
@@ -107,7 +111,10 @@ public final class SpecialAnnotationsUtil {
             listModel.add(selected.getQualifiedName());
           }
         }
-      }).setAddActionName(JavaBundle.message("special.annotations.list.add.annotation.class")).disableUpDownActions();
+      })
+      .setAddActionName(JavaBundle.message("special.annotations.list.add.annotation.class"))
+      .disableUpDownActions()
+      .setToolbarPosition(ActionToolbarPosition.RIGHT);
 
     if (acceptPatterns) {
       toolbarDecorator
@@ -116,7 +123,7 @@ public final class SpecialAnnotationsUtil {
           new AnActionButton(JavaBundle.message("special.annotations.list.annotation.pattern"), IconUtil.getAddPatternIcon()) {
             @Override
             public void actionPerformed(@NotNull AnActionEvent e) {
-              String selectedPattern = Messages.showInputDialog(JavaBundle.message("special.annotations.list.annotation.pattern"),
+              String selectedPattern = Messages.showInputDialog(JavaBundle.message("special.annotations.list.annotation.pattern.message"),
                                                                 JavaBundle.message("special.annotations.list.annotation.pattern"),
                                                                 Messages.getQuestionIcon());
               if (selectedPattern != null) {
@@ -124,16 +131,20 @@ public final class SpecialAnnotationsUtil {
               }
             }
           }).setButtonComparator(JavaBundle.message("special.annotations.list.add.annotation.class"),
-                                 JavaBundle.message("special.annotations.list.annotation.pattern"), "Remove");
+                                 JavaBundle.message("special.annotations.list.annotation.pattern"),
+                                 JavaBundle.message("special.annotations.list.remove.pattern"));
     }
+    final var panel = toolbarDecorator.createPanel();
+    panel.setMinimumSize(InspectionOptionsPanel.getMinimumListSize());
 
-    if (borderTitle == null) {
-      return toolbarDecorator.createPanel();
-    }
-    JPanel panel = new JPanel(new BorderLayout());
-    panel.add(SeparatorFactory.createSeparator(borderTitle, null), BorderLayout.NORTH);
-    panel.add(toolbarDecorator.createPanel(), BorderLayout.CENTER);
-    return panel;
+    if (borderTitle == null) return panel;
+
+    return UI.PanelFactory
+      .panel(panel)
+      .withLabel(borderTitle)
+      .moveLabelOnTop()
+      .resizeY(true)
+      .createPanel();
   }
 
   public static IntentionAction createAddToSpecialAnnotationsListIntentionAction(final @IntentionName String text,

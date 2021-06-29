@@ -4,15 +4,15 @@ package org.jetbrains.plugins.github.pullrequest.data
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.EventDispatcher
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.messages.ListenerDescriptor
 import com.intellij.util.messages.MessageBusFactory
 import com.intellij.util.messages.MessageBusOwner
-import org.jetbrains.annotations.CalledInAwt
 import org.jetbrains.plugins.github.api.data.GHIssueComment
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequest
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReview
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem
-import org.jetbrains.plugins.github.pullrequest.GHPRDiffControllerImpl
+import org.jetbrains.plugins.github.pullrequest.GHPRDiffRequestModelImpl
 import org.jetbrains.plugins.github.pullrequest.data.provider.*
 import org.jetbrains.plugins.github.pullrequest.data.service.*
 import org.jetbrains.plugins.github.util.DisposalCountingHolder
@@ -31,7 +31,7 @@ internal class GHPRDataProviderRepositoryImpl(private val detailsService: GHPRDe
   private val cache = mutableMapOf<GHPRIdentifier, DisposalCountingHolder<GHPRDataProvider>>()
   private val providerDetailsLoadedEventDispatcher = EventDispatcher.create(DetailsLoadedListener::class.java)
 
-  @CalledInAwt
+  @RequiresEdt
   override fun getDataProvider(id: GHPRIdentifier, disposable: Disposable): GHPRDataProvider {
     if (isDisposed) throw IllegalStateException("Already disposed")
 
@@ -44,7 +44,7 @@ internal class GHPRDataProviderRepositoryImpl(private val detailsService: GHPRDe
     }.acquireValue(disposable)
   }
 
-  @CalledInAwt
+  @RequiresEdt
   override fun findDataProvider(id: GHPRIdentifier): GHPRDataProvider? = cache[id]?.value
 
   override fun dispose() {
@@ -125,7 +125,7 @@ internal class GHPRDataProviderRepositoryImpl(private val detailsService: GHPRDe
     })
 
     return GHPRDataProviderImpl(id, detailsData, stateData, changesData, commentsData, reviewData, timelineLoaderHolder,
-                                GHPRDiffControllerImpl())
+                                GHPRDiffRequestModelImpl())
   }
 
   override fun addDetailsLoadedListener(disposable: Disposable, listener: (GHPullRequest) -> Unit) {

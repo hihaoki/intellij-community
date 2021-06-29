@@ -1,14 +1,12 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project;
 
 import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -19,17 +17,18 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.idea.maven.execution.RunnerBundle;
+import org.jetbrains.idea.maven.externalSystemIntegration.output.importproject.quickfixes.CleanBrokenArtifactsAndReimportQuickFix;
 import org.jetbrains.idea.maven.importing.MavenImporter;
 import org.jetbrains.idea.maven.model.*;
 import org.jetbrains.idea.maven.server.MavenConfigParseException;
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper;
 import org.jetbrains.idea.maven.server.MavenServerProgressIndicator;
 import org.jetbrains.idea.maven.server.NativeMavenProjectHolder;
+import org.jetbrains.idea.maven.utils.MavenLog;
 import org.jetbrains.idea.maven.utils.MavenProcessCanceledException;
 import org.jetbrains.idea.maven.utils.MavenProgressIndicator;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
-import javax.swing.event.HyperlinkEvent;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
@@ -80,12 +79,7 @@ public class MavenProjectResolver {
       catch (Throwable t) {
         MavenConfigParseException cause = findParseException(t);
         if (cause != null) {
-          for (MavenProject mavenProject : mavenProjects) {
-            if (FileUtil.pathsEqual(mavenProject.getDirectory(), cause.getDirectory())) {
-              showNotificationInvalidConfig(project, mavenProject, cause.getMessage());
-              mavenProject.setConfigFileError(cause.getMessage());
-            }
-          }
+          MavenLog.LOG.warn("Cannot parse maven config", cause);
         }
         else {
           throw t;
@@ -154,7 +148,10 @@ public class MavenProjectResolver {
       }
 
       if (mavenProjectCandidate == null) continue;
-      MavenProjectChanges changes = mavenProjectCandidate.set(result, generalSettings, false, result.readingProblems.isEmpty(), false);
+
+
+      MavenProjectChanges changes = mavenProjectCandidate
+        .set(result, generalSettings, false, MavenProjectReaderResult.shouldResetDependenciesAndFolders(result), false);
       if (result.nativeMavenProject != null) {
         for (MavenImporter eachImporter : mavenProjectCandidate.getSuitableImporters()) {
           eachImporter.resolve(project, mavenProjectCandidate, result.nativeMavenProject, embedder, context);
@@ -164,7 +161,8 @@ public class MavenProjectResolver {
     }
   }
 
-  public void resolvePlugins(@NotNull MavenProject mavenProject,
+  public void resolvePlugins(@NotNull Project project,
+                             @NotNull MavenProject mavenProject,
                              @NotNull NativeMavenProjectHolder nativeMavenProject,
                              @NotNull MavenEmbeddersManager embeddersManager,
                              @NotNull MavenConsole console,
@@ -178,9 +176,11 @@ public class MavenProjectResolver {
     try {
       process.setText(MavenProjectBundle.message("maven.downloading.pom.plugins", mavenProject.getDisplayName()));
 
+      Map<MavenPlugin, File> unresolvedPlugins = new HashMap<>();
       for (MavenPlugin each : mavenProject.getDeclaredPlugins()) {
         process.checkCanceled();
 
+        File file = MavenUtil.getRepositoryParentFile(project, each.getMavenId());
         Collection<MavenArtifact> artifacts = embedder.resolvePlugin(each, mavenProject.getRemoteRepositories(), nativeMavenProject, false);
 
         for (MavenArtifact artifact : artifacts) {
@@ -191,8 +191,16 @@ public class MavenProjectResolver {
           }
         }
         if (artifacts.isEmpty() && myProject != null) {
+          unresolvedPlugins.put(each, file);
+        }
+      }
+      if (!unresolvedPlugins.isEmpty()) {
+        Collection<File> files = unresolvedPlugins.values();
+        CleanBrokenArtifactsAndReimportQuickFix fix = new CleanBrokenArtifactsAndReimportQuickFix(files);
+        for (MavenPlugin mavenPlugin : unresolvedPlugins.keySet()) {
           MavenProjectsManager.getInstance(myProject)
-            .getSyncConsole().getListener(MavenServerProgressIndicator.ResolveType.PLUGIN).showError(each.getMavenId().getKey());
+            .getSyncConsole().getListener(MavenServerProgressIndicator.ResolveType.PLUGIN)
+            .showBuildIssue(mavenPlugin.getMavenId().getKey(), fix);
         }
       }
 
@@ -295,18 +303,13 @@ public class MavenProjectResolver {
   public static void showNotificationInvalidConfig(@NotNull Project project, @Nullable MavenProject mavenProject, String message) {
     VirtualFile configFile = mavenProject == null ? null : MavenUtil.getConfigFile(mavenProject, MavenConstants.MAVEN_CONFIG_RELATIVE_PATH);
     if (configFile != null) {
-      NotificationListener listener = new NotificationListener() {
-        @Override
-        public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
-          FileEditorManager.getInstance(project).openFile(configFile, true);
-        }
-      };
-      new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP, "", RunnerBundle.message("maven.invalid.config.file.with.link", message),
-                       NotificationType.ERROR, listener).notify(project);
+      new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP, RunnerBundle.message("maven.invalid.config.file.with.link", message), NotificationType.ERROR)
+        .setListener((notification, event) -> FileEditorManager.getInstance(project).openFile(configFile, true))
+        .notify(project);
     }
     else {
-      new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP, "", RunnerBundle.message("maven.invalid.config.file", message),
-                       NotificationType.ERROR).notify(project);
+      new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP, "", RunnerBundle.message("maven.invalid.config.file", message), NotificationType.ERROR)
+        .notify(project);
     }
   }
 

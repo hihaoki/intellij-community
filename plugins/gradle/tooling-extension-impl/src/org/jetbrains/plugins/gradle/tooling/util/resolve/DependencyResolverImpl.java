@@ -1,7 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.tooling.util.resolve;
 
-import com.intellij.openapi.util.Getter;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -34,21 +33,25 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.model.ExternalDependency;
 import org.jetbrains.plugins.gradle.model.FileCollectionDependency;
 import org.jetbrains.plugins.gradle.model.*;
+import org.jetbrains.plugins.gradle.tooling.serialization.internal.adapter.Supplier;
 import org.jetbrains.plugins.gradle.tooling.util.DependencyResolver;
 import org.jetbrains.plugins.gradle.tooling.util.ModuleComponentIdentifierImpl;
 import org.jetbrains.plugins.gradle.tooling.util.SourceSetCachedFinder;
 import org.jetbrains.plugins.gradle.tooling.util.resolve.deprecated.DeprecatedDependencyResolver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.*;
 
 import static java.util.Collections.*;
-import static org.codehaus.groovy.runtime.StringGroovyMethods.capitalize;
 
 /**
  * @author Vladislav.Soroka
  */
-public class DependencyResolverImpl implements DependencyResolver {
+public final class DependencyResolverImpl implements DependencyResolver {
+  private static final Logger LOG = LoggerFactory.getLogger(DependencyResolverImpl.class);
+
   private static final boolean IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE =
     GradleVersion.current().getBaseVersion().compareTo(GradleVersion.version("4.5")) >= 0;
 
@@ -64,6 +67,7 @@ public class DependencyResolverImpl implements DependencyResolver {
    */
   @SuppressWarnings("unused")
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public DependencyResolverImpl(@NotNull Project project,
                                 boolean isPreview,
                                 boolean downloadJavadoc,
@@ -134,7 +138,7 @@ public class DependencyResolverImpl implements DependencyResolver {
     FileCollection compileClasspath = getCompileClasspath(sourceSet);
     Collection<? extends ExternalDependency> compileDependencies = resolveDependenciesWithDefault(
       compileClasspath, COMPILE_SCOPE,
-      new Getter<Collection<? extends ExternalDependency>>() {
+      new Supplier<Collection<? extends ExternalDependency>>() {
         @Override
         public Collection<? extends ExternalDependency> get() {
           String configurationName = sourceSet.getCompileClasspathConfigurationName();
@@ -147,7 +151,7 @@ public class DependencyResolverImpl implements DependencyResolver {
     FileCollection runtimeClasspath = sourceSet.getRuntimeClasspath();
     Collection<? extends ExternalDependency> runtimeDependencies = resolveDependenciesWithDefault(
       runtimeClasspath, RUNTIME_SCOPE,
-      new Getter<Collection<? extends ExternalDependency>>() {
+      new Supplier<Collection<? extends ExternalDependency>>() {
         @Override
         public Collection<? extends ExternalDependency> get() {
           String configurationName = sourceSet.getRuntimeClasspathConfigurationName();
@@ -171,15 +175,17 @@ public class DependencyResolverImpl implements DependencyResolver {
   }
 
   private FileCollection getCompileClasspath(SourceSet sourceSet) {
-    final String sourceSetCompileTaskPrefix = sourceSet.getName() == "main" ? "" : sourceSet.getName();
-    final String compileTaskName = "compile" + capitalize((CharSequence)sourceSetCompileTaskPrefix) + "Java";
-
+    final String compileTaskName = sourceSet.getCompileJavaTaskName();
     Task compileTask = myProject.getTasks().findByName(compileTaskName);
     if (compileTask instanceof AbstractCompile) {
       try {
         return ((AbstractCompile)compileTask).getClasspath();
       } catch (Exception e) {
-        // ignore
+        LOG.warn("Error obtaining compile classpath for java compilation task for [" +
+                 sourceSet.getName() +
+                 "] in project [" +
+                 myProject.getPath() +
+                 "]", e);
       }
     }
     return sourceSet.getCompileClasspath();
@@ -259,8 +265,9 @@ public class DependencyResolverImpl implements DependencyResolver {
           }
 
           ProjectComponentIdentifier projectComponentIdentifier = (ProjectComponentIdentifier)artifact.getId().getComponentIdentifier();
+          String buildName = projectComponentIdentifier.getBuild().getName();
           String projectPath = projectComponentIdentifier.getProjectPath();
-          String key = projectPath + "_" + resolvedDependency.getConfiguration();
+          String key = buildName + "_" + projectPath + "_" + resolvedDependency.getConfiguration();
           DefaultExternalProjectDependency projectDependency = resolvedProjectDependencies.get(key);
           if (projectDependency != null) {
             Set<File> projectDependencyArtifacts = new LinkedHashSet<File>(projectDependency.getProjectDependencyArtifacts());
@@ -476,11 +483,9 @@ public class DependencyResolverImpl implements DependencyResolver {
     Collection<ExternalDependency> result = new ArrayList<ExternalDependency>(2);
     List<File> files = new ArrayList<File>(sourceSetOutput.getClassesDirs().getFiles());
     files.add(sourceSetOutput.getResourcesDir());
-    if (!files.isEmpty()) {
-      DefaultFileCollectionDependency fileCollectionDependency = new DefaultFileCollectionDependency(files);
-      fileCollectionDependency.setScope(scope);
-      result.add(fileCollectionDependency);
-    }
+    DefaultFileCollectionDependency fileCollectionDependency = new DefaultFileCollectionDependency(files);
+    fileCollectionDependency.setScope(scope);
+    result.add(fileCollectionDependency);
 
     if (scope == RUNTIME_SCOPE) {
       ExternalDependency outputDirsRuntimeFileDependency = resolveSourceSetOutputDirsRuntimeFileDependency(sourceSetOutput);
@@ -566,7 +571,7 @@ public class DependencyResolverImpl implements DependencyResolver {
 
   @NotNull
   private Collection<? extends ExternalDependency> getDependencies(@NotNull final FileCollection fileCollection, @NotNull String scope) {
-    return resolveDependenciesWithDefault(fileCollection, scope, new Getter<Collection<? extends ExternalDependency>>() {
+    return resolveDependenciesWithDefault(fileCollection, scope, new Supplier<Collection<? extends ExternalDependency>>() {
       @Override
       public Collection<? extends ExternalDependency> get() {
         return singleton(new DefaultFileCollectionDependency(fileCollection.getFiles()));
@@ -578,7 +583,7 @@ public class DependencyResolverImpl implements DependencyResolver {
   private Collection<? extends ExternalDependency> resolveDependenciesWithDefault(
     @NotNull FileCollection fileCollection,
     @NotNull String scope,
-    @NotNull Getter<Collection<? extends ExternalDependency>> defaultValueProvider) {
+    @NotNull Supplier<Collection<? extends ExternalDependency>> defaultValueProvider) {
     if (fileCollection instanceof ConfigurableFileCollection) {
       return getDependencies(((ConfigurableFileCollection)fileCollection).getFrom(), scope);
     }

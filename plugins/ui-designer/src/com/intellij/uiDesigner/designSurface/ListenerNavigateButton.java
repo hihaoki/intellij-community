@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.designSurface;
 
@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.DefUseUtil;
@@ -35,9 +36,7 @@ import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.util.Objects;
 
-/**
- * @author yole
- */
+
 public class ListenerNavigateButton extends JButton implements ActionListener {
   private static final Logger LOG = Logger.getInstance(ListenerNavigateButton.class);
 
@@ -178,7 +177,7 @@ public class ListenerNavigateButton extends JButton implements ActionListener {
   private static class MyNavigateAction extends AnAction {
     private final PsiElement myElement;
 
-    MyNavigateAction(final String name, PsiElement element) {
+    MyNavigateAction(final @NlsSafe String name, PsiElement element) {
       super(name);
       myElement = element;
     }

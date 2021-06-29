@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.binary;
 
 import com.intellij.diff.DiffContext;
@@ -31,6 +31,7 @@ import com.intellij.openapi.util.NullableComputable;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ThreeState;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -81,6 +82,8 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
     group.add(Separator.getInstance());
     group.add(myTransferableStateSupport.createToggleAction());
     group.addAll(super.createToolbarActions());
+
+    group.add(ActionManager.getInstance().getAction("Diff.Binary.Settings"));
 
     return group;
   }
@@ -266,9 +269,9 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
     public static final ComparisonData ERROR = new ComparisonData(ThreeState.UNSURE, () -> DiffBundle.message("diff.cant.calculate.diff"));
 
     @NotNull public final ThreeState isContentsEqual;
-    @NotNull public final NullableComputable<String> notification;
+    @NotNull public final NullableComputable<@Nls String> notification;
 
-    private ComparisonData(@NotNull ThreeState isContentsEqual, @NotNull NullableComputable<String> notification) {
+    private ComparisonData(@NotNull ThreeState isContentsEqual, @NotNull NullableComputable<@Nls String> notification) {
       this.isContentsEqual = isContentsEqual;
       this.notification = notification;
     }

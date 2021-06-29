@@ -1,7 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.generation;
 
 import com.intellij.codeInsight.hint.HintManager;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.lang.LanguageCodeInsightActionHandler;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -13,9 +14,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author yole
- */
+
 public class JavaOverrideMethodsHandler implements ContextAwareActionHandler, LanguageCodeInsightActionHandler {
   @Override
   public boolean isValidFor(final Editor editor, final PsiFile file) {
@@ -32,7 +31,7 @@ public class JavaOverrideMethodsHandler implements ContextAwareActionHandler, La
     if (aClass == null) return;
 
     if (OverrideImplementExploreUtil.getMethodSignaturesToOverride(aClass).isEmpty()) {
-      HintManager.getInstance().showErrorHint(editor, "No methods to override have been found");
+      HintManager.getInstance().showErrorHint(editor, JavaBundle.message("override.methods.error.no.methods"));
       return;
     }
     OverrideImplementUtil.chooseAndOverrideMethods(project, editor, aClass);

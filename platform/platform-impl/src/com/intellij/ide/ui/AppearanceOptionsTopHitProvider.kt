@@ -1,13 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui
 
 import com.intellij.application.options.editor.CheckboxDescriptor
 import com.intellij.ide.IdeBundle.message
 import com.intellij.ide.ui.search.BooleanOptionDescription
-import com.intellij.ide.ui.search.OptionDescription
 import com.intellij.notification.impl.NotificationsConfigurationImpl
 import com.intellij.openapi.util.NlsContexts.Label
-import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.util.text.Strings
+import java.util.function.Supplier
 
 // @formatter:off
 internal val uiOptionGroupName get() = message("appearance.ui.option.group")
@@ -22,7 +22,6 @@ private val cdShowStatusBar                    get() = CheckboxDescriptor(messag
 private val cdShowNavigationBar                get() = CheckboxDescriptor(message("show.navigation.bar"), settings::showNavigationBar, groupName = viewOptionGroupName)
 private val cdShowMembersInNavigationBar       get() = CheckboxDescriptor(message("show.members.in.navigation.bar"), settings::showMembersInNavigationBar, groupName = viewOptionGroupName)
 private val cdUseSmallTabLabels                get() = CheckboxDescriptor(message("small.labels.in.editor.tabs"), settings::useSmallLabelsOnTabs, groupName = windowOptionGroupName)
-private val cdNavigateToPreview                get() = CheckboxDescriptor(OptionsTopHitProvider.messageIde("checkbox.use.preview.window"), settings::navigateToPreview, groupName = windowOptionGroupName)
 private val cdShowEditorPreview                get() = CheckboxDescriptor(OptionsTopHitProvider.messageIde("checkbox.show.editor.preview.popup"), settings::showEditorToolTip, groupName = windowOptionGroupName)
 private val cdShowBalloons                     get() = CheckboxDescriptor(message("display.balloon.notifications"), notificationSettings::SHOW_BALLOONS, groupName = uiOptionGroupName)
 // @formatter:on
@@ -34,32 +33,28 @@ private val optionDescriptors
     cdShowNavigationBar,
     cdShowMembersInNavigationBar,
     cdUseSmallTabLabels,
-    cdNavigateToPreview,
     cdShowEditorPreview,
     cdShowBalloons
   ).map(CheckboxDescriptor::asUiOptionDescriptor)
 
 class AppearanceOptionsTopHitProvider : OptionsSearchTopHitProvider.ApplicationLevelProvider {
-  override fun getId(): String = ID
+  override fun getId() = ID
 
-  override fun getOptions(): Collection<OptionDescription> {
-    return appearanceOptionDescriptors +
-           optionDescriptors
-  }
+  override fun getOptions() = appearanceOptionDescriptors + optionDescriptors
 
   companion object {
     const val ID = "appearance"
 
     @JvmStatic
-    fun option(option: @Label String, propertyName: String, configurableId: String): BooleanOptionDescription =
-      object : PublicMethodBasedOptionDescription(option, configurableId,
-                                                  "get" + StringUtil.capitalize(propertyName),
-                                                  "set" + StringUtil.capitalize(propertyName)) {
-        override fun getInstance(): Any = UISettings.instance.state
+    fun option(@Label option: String, propertyName: String, configurableId: String): BooleanOptionDescription {
+      return object : PublicMethodBasedOptionDescription(option, configurableId,
+                                                         "get" + Strings.capitalize(propertyName),
+                                                         "set" + Strings.capitalize(propertyName), Supplier { UISettings.instance.state }) {
         override fun fireUpdated() = UISettings.instance.fireUISettingsChanged()
       }
+    }
 
     @JvmStatic
-    fun appearance(option: @Label String, propertyName: String): BooleanOptionDescription = option(option, propertyName, "preferences.lookFeel")
+    fun appearance(@Label option: String, propertyName: String) = option(option, propertyName, "preferences.lookFeel")
   }
 }

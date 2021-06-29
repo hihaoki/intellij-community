@@ -12,13 +12,14 @@ import com.intellij.vcs.log.graph.utils.IntIntMultiMap;
 import com.intellij.vcs.log.graph.utils.LinearGraphUtils;
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
 final class LinearBekGraphBuilder {
-  private static final int MAX_BLOCK_SIZE = 200;
+  static final int MAX_BLOCK_SIZE = 200;
   private static final int MAGIC_SET_SIZE = PrintElementGeneratorImpl.LONG_EDGE_SIZE;
   private static final GraphEdgeToDownNode GRAPH_EDGE_TO_DOWN_NODE = new GraphEdgeToDownNode();
   @NotNull private final GraphLayout myGraphLayout;
@@ -29,13 +30,17 @@ final class LinearBekGraphBuilder {
     myGraphLayout = graphLayout;
   }
 
-  public void collapseAll() {
+  @NotNull
+  public IntSet collapseAll() {
+    IntSet collapsedMerges = new IntOpenHashSet();
     for (int i = myLinearBekGraph.myGraph.nodesCount() - 1; i >= 0; i--) {
       MergeFragment fragment = getFragment(i);
       if (fragment != null) {
         fragment.collapse(myLinearBekGraph);
+        collapsedMerges.add(fragment.getParent());
       }
     }
+    return collapsedMerges;
   }
 
   @Nullable
@@ -181,8 +186,8 @@ final class LinearBekGraphBuilder {
 
     private boolean myMergeWithOldCommit = false;
     @NotNull private final IntIntMultiMap myTailEdges = new IntIntMultiMap();
-    @NotNull private final IntOpenHashSet myBlockBody = new IntOpenHashSet();
-    @NotNull private final IntOpenHashSet myTails = new IntOpenHashSet();
+    @NotNull private final IntSet myBlockBody = new IntOpenHashSet();
+    @NotNull private final IntSet myTails = new IntOpenHashSet();
 
     private MergeFragment(int parent, int leftChild, int rightChild) {
       myParent = parent;
@@ -216,7 +221,7 @@ final class LinearBekGraphBuilder {
     }
 
     @NotNull
-    public IntOpenHashSet getTails() {
+    public IntSet getTails() {
       return myTails;
     }
 
@@ -297,6 +302,10 @@ final class LinearBekGraphBuilder {
 
     public boolean isBody(int index) {
       return myBlockBody.contains(index);
+    }
+
+    public int getLeftChild() {
+      return myLeftChild;
     }
   }
 

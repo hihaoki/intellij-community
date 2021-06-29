@@ -13,6 +13,7 @@ import com.intellij.psi.*
 import com.intellij.psi.search.PsiElementProcessor
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtil
+import com.intellij.refactoring.RefactoringBundle
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodHelper.findUsedTypeParameters
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodHelper.hasExplicitModifier
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodHelper.inputParameterOf
@@ -157,7 +158,8 @@ object ExtractMethodPipeline {
     }
 
     if (targetCandidates.size > 1) {
-      NavigationUtil.getPsiElementPopup(targetCandidates.toTypedArray(), PsiClassListCellRenderer(), "Choose Destination Class", processor, preselection)
+      NavigationUtil.getPsiElementPopup(targetCandidates.toTypedArray(), PsiClassListCellRenderer(),
+                                        RefactoringBundle.message("choose.destination.class"), processor, preselection)
         .showInBestPositionFor(editor)
     } else {
       processor.execute(preselection)
@@ -245,7 +247,7 @@ object ExtractMethodPipeline {
   private val annotationsToKeep: Set<String> = setOf(
     NLS, NON_NLS, LANGUAGE, PROPERTY_KEY, PROPERTY_KEY_RESOURCE_BUNDLE_PARAMETER, "org.intellij.lang.annotations.RegExp",
     "org.intellij.lang.annotations.Pattern", "org.intellij.lang.annotations.MagicConstant", "org.intellij.lang.annotations.Subst",
-    "org.intellij.lang.annotations.PrintFormat", "java.util.regex.Pattern"
+    "org.intellij.lang.annotations.PrintFormat"
   )
 
   private fun findAnnotationsToKeep(variable: PsiVariable?): List<PsiAnnotation> {
@@ -256,23 +258,23 @@ object ExtractMethodPipeline {
     return findAnnotationsToKeep(reference?.resolve() as? PsiVariable)
   }
 
-  private fun withFilteredAnnotations(type: PsiType): PsiType {
+  private fun withFilteredAnnotations(type: PsiType, context: PsiElement?): PsiType {
     val project = type.annotations.firstOrNull()?.project ?: return type
     val factory = PsiElementFactory.getInstance(project)
-    val typeHolder = factory.createParameter("x", type)
+    val typeHolder = factory.createParameter("x", type, context)
     typeHolder.type.annotations.filterNot { it.qualifiedName in annotationsToKeep }.forEach { it.delete() }
     return typeHolder.type
   }
 
-  private fun withFilteredAnnotations(inputParameter: InputParameter): InputParameter {
+  private fun withFilteredAnnotations(inputParameter: InputParameter, context: PsiElement?): InputParameter {
     return inputParameter.copy(
       annotations = findAnnotationsToKeep(inputParameter.references.firstOrNull() as? PsiReference),
-      type = withFilteredAnnotations(inputParameter.type)
+      type = withFilteredAnnotations(inputParameter.type, context)
     )
   }
 
-  private fun withFilteredAnnotation(output: DataOutput): DataOutput {
-    val filteredType = withFilteredAnnotations(output.type)
+  private fun withFilteredAnnotation(output: DataOutput, context: PsiElement?): DataOutput {
+    val filteredType = withFilteredAnnotations(output.type, context)
     return when(output) {
       is VariableOutput -> output.copy(annotations = findAnnotationsToKeep(output.variable), type = filteredType)
       is ExpressionOutput -> output.copy(annotations = findAnnotationsToKeep(output.returnExpressions.singleOrNull() as? PsiReference), type = filteredType)
@@ -282,9 +284,9 @@ object ExtractMethodPipeline {
 
   fun withFilteredAnnotations(extractOptions: ExtractOptions): ExtractOptions {
     return extractOptions.copy(
-      inputParameters = extractOptions.inputParameters.map { withFilteredAnnotations(it) },
-      disabledParameters = extractOptions.disabledParameters.map { withFilteredAnnotations(it) },
-      dataOutput = withFilteredAnnotation(extractOptions.dataOutput)
+      inputParameters = extractOptions.inputParameters.map { withFilteredAnnotations(it, extractOptions.anchor.context) },
+      disabledParameters = extractOptions.disabledParameters.map { withFilteredAnnotations(it, extractOptions.anchor.context) },
+      dataOutput = withFilteredAnnotation(extractOptions.dataOutput, extractOptions.anchor.context)
     )
   }
 }

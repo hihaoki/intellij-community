@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
@@ -13,12 +13,13 @@ import com.intellij.openapi.util.NamedJDOMExternalizable
 import com.intellij.serviceContainer.ComponentManagerImpl
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.jps.model.serialization.JpsGlobalLoader
 import java.nio.file.Path
 
 internal class ApplicationPathMacroManager : PathMacroManager(null)
 
-const val APP_CONFIG = "\$APP_CONFIG$"
+@NonNls const val APP_CONFIG = "\$APP_CONFIG$"
 
 class ApplicationStoreImpl : ComponentStoreWithExtraComponents() {
   override val storageManager = ApplicationStorageManager(ApplicationManager.getApplication(), PathMacroManager.getInstance(ApplicationManager.getApplication()))
@@ -75,10 +76,10 @@ class ApplicationStorageManager(application: Application?, pathMacroManager: Pat
   : StateStorageManagerImpl("application", pathMacroManager?.createTrackingSubstitutor (), application) {
   override fun getFileBasedStorageConfiguration(fileSpec: String) = appFileBasedStorageConfiguration
 
-  override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation): String? {
+  override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation): String {
     return when (component) {
       is NamedJDOMExternalizable -> "${component.externalFileName}${PathManager.DEFAULT_EXT}"
-      else -> PathManager.DEFAULT_OPTIONS_FILE
+      else -> StoragePathMacros.NON_ROAMABLE_FILE
     }
   }
 

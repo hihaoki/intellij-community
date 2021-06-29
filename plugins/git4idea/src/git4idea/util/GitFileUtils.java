@@ -2,8 +2,8 @@
 package git4idea.util;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
@@ -19,40 +19,37 @@ import git4idea.commands.GitCommand;
 import git4idea.commands.GitLineHandler;
 import git4idea.config.GitExecutableManager;
 import git4idea.config.GitVersion;
+import git4idea.index.GitIndexUtil;
+import git4idea.index.vfs.GitIndexFileSystemRefresher;
 import git4idea.repo.GitRepository;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.ByteArrayInputStream;
 import java.util.*;
 
+import static com.intellij.util.ArrayUtil.EMPTY_BYTE_ARRAY;
 import static git4idea.config.GitVersionSpecialty.CAT_FILE_SUPPORTS_FILTERS;
 import static git4idea.config.GitVersionSpecialty.CAT_FILE_SUPPORTS_TEXTCONV;
 
 public final class GitFileUtils {
 
   private static final Logger LOG = Logger.getInstance(GitFileUtils.class);
+  public static final String READ_CONTENT_WITH = "git.read.content.with";
 
   private GitFileUtils() {
   }
 
-  /**
-   * @deprecated Use {@link #deletePaths}
-   */
-  @Deprecated
-  public static void delete(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends FilePath> files,
-                            String @NotNull ... additionalOptions) throws VcsException {
-    deletePaths(project, root, files, additionalOptions);
-  }
-
   public static void deletePaths(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends FilePath> files,
-                                 String @NotNull ... additionalOptions) throws VcsException {
+                                 @NonNls String @NotNull ... additionalOptions) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkPaths(root, files)) {
       doDelete(project, root, paths, additionalOptions);
     }
   }
 
   public static void deleteFiles(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files,
-                                 String @NotNull ... additionalOptions) throws VcsException {
+                                 @NonNls String @NotNull ... additionalOptions) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkFiles(root, files)) {
       doDelete(project, root, paths, additionalOptions);
     }
@@ -63,7 +60,7 @@ public final class GitFileUtils {
   }
 
   private static void doDelete(@NotNull Project project, @NotNull VirtualFile root, @NotNull List<String> paths,
-                               String @NotNull ... additionalOptions) throws VcsException {
+                               @NonNls String @NotNull ... additionalOptions) throws VcsException {
     GitLineHandler handler = new GitLineHandler(project, root, GitCommand.RM);
     handler.addParameters(additionalOptions);
     handler.endOptions();
@@ -83,6 +80,7 @@ public final class GitFileUtils {
       addPathsImpl(project, root, paths, false, true);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, files);
+    GitIndexFileSystemRefresher.refreshVirtualFiles(project, files);
   }
 
   public static void addFilesForce(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files)
@@ -91,6 +89,7 @@ public final class GitFileUtils {
       addPathsImpl(project, root, paths, true, false);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, files);
+    GitIndexFileSystemRefresher.refreshVirtualFiles(project, files);
   }
 
   private static void updateUntrackedFilesHolderOnFileAdd(@NotNull Project project, @NotNull VirtualFile root,
@@ -147,15 +146,32 @@ public final class GitFileUtils {
     addPaths(project, root, files, force, !force);
   }
 
+  public static void addPathsToIndex(@NotNull Project project, @NotNull VirtualFile root,
+                                     @NotNull Collection<? extends FilePath> files) throws VcsException {
+    for (FilePath file : files) {
+      GitIndexUtil.write(project, root, file, new ByteArrayInputStream(EMPTY_BYTE_ARRAY), false, true);
+    }
+
+    updateAndRefresh(project, root, files, false);
+  }
+
   public static void addPaths(@NotNull Project project, @NotNull VirtualFile root,
                               @NotNull Collection<? extends FilePath> files, boolean force, boolean filterOutIgnored) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkPaths(root, files)) {
       addPathsImpl(project, root, paths, force, filterOutIgnored);
     }
+    updateAndRefresh(project, root, files, force);
+  }
+
+  private static void updateAndRefresh(@NotNull Project project,
+                                       @NotNull VirtualFile root,
+                                       @NotNull Collection<? extends FilePath> files,
+                                       boolean updateIgnoredHolders) {
     updateUntrackedFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
-    if (force) {
+    if (updateIgnoredHolders) {
       updateIgnoredFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
     }
+    GitIndexFileSystemRefresher.refreshFilePaths(project, files);
   }
 
   public static void addPathsForce(@NotNull Project project, @NotNull VirtualFile root,
@@ -165,6 +181,7 @@ public final class GitFileUtils {
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
     updateIgnoredFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
+    GitIndexFileSystemRefresher.refreshFilePaths(project, files);
   }
 
   @NotNull
@@ -223,6 +240,7 @@ public final class GitFileUtils {
       Git.getInstance().runCommand(handler).throwOnError();
     }
     updateUntrackedFilesHolderOnFileReset(project, root, files);
+    GitIndexFileSystemRefresher.refreshFilePaths(project, files);
   }
 
   public static void revertUnstagedPaths(@NotNull Project project, @NotNull VirtualFile root, @NotNull List<? extends FilePath> files) throws VcsException {
@@ -245,8 +263,8 @@ public final class GitFileUtils {
    */
   public static byte @NotNull [] getFileContent(@NotNull Project project,
                                                 @NotNull VirtualFile root,
-                                                @NotNull String revisionOrBranch,
-                                                @NotNull String relativePath) throws VcsException {
+                                                @NotNull @NonNls String revisionOrBranch,
+                                                @NotNull @NonNls String relativePath) throws VcsException {
     GitBinaryHandler h = new GitBinaryHandler(project, root, GitCommand.CAT_FILE);
     h.setSilent(true);
     addTextConvParameters(project, h, true);
@@ -260,16 +278,24 @@ public final class GitFileUtils {
 
   public static void addTextConvParameters(@Nullable GitVersion version, @NotNull GitBinaryHandler h, boolean addp) {
     version = ObjectUtils.chooseNotNull(version, GitVersion.NULL);
-    if (CAT_FILE_SUPPORTS_TEXTCONV.existsIn(version) &&
-        Registry.is("git.read.content.with.textconv")) {
-      h.addParameters("--textconv");
-    }
-    else if (CAT_FILE_SUPPORTS_FILTERS.existsIn(version) &&
-             Registry.is("git.read.content.with.filters")) {
-      h.addParameters("--filters");
-    }
-    else if (addp) {
-      h.addParameters("-p");
+    switch (AdvancedSettings.getEnum(READ_CONTENT_WITH, GitTextConvMode.class)) {
+      case FILTERS: {
+        if (CAT_FILE_SUPPORTS_FILTERS.existsIn(version)) {
+          h.addParameters("--filters");
+        }
+        break;
+      }
+      case TEXTCONV: {
+        if (CAT_FILE_SUPPORTS_TEXTCONV.existsIn(version)) {
+          h.addParameters("--textconv");
+        }
+        break;
+      }
+      default: {
+        if (addp) {
+          h.addParameters("-p");
+        }
+      }
     }
   }
 }

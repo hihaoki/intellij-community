@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView;
 
 import com.intellij.ide.util.treeView.PresentableNodeDescriptor;
@@ -23,13 +9,14 @@ import com.intellij.navigation.LocationPresentation;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.NlsContexts.Tooltip;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.FontUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.update.ComparableObject;
 import com.intellij.util.ui.update.ComparableObjectCheck;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,12 +31,13 @@ import java.util.List;
 public class PresentationData implements ColoredItemPresentation, ComparableObject, LocationPresentation {
   protected final List<PresentableNodeDescriptor.ColoredFragment> myColoredText = ContainerUtil.createLockFreeCopyOnWriteList();
 
+  private @Nullable Color myBackground;
   private Icon myIcon;
 
-  private String myLocationString;
-  private String myPresentableText;
+  private @NlsSafe String myLocationString;
+  private @NlsSafe String myPresentableText;
 
-  private String myTooltip;
+  private @Tooltip String myTooltip;
   private TextAttributesKey myAttributesKey;
 
   private Color myForcedTextForeground;
@@ -59,8 +47,8 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
   private boolean mySeparatorAbove = false;
 
   private boolean myChanged;
-  private String myLocationPrefix;
-  private String myLocationSuffix;
+  private @NlsSafe String myLocationPrefix;
+  private @NlsSafe String myLocationSuffix;
 
   /**
    * Creates an instance with the specified parameters.
@@ -73,7 +61,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
    *                        in a non-tree view.
    * @param attributesKey   the attributes for rendering the item text.
    */
-  public PresentationData(String presentableText, String locationString, Icon icon,
+  public PresentationData(@NlsSafe String presentableText, @NlsSafe String locationString, Icon icon,
                           @Nullable TextAttributesKey attributesKey) {
     myIcon = icon;
     myLocationString = locationString;
@@ -81,20 +69,19 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
     myAttributesKey = attributesKey;
   }
 
-  /**
-   * @deprecated Use {@link #PresentationData(String, String, Icon, TextAttributesKey)} instead.
-   */
-  @Deprecated
-  public PresentationData(@Nls String presentableText, String locationString, Icon openIcon, Icon closedIcon,
-                          @Nullable TextAttributesKey attributesKey) {
-    this(presentableText, locationString, closedIcon, attributesKey);
-  }
-
 
   /**
    * Creates an instance with no parameters specified.
    */
   public PresentationData() {
+  }
+
+  public final @Nullable Color getBackground() {
+    return myBackground;
+  }
+
+  public final void setBackground(@Nullable Color background) {
+    myBackground = background;
   }
 
   @Override
@@ -132,7 +119,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
    * @param locationString the location of the object.
    */
 
-  public void setLocationString(String locationString) {
+  public void setLocationString(@NlsSafe String locationString) {
     myLocationString = locationString;
   }
 
@@ -141,18 +128,18 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
    *
    * @param presentableText the name of the object.
    */
-  public void setPresentableText(@Nls String presentableText) {
+  public void setPresentableText(@NlsSafe String presentableText) {
     myPresentableText = presentableText;
   }
 
   /**
    * @param closedIcon the closed icon for the node.
-   * @see #setIcons(Icon)
    * @deprecated Different icons for open/closed no longer supported. Use setIcon instead
    *             Sets the icon shown for the node when it is collapsed in a tree, or when it is displayed
    *             in a non-tree view.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setClosedIcon(Icon closedIcon) {
     setIcon(closedIcon);
   }
@@ -160,25 +147,12 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
 
   /**
    * @param openIcon the open icon for the node.
-   * @see #setIcons(Icon)
    * @deprecated Different icons for open/closed no longer supported. This function is no op.
    *             Sets the icon shown for the node when it is expanded in the tree.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setOpenIcon(Icon openIcon) {
-  }
-
-  /**
-   * @param icon the icon for the node.
-   * @see #setOpenIcon(Icon)
-   * @see #setClosedIcon(Icon)
-   * @deprecated Different icons for open/closed no longer supported. Use setIcon instead.
-   *             Sets both the open and closed icons of the node to the specified icon.
-   */
-
-  @Deprecated
-  public void setIcons(Icon icon) {
-    setIcon(icon);
   }
 
   /**
@@ -187,6 +161,9 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
    * @param presentation the instance to copy the parameters from.
    */
   public void updateFrom(ItemPresentation presentation) {
+    if (presentation instanceof PresentationData) {
+      setBackground(((PresentationData)presentation).getBackground());
+    }
     setIcon(presentation.getIcon(false));
     setPresentableText(presentation.getPresentableText());
     setLocationString(presentation.getLocationString());
@@ -222,7 +199,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
     myAttributesKey = attributesKey;
   }
 
-  public String getTooltip() {
+  public @Tooltip String getTooltip() {
     return myTooltip;
   }
 
@@ -256,6 +233,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
   }
 
   public void clear() {
+    myBackground = null;
     myIcon = null;
     clearText();
     myAttributesKey = null;
@@ -272,7 +250,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
 
   @Override
   public Object @NotNull [] getEqualityObjects() {
-    return new Object[]{myIcon, myColoredText, myAttributesKey, myFont, myForcedTextForeground, myPresentableText,
+    return new Object[]{myBackground, myIcon, myColoredText, myAttributesKey, myFont, myForcedTextForeground, myPresentableText,
       myLocationString, mySeparatorAbove, myLocationPrefix, myLocationSuffix};
   }
 
@@ -290,6 +268,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
     if (from == this) {
       return;
     }
+    myBackground = from.myBackground;
     myAttributesKey = from.myAttributesKey;
     myIcon = from.myIcon;
     clearText();
@@ -312,6 +291,7 @@ public class PresentationData implements ColoredItemPresentation, ComparableObje
   }
 
   public void applyFrom(PresentationData from) {
+    myBackground = getValue(myBackground, from.myBackground);
     myAttributesKey = getValue(myAttributesKey, from.myAttributesKey);
     myIcon = getValue(myIcon, from.myIcon);
 

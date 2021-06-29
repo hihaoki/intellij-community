@@ -25,6 +25,8 @@ import com.intellij.openapi.ui.CheckBoxWithDescription
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowId
@@ -36,6 +38,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.xdebugger.XDebuggerUtil
+import com.jetbrains.python.PythonPluginDisposable
 import com.jetbrains.python.newProject.welcome.PyWelcomeCollector.Companion.ProjectType
 import com.jetbrains.python.newProject.welcome.PyWelcomeCollector.Companion.ProjectViewPoint
 import com.jetbrains.python.newProject.welcome.PyWelcomeCollector.Companion.ProjectViewResult
@@ -55,7 +58,7 @@ internal class PyWelcomeConfigurator : DirectoryProjectConfigurator {
   override fun isEdtRequired() = false
 
   override fun configureProject(project: Project, baseDir: VirtualFile, moduleRef: Ref<Module>, isProjectCreatedWithWizard: Boolean) {
-    if (isProjectCreatedWithWizard) {
+    if (isProjectCreatedWithWizard || isInsideTempDirectory(baseDir)) {
       return
     }
 
@@ -65,6 +68,11 @@ internal class PyWelcomeConfigurator : DirectoryProjectConfigurator {
         PyWelcome.welcomeUser(project, baseDir, moduleRef.get())
       }
     )
+  }
+
+  private fun isInsideTempDirectory(baseDir: VirtualFile): Boolean {
+    val tempDir = LocalFileSystem.getInstance().findFileByPath(FileUtil.getTempDirectory()) ?: return false
+    return VfsUtil.isAncestor(tempDir, baseDir, true)
   }
 }
 
@@ -89,7 +97,7 @@ private object PyWelcome {
   private val LOG = Logger.getInstance(PyWelcome::class.java)
 
   @CalledInAny
-  internal fun welcomeUser(project: Project, baseDir: VirtualFile, module: Module?) {
+  fun welcomeUser(project: Project, baseDir: VirtualFile, module: Module?) {
     val enabled = PyWelcomeSettings.instance.createWelcomeScriptForEmptyProject
 
     if (isEmptyProject(project, baseDir, module)) {
@@ -131,12 +139,12 @@ private object PyWelcome {
   private fun prepareFileAndOpen(project: Project, baseDir: VirtualFile): CancellablePromise<PsiFile?> {
     return AppUIExecutor
       .onWriteThread()
-      .expireWith(project)
+      .expireWith(PythonPluginDisposable.getInstance(project))
       .submit(
         Callable {
           WriteAction.compute<PsiFile?, Exception> {
             prepareFile(project, baseDir)?.also {
-              AppUIExecutor.onUiThread().expireWith(project).execute { it.navigate(true) }
+              AppUIExecutor.onUiThread().expireWith(PythonPluginDisposable.getInstance(project)).execute { it.navigate(true) }
             }
           }
         }
@@ -175,6 +183,7 @@ private object PyWelcome {
     val toolWindow = toolWindowManager.getToolWindow(ToolWindowId.PROJECT_VIEW)
     if (toolWindow == null) {
       val listener = ProjectViewListener(project, baseDir, module, file)
+      Disposer.register(PythonPluginDisposable.getInstance(project), listener)
       // collected listener will release the connection
       project.messageBus.connect(listener).subscribe(ToolWindowManagerListener.TOPIC, listener)
     }
@@ -183,7 +192,7 @@ private object PyWelcome {
         DumbAwareRunnable {
           AppUIExecutor
             .onUiThread(ModalityState.NON_MODAL)
-            .expireWith(project)
+            .expireWith(PythonPluginDisposable.getInstance(project))
             .submit {
               val fileToChoose = (file ?: firstUserFile(project, baseDir, module)) ?: return@submit
 

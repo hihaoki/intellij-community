@@ -6,13 +6,20 @@ import com.intellij.openapi.roots.AdditionalLibraryRootsProvider
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.SyntheticLibrary
+import com.intellij.openapi.util.io.IoTestUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.RunsInEdt
 import com.intellij.util.indexing.IndexableSetContributor
+import org.junit.Before
 import org.junit.Test
 
 @RunsInEdt
 class IndexableFilesSymlinksTest : IndexableFilesBaseTest() {
+  @Before
+  fun applicabilityCheck() {
+    IoTestUtil.assumeSymLinkCreationIsSupported()
+  }
+
   // Symlinks in ProjectFileIndex are treated as if they were copy of the target's content,
   // so exclusion of the target is not taken into account.
   @Test
@@ -67,6 +74,35 @@ class IndexableFilesSymlinksTest : IndexableFilesBaseTest() {
       classesSymlink.file / "ClassFile.java",
       sourcesSymlink.file,
       sourcesSymlink.file / "SourceFile.java"
+    )
+  }
+
+  /**
+   * Indicator of the following bug: IDEA-189247
+   * When a directory is soft-linked into a project, its excluded subdirectories are still indexed.
+   */
+  @Test
+  fun `index excluded directories if they are referenced via symlink`() {
+    lateinit var sourcesDir: DirectorySpec
+    lateinit var workspaceSymlink: SymlinkSpec
+    projectModelRule.createJavaModule("moduleName") {
+      content("contentRoot") {
+        val workspace = moduleDir("workspace") {
+          sourcesDir = source("sources") {
+            file("SourceFile.java", "class SourceFile {}")
+          }
+          excluded("excluded") {
+            file("ExcludedFile.java", "class ExcludedFile {}")
+          }
+        }
+        workspaceSymlink = symlink("workspace-link", workspace)
+      }
+    }
+    assertIndexableFiles(
+      sourcesDir.file / "SourceFile.java",
+      workspaceSymlink.file,
+      workspaceSymlink.file / "sources" / "SourceFile.java",
+      workspaceSymlink.file / "excluded" / "ExcludedFile.java",
     )
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.artifacts;
 
 import com.intellij.compiler.server.BuildManager;
@@ -6,6 +6,7 @@ import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
@@ -21,12 +22,13 @@ import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.packaging.artifacts.*;
 import com.intellij.packaging.elements.*;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jdom.Element;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +45,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
   @NonNls public static final String COMPONENT_NAME = "ArtifactManager";
   @NonNls public static final String PACKAGING_ELEMENT_NAME = "element";
   @NonNls public static final String TYPE_ID_ATTRIBUTE = "id";
+  public static final String FEATURE_TYPE = "com.intellij.packaging.artifacts.ArtifactType";
   private final ArtifactManagerModel myModel;
   private final Project myProject;
   private final DefaultPackagingElementResolvingContext myResolvingContext;
@@ -103,8 +106,8 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
 
   ArtifactState saveArtifact(Artifact artifact) {
     ArtifactState artifactState;
-    if (artifact instanceof InvalidArtifact) {
-      artifactState = ((InvalidArtifact)artifact).getState();
+    if (artifact instanceof InvalidArtifactImpl) {
+      artifactState = ((InvalidArtifactImpl)artifact).getState();
     }
     else {
       artifactState = new ArtifactState();
@@ -114,9 +117,15 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
       artifactState.setRootElement(serializePackagingElement(artifact.getRootElement()));
       artifactState.setArtifactType(artifact.getArtifactType().getId());
       ProjectModelExternalSource externalSource = artifact.getExternalSource();
-      if (externalSource != null && ProjectUtilCore.isExternalStorageEnabled(myProject)) {
-        //we can add this attribute only if the artifact configuration will be stored separately, otherwise we will get modified files in .idea/artifacts.
-        artifactState.setExternalSystemId(externalSource.getId());
+      if (externalSource != null) {
+        //we can add this attribute only if the artifact configuration will be stored separately or if the attribute was present in artifact configuration file,
+        // otherwise we will get modified files in .idea/artifacts.
+        if (ProjectUtilCore.isExternalStorageEnabled(myProject)) {
+          artifactState.setExternalSystemId(externalSource.getId());
+        }
+        else if (artifact instanceof ArtifactImpl && ((ArtifactImpl)artifact).shouldKeepExternalSystemAttribute()) {
+          artifactState.setExternalSystemIdInInternalStorage(externalSource.getId());
+        }
       }
 
       for (ArtifactPropertiesProvider provider : artifact.getPropertiesProviders()) {
@@ -130,7 +139,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
     return artifactState;
   }
 
-  public void replaceArtifacts(@NotNull Collection<? extends Artifact> toReplace, Function<Artifact, ArtifactImpl> replacement) {
+  public void replaceArtifacts(@NotNull Collection<? extends Artifact> toReplace, Function<? super Artifact, ? extends ArtifactImpl> replacement) {
     if (toReplace.isEmpty()) return;
     
     ArtifactModelImpl model = createModifiableModel();
@@ -143,6 +152,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
 
   @Nullable
   private static <S> ArtifactPropertiesState serializeProperties(ArtifactPropertiesProvider provider, ArtifactProperties<S> properties) {
+    if (properties.getState() == null) return null;
     final Element options = XmlSerializer.serialize(properties.getState());
     if (options == null) {
       return null;
@@ -183,9 +193,8 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
       XmlSerializer.deserializeInto(element, state);
       packagingElement.loadState(state);
     }
-    final List children = element.getChildren(PACKAGING_ELEMENT_NAME);
-    //noinspection unchecked
-    for (Element child : (List<? extends Element>)children) {
+    final List<? extends Element> children = element.getChildren(PACKAGING_ELEMENT_NAME);
+    for (Element child : children) {
       ((CompositePackagingElement<?>)packagingElement).addOrFindChild(deserializeElement(child));
     }
     return packagingElement;
@@ -205,7 +214,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
 
     if (myLoaded) {
       final ArtifactModelImpl model = new ArtifactModelImpl(this, artifacts);
-      doCommit(model);
+      WriteAction.run(() -> doCommit(model));
     }
     else {
       myModel.setArtifactsList(artifacts);
@@ -215,9 +224,9 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
 
   ArtifactImpl loadArtifact(ArtifactState state) {
     ArtifactType type = ArtifactType.findById(state.getArtifactType());
-    ProjectModelExternalSource externalSource = findExternalSource(state.getExternalSystemId());
+    ProjectModelExternalSource externalSource = findExternalSource(ObjectUtils.chooseNotNull(state.getExternalSystemId(), state.getExternalSystemIdInInternalStorage()));
     if (type == null) {
-      return createInvalidArtifact(state, externalSource, "Unknown artifact type: " + state.getArtifactType());
+      return createInvalidArtifact(state, externalSource, JavaCompilerBundle.message("unknown.artifact.type.0", state.getArtifactType()));
     }
 
     final Element element = state.getRootElement();
@@ -228,7 +237,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
         rootElement = (CompositePackagingElement<?>)deserializeElement(element);
       }
       catch (UnknownPackagingElementTypeException e) {
-        return createInvalidArtifact(state, externalSource, "Unknown element: " + e.getTypeId());
+        return createInvalidArtifact(state, externalSource, JavaCompilerBundle.message("unknown.element.0", e.getTypeId()));
       }
     }
     else {
@@ -244,16 +253,19 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
         deserializeProperties(artifact.getProperties(provider), propertiesState);
       }
       else {
-        return createInvalidArtifact(state, externalSource, "Unknown artifact properties: " + propertiesState.getId());
+        final String message = JavaCompilerBundle.message("unknown.artifact.properties.0", propertiesState.getId());
+        return createInvalidArtifact(state, externalSource, message);
       }
     }
     return artifact;
   }
 
-  private InvalidArtifact createInvalidArtifact(ArtifactState state, ProjectModelExternalSource externalSource, String errorMessage) {
-    final InvalidArtifact artifact = new InvalidArtifact(state, errorMessage, externalSource);
+  private InvalidArtifactImpl createInvalidArtifact(ArtifactState state,
+                                                    ProjectModelExternalSource externalSource,
+                                                    @Nls(capitalization = Nls.Capitalization.Sentence) String errorMessage) {
+    final InvalidArtifactImpl artifact = new InvalidArtifactImpl(state, errorMessage, externalSource);
     ProjectLoadingErrorsNotifier.getInstance(myProject).registerError(new ArtifactLoadingErrorDescription(myProject, artifact));
-    UnknownFeaturesCollector.getInstance(myProject).registerUnknownFeature("com.intellij.packaging.artifacts.ArtifactType", state.getArtifactType(), "Artifact");
+    UnknownFeaturesCollector.getInstance(myProject).registerUnknownFeature(FEATURE_TYPE, state.getArtifactType(), JavaCompilerBundle.message("plugins.advertiser.feature.artifact"));
     return artifact;
   }
 
@@ -281,7 +293,6 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
 
   @Override
   public void initializeComponent() {
-    myProject.getMessageBus().connect(this).subscribe(VirtualFileManager.VFS_CHANGES, new ArtifactVirtualFileListener(myProject, this));
     updateWatchedRoots();
   }
 
@@ -347,6 +358,7 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
       final List<ArtifactImpl> added = new ArrayList<>();
       final List<Pair<ArtifactImpl, String>> changed = new ArrayList<>();
 
+      List<Artifact> modifiableCopiesToDispose = new ArrayList<>();
       for (ArtifactImpl artifact : allArtifacts) {
         final boolean isAdded = !removed.remove(artifact);
         final ArtifactImpl modifiableCopy = artifactModel.getModifiableCopy(artifact);
@@ -356,10 +368,11 @@ public final class ArtifactManagerImpl extends ArtifactManager implements Persis
         else if (modifiableCopy != null && !modifiableCopy.equals(artifact)) {
           final String oldName = artifact.getName();
           artifact.copyFrom(modifiableCopy);
+          modifiableCopiesToDispose.add(modifiableCopy);
           changed.add(Pair.create(artifact, oldName));
         }
       }
-
+      ((ArtifactPointerManagerImpl)ArtifactPointerManager.getInstance(myProject)).disposePointers(modifiableCopiesToDispose);
       myModel.setArtifactsList(allArtifacts);
       myModificationTracker.incModificationCount();
       final ArtifactListener publisher = myProject.getMessageBus().syncPublisher(TOPIC);

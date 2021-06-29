@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.action;
 
 import com.intellij.codeInsight.editorActions.CopyPastePreProcessor;
@@ -20,10 +6,13 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RawText;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
+import org.gradle.util.GradleVersion;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.statistics.GradleActionsUsagesCollector;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
+import org.jetbrains.plugins.gradle.util.GradleUtil;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -49,7 +38,8 @@ public class PasteMvnDependencyPreProcessor implements CopyPastePreProcessor {
   public String preprocessOnPaste(Project project, PsiFile file, Editor editor, String text, RawText rawText) {
     if (isApplicable(file) && isMvnDependency(text)) {
       GradleActionsUsagesCollector.trigger(project, GradleActionsUsagesCollector.ActionID.PasteMvnDependency);
-      return toGradleDependency(text);
+      GradleVersion gradleVersion = GradleUtil.getGradleVersion(project, file);
+      return toGradleDependency(text, gradleVersion);
     }
     return text;
   }
@@ -58,42 +48,38 @@ public class PasteMvnDependencyPreProcessor implements CopyPastePreProcessor {
     return file.getName().endsWith('.' + GradleConstants.EXTENSION);
   }
 
-  @NotNull
-  protected String formatGradleDependency(@NotNull String groupId,
-                                          @NotNull String artifactId,
-                                          @NotNull String version,
-                                          @NotNull String scope,
-                                          @NotNull String classifier) {
+  private static @NotNull String formatGradleDependency(@NotNull String groupId,
+                                                        @NotNull String artifactId,
+                                                        @NotNull String version,
+                                                        @NotNull String scope,
+                                                        @NotNull String classifier) {
     String gradleClassifier = classifier.isEmpty() ? "" : ":" + classifier;
-    return scope + "'" + groupId + ":" + artifactId + ":" + version + gradleClassifier + "'";
+    return scope + " '" + groupId + ":" + artifactId + ":" + version + gradleClassifier + "'";
   }
 
-  private String toGradleDependency(final String mavenDependency) {
-    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+  @ApiStatus.Internal
+  public static @NotNull String toGradleDependency(@NotNull String mavenDependency, @NotNull GradleVersion gradleVersion) {
+    DocumentBuilderFactory factory = DocumentBuilderFactory.newDefaultInstance();
     factory.setValidating(false);
 
     try {
       DocumentBuilder builder = factory.newDocumentBuilder();
-      try {
-        Document document = builder.parse(new InputSource(new StringReader(mavenDependency)));
-        String gradleDependency = extractGradleDependency(document);
-        return gradleDependency != null ? gradleDependency : mavenDependency;
-      }
-      catch (SAXException | IOException e) {
-      }
+      Document document = builder.parse(new InputSource(new StringReader(mavenDependency)));
+      String gradleDependency = extractGradleDependency(document, gradleVersion);
+      return gradleDependency != null ? gradleDependency : mavenDependency;
     }
-    catch (ParserConfigurationException e) {
+    catch (ParserConfigurationException | SAXException | IOException ignored) {
     }
 
     return mavenDependency;
   }
 
   @Nullable
-  private String extractGradleDependency(Document document) {
+  private static String extractGradleDependency(Document document, @NotNull GradleVersion gradleVersion) {
     String groupId = getGroupId(document);
     String artifactId = getArtifactId(document);
     String version = getVersion(document);
-    String scope = getScope(document);
+    String scope = getScope(document, gradleVersion);
     String classifier = getClassifier(document);
 
     if (groupId.isEmpty() || artifactId.isEmpty() || version.isEmpty()) {
@@ -103,23 +89,20 @@ public class PasteMvnDependencyPreProcessor implements CopyPastePreProcessor {
   }
 
   @NotNull
-  private static String getScope(@NotNull Document document) {
+  private static String getScope(@NotNull Document document, @NotNull GradleVersion gradleVersion) {
     String scope = firstOrEmpty(document.getElementsByTagName("scope"));
+    boolean isSupportedImplementation = GradleUtil.isSupportedImplementationScope(gradleVersion);
     switch (scope) {
       case "test":
-        scope = "testCompile ";
-        break;
+        return isSupportedImplementation ? "testImplementation" : "testCompile";
       case "provided":
-        scope = "compileOnly ";
-        break;
-      case "compile":
+        return "compileOnly";
       case "runtime":
-        scope += " ";
-        break;
+        return "runtime";
+      case "compile":
       default:
-        scope = "compile ";
+        return isSupportedImplementation ? "implementation" : "compile";
     }
-    return scope;
   }
 
   private static String getVersion(@NotNull Document document) {
@@ -144,10 +127,29 @@ public class PasteMvnDependencyPreProcessor implements CopyPastePreProcessor {
   }
 
   private static boolean isMvnDependency(String text) {
-    String trimmed = text.trim();
+    String trimmed = trimLeadingComment(text.trim());
     if (trimmed.startsWith("<dependency>") && trimmed.endsWith("</dependency>")) {
       return true;
     }
+    return false;
+  }
+
+  /**
+   * Removes leading comment, usually it exists if dependency was copied from maven central site
+   */
+  private static String trimLeadingComment(String text) {
+    int start = text.indexOf("<!--");
+    int end = text.indexOf("-->");
+    if (start == 0 && end > 0) {
+      return text.substring(end + "-->".length()).trim();
+    }
+    else {
+      return text;
+    }
+  }
+
+  @Override
+  public boolean requiresAllDocumentsToBeCommitted(@NotNull Editor editor, @NotNull Project project) {
     return false;
   }
 }

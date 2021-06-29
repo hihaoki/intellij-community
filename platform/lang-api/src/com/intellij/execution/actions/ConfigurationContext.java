@@ -9,11 +9,12 @@ import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.junit.RuntimeConfigurationProducer;
+import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.ide.DataManager;
+import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.module.Module;
@@ -30,14 +31,17 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Context for creating run configurations from a location in the source code.
@@ -46,6 +50,8 @@ import java.util.List;
  */
 public class ConfigurationContext {
   private static final Logger LOG = Logger.getInstance(ConfigurationContext.class);
+  public static final Key<ConfigurationContext> SHARED_CONTEXT = Key.create("SHARED_CONTEXT");
+
   private final Location<PsiElement> myLocation;
   private RunnerAndConfigurationSettings myConfiguration;
   private boolean myInitialized;
@@ -53,14 +59,24 @@ public class ConfigurationContext {
   private Ref<RunnerAndConfigurationSettings> myExistingConfiguration;
   private final Module myModule;
   private final RunConfiguration myRuntimeConfiguration;
-  private final Component myContextComponent;
+  private final DataContext myDataContext;
+  private final String myPlace;
 
-  public static Key<ConfigurationContext> SHARED_CONTEXT = Key.create("SHARED_CONTEXT");
   private List<RuntimeConfigurationProducer> myPreferredProducers;
   private List<ConfigurationFromContext> myConfigurationsFromContext;
 
+
+  /**
+   * @deprecated use {@link this#getFromContext(DataContext dataContext, String place)}
+   */
   @NotNull
+  @Deprecated
   public static ConfigurationContext getFromContext(DataContext dataContext) {
+    return getFromContext(dataContext, ActionPlaces.UNKNOWN);
+  }
+
+  @NotNull
+  public static ConfigurationContext getFromContext(DataContext dataContext, String place) {
     DataManager dataManager = DataManager.getInstance();
     ConfigurationContext sharedContext = dataManager.loadFromDataContext(dataContext, SHARED_CONTEXT);
     Pair<Location<PsiElement>, Boolean> calculatedLocation = null;
@@ -73,7 +89,7 @@ public class ConfigurationContext {
         module = LangDataKeys.MODULE.getData(dataContext);
         calculatedLocation = calcLocation(dataContext, module);
       }
-      sharedContext = new ConfigurationContext(dataContext, calculatedLocation.getFirst(), module, calculatedLocation.getSecond());
+      sharedContext = new ConfigurationContext(dataContext, calculatedLocation.getFirst(), module, calculatedLocation.getSecond(), place);
       dataManager.saveInDataContext(dataContext, SHARED_CONTEXT, sharedContext);
     }
     return sharedContext;
@@ -84,12 +100,24 @@ public class ConfigurationContext {
     return new ConfigurationContext(location);
   }
 
-  private ConfigurationContext(final DataContext dataContext, Location<PsiElement> location, Module module, boolean multipleSelection) {
-    myRuntimeConfiguration = RunConfiguration.DATA_KEY.getData(dataContext);
-    myContextComponent = PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext);
+  private ConfigurationContext(final DataContext dataContext, Location<PsiElement> location, Module module, boolean multipleSelection, String place) {
+    RunConfiguration configuration = RunConfiguration.DATA_KEY.getData(dataContext);
+    if (configuration == null) {
+      ExecutionEnvironment environment = dataContext.getData(LangDataKeys.EXECUTION_ENVIRONMENT);
+      if (environment != null) {
+        myConfiguration = environment.getRunnerAndConfigurationSettings();
+        if (myConfiguration != null) {
+          myExistingConfiguration = Ref.create(myConfiguration);
+          configuration = myConfiguration.getConfiguration();
+        }
+      }
+    }
+    myRuntimeConfiguration = configuration;
+    myDataContext = dataContext;
     myModule = module;
     myLocation = location;
     myMultipleSelection = multipleSelection;
+    myPlace = place;
   }
 
   @NotNull
@@ -121,11 +149,12 @@ public class ConfigurationContext {
     return Pair.create(location, myMultipleSelection);
   }
 
-  public ConfigurationContext(PsiElement element) {
+  public ConfigurationContext(@NotNull PsiElement element) {
     myModule = ModuleUtilCore.findModuleForPsiElement(element);
     myLocation = new PsiLocation<>(element.getProject(), myModule, element);
     myRuntimeConfiguration = null;
-    myContextComponent = null;
+    myDataContext = this::getDefaultData;
+    myPlace = null;
   }
 
   private ConfigurationContext(@NotNull Location location) {
@@ -133,7 +162,18 @@ public class ConfigurationContext {
     myLocation = location;
     myModule = location.getModule();
     myRuntimeConfiguration = null;
-    myContextComponent = null;
+    myDataContext = this::getDefaultData;
+    myPlace = null;
+  }
+
+  private Object getDefaultData(String dataId) {
+    if (CommonDataKeys.PROJECT.is(dataId)) return myLocation.getProject();
+    if (LangDataKeys.MODULE.is(dataId)) return myModule;
+    if (Location.DATA_KEY.is(dataId)) return myLocation;
+    if (CommonDataKeys.PSI_ELEMENT.is(dataId)) return myLocation.getPsiElement();
+    if (LangDataKeys.PSI_ELEMENT_ARRAY.is(dataId)) return ContainerUtil.ar(myLocation.getPsiElement());
+    if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) return PsiUtilCore.getVirtualFile(myLocation.getPsiElement());
+    return null;
   }
 
   public boolean containsMultipleSelection() {
@@ -167,13 +207,6 @@ public class ConfigurationContext {
     myInitialized = true;
   }
 
-  @Deprecated
-  @Nullable
-  public RunnerAndConfigurationSettings updateConfiguration(final RuntimeConfigurationProducer producer) {
-    myConfiguration = producer.getConfiguration();
-    return myConfiguration;
-  }
-
   /**
    * Returns the source code location for this context.
    *
@@ -183,6 +216,13 @@ public class ConfigurationContext {
   public Location getLocation() {
     return myLocation;
   }
+
+  /**
+   * Returns the place for action which created this context.
+   * @return the place for action which created this context.
+   */
+  @Nullable
+  public String getPlace() { return myPlace; }
 
   /**
    * Returns the PSI element at caret for this context.
@@ -245,6 +285,8 @@ public class ConfigurationContext {
   @Nullable
   private RunnerAndConfigurationSettings findPreferredConfiguration(@NotNull List<ExistingConfiguration> existingConfigurations,
                                                                     @NotNull PsiElement psiElement) {
+    List<ConfigurationFromContext> configurationsFromContext = getConfigurationsFromContext();
+    if (configurationsFromContext == null) return null;
     for (ExistingConfiguration configuration : existingConfigurations) {
       RunnerAndConfigurationSettings settings = configuration.getSettings();
       if (settings.equals(myConfiguration)) {
@@ -254,11 +296,18 @@ public class ConfigurationContext {
         return settings;
       }
     }
+    Set<RunnerAndConfigurationSettings> fromContextSettings =
+      configurationsFromContext.stream().map(c -> c.getConfigurationSettings()).collect(Collectors.toSet());
+
+    if (!ContainerUtil.exists(existingConfigurations, e -> fromContextSettings.contains(e.getSettings()))) {
+      return null;
+    }
+
     if (Registry.is("suggest.all.run.configurations.from.context")) {
       return null;
     }
     List<ConfigurationFromContext> contexts = ContainerUtil.mapNotNull(existingConfigurations, configuration -> {
-      if (configuration.getProducer() == null) {
+      if (configuration.getProducer() == null || !fromContextSettings.contains(configuration.getSettings())) {
         return null;
       }
       return new ConfigurationFromContextImpl(configuration.getProducer(), configuration.getSettings(), psiElement);
@@ -304,7 +353,7 @@ public class ConfigurationContext {
   }
 
   public Project getProject() {
-    return myLocation.getProject();
+    return myConfiguration == null ? myLocation.getProject() : myConfiguration.getConfiguration().getProject();
   }
 
   public Module getModule() {
@@ -312,7 +361,7 @@ public class ConfigurationContext {
   }
 
   public DataContext getDataContext() {
-    return DataManager.getInstance().getDataContext(myContextComponent);
+    return myDataContext;
   }
 
   /**
@@ -346,6 +395,7 @@ public class ConfigurationContext {
   }
 
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @Nullable
   public List<RuntimeConfigurationProducer> findPreferredProducers() {
     if (myPreferredProducers == null) {

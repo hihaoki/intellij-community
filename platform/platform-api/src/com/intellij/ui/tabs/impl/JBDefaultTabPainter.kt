@@ -3,6 +3,7 @@ package com.intellij.ui.tabs.impl
 
 import com.intellij.openapi.rd.fill2DRect
 import com.intellij.openapi.rd.paint2DLine
+import com.intellij.openapi.util.registry.ExperimentalUI
 import com.intellij.ui.paint.LinePainter2D
 import com.intellij.ui.tabs.JBTabPainter
 import com.intellij.ui.tabs.JBTabsPosition
@@ -28,6 +29,10 @@ open class JBDefaultTabPainter(val theme : TabTheme = DefaultTabTheme()) : JBTab
   override fun paintTab(position: JBTabsPosition, g: Graphics2D, rect: Rectangle, borderThickness: Int, tabColor: Color?, active: Boolean, hovered: Boolean) {
     tabColor?.let {
       g.fill2DRect(rect, it)
+
+      theme.inactiveColoredTabBackground?.let { inactive ->
+        g.fill2DRect(rect, inactive)
+      }
     }
 
     if(hovered) {
@@ -45,6 +50,7 @@ open class JBDefaultTabPainter(val theme : TabTheme = DefaultTabTheme()) : JBTab
     }
 
     if(hovered) {
+      if (ExperimentalUI.isNewEditorTabs()) return;
       (if (active) theme.hoverBackground else theme.hoverInactiveBackground)?.let{
         g.fill2DRect(rect, it)
       }

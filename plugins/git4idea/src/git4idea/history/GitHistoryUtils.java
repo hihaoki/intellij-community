@@ -26,8 +26,10 @@ import git4idea.commands.GitCommand;
 import git4idea.commands.GitCommandResult;
 import git4idea.commands.GitLineHandler;
 import git4idea.history.browser.SHAHash;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitBranchTrackInfo;
 import git4idea.repo.GitRepository;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -292,14 +294,15 @@ public final class GitHistoryUtils {
 
     String output = Git.getInstance().runCommand(h).getOutputOrThrow();
     GitLogRecord logRecord = parser.parseOneRecord(output);
-    if (logRecord == null) throw new VcsException("Can not parse log output \"" + output + "\"");
+    if (logRecord == null) throw new VcsException(GitBundle.message("log.parser.exception.message.could.not.parse.output", output));
     return logRecord.getAuthorTimeStamp();
   }
 
   /**
-   * @deprecated use {@link GitHistoryUtils#collectTimedCommits(Project, VirtualFile, String...)}
+   * @deprecated use {@link GitHistoryUtils#collectTimedCommits(Project, VirtualFile, String...)} or methods from {@link GitFileHistory}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @SuppressWarnings("unused")
   @NotNull
   public static List<Pair<SHAHash, Date>> onlyHashesHistory(@NotNull Project project, @NotNull FilePath path, String... parameters)
@@ -309,7 +312,7 @@ public final class GitHistoryUtils {
   }
 
   /**
-   * @deprecated use {@link GitHistoryUtils#collectTimedCommits(Project, VirtualFile, String...)}
+   * @deprecated use {@link GitHistoryUtils#collectTimedCommits(Project, VirtualFile, String...)} or methods from {@link GitFileHistory}
    */
   @Deprecated
   @NotNull

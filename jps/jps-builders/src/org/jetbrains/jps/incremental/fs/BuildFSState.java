@@ -1,13 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.fs;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.FastUtilHashingStrategies;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.io.IOUtil;
-import gnu.trove.TObjectLongHashMap;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenCustomHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
@@ -26,7 +26,7 @@ import java.util.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class BuildFSState {
+public final class BuildFSState {
   public static final int VERSION = 3;
   private static final Logger LOG = Logger.getInstance(BuildFSState.class);
   private static final Key<Set<? extends BuildTarget<?>>> CONTEXT_TARGETS_KEY = Key.create("_fssfate_context_targets_");
@@ -37,7 +37,8 @@ public class BuildFSState {
   // alternatively, when false, after first scan will rely on external notifications about changes
   private final boolean myAlwaysScanFS;
   private final Set<BuildTarget<?>> myInitialScanPerformed = Collections.synchronizedSet(new HashSet<>());
-  private final TObjectLongHashMap<File> myRegistrationStamps = new TObjectLongHashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+  @SuppressWarnings("SSBasedInspection")
+  private final Object2LongOpenCustomHashMap<File> myRegistrationStamps = new Object2LongOpenCustomHashMap<>(FastUtilHashingStrategies.FILE_HASH_STRATEGY);
   private final Map<BuildTarget<?>, FilesDelta> myDeltas = Collections.synchronizedMap(new HashMap<>());
 
   public BuildFSState(boolean alwaysScanFS) {
@@ -88,13 +89,13 @@ public class BuildFSState {
     }
   }
 
-  public final void clearRecompile(final BuildRootDescriptor rd) {
+  public void clearRecompile(final BuildRootDescriptor rd) {
     getDelta(rd.getTarget()).clearRecompile(rd);
   }
 
   public long getEventRegistrationStamp(File file) {
     synchronized (myRegistrationStamps) {
-      return myRegistrationStamps.get(file);
+      return myRegistrationStamps.getLong(file);
     }
   }
 
@@ -125,24 +126,28 @@ public class BuildFSState {
     final BuildRootIndex rootIndex = context.getProjectDescriptor().getBuildRootIndex();
     try {
       delta.lockData();
+      final long now = System.currentTimeMillis();
       for (Set<File> files : delta.getSourcesToRecompile().values()) {
         files_loop:
         for (File file : files) {
-          if ((getEventRegistrationStamp(file) > targetBuildStart || FSOperations.lastModified(file) > targetBuildStart) && scope.isAffected(target, file)) {
-            for (BuildRootDescriptor rd : rootIndex.findAllParentDescriptors(file, context)) {
-              if (rd.isGenerated()) { // do not send notification for generated sources
-                continue files_loop;
+          final long fileStamp;
+          if (getEventRegistrationStamp(file) > targetBuildStart || (fileStamp = FSOperations.lastModified(file)) > targetBuildStart && fileStamp < now) {
+            if (scope.isAffected(target, file)) {
+              for (BuildRootDescriptor rd : rootIndex.findAllParentDescriptors(file, context)) {
+                if (rd.isGenerated()) { // do not send notification for generated sources
+                  continue files_loop;
+                }
               }
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Unprocessed changes detected for target " + target +
+                            "; file: " + file.getPath() +
+                            "; targetBuildStart=" + targetBuildStart +
+                            "; eventRegistrationStamp=" + getEventRegistrationStamp(file) +
+                            "; lastModified=" + FSOperations.lastModified(file)
+                );
+              }
+              return true;
             }
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Unprocessed changes detected for target " + target +
-                        "; file: " + file.getPath() +
-                        "; targetBuildStart=" + targetBuildStart +
-                        "; eventRegistrationStamp=" + getEventRegistrationStamp(file) +
-                        "; lastModified=" + FSOperations.lastModified(file)
-              );
-            }
-            return true;
           }
         }
       }
@@ -236,11 +241,11 @@ public class BuildFSState {
    * Note: marked file will well be visible as "dirty" only on the next compilation round!
    * @throws IOException
    */
-  public final boolean markDirty(@Nullable CompileContext context,
-                                 File file,
-                                 final BuildRootDescriptor rd,
-                                 @Nullable StampsStorage<? extends StampsStorage.Stamp> stampStorage,
-                                 boolean saveEventStamp) throws IOException {
+  public boolean markDirty(@Nullable CompileContext context,
+                           File file,
+                           final BuildRootDescriptor rd,
+                           @Nullable StampsStorage<? extends StampsStorage.Stamp> stampStorage,
+                           boolean saveEventStamp) throws IOException {
     return markDirty(context, CompilationRound.NEXT, file, rd, stampStorage, saveEventStamp);
   }
 

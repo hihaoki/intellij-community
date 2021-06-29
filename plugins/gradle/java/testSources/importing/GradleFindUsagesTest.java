@@ -82,8 +82,8 @@ public class GradleFindUsagesTest extends GradleImportingTestCase {
     createProjectSubFile("buildSrc/build.gradle", "allprojects {\n" +
                                                   "    apply plugin: 'groovy'\n" +
                                                   "    dependencies {\n" +
-                                                  "        compile gradleApi()\n" +
-                                                  "        compile localGroovy()\n" +
+                                                  "        implementation gradleApi()\n" +
+                                                  "        implementation localGroovy()\n" +
                                                   "    }\n" +
                                                   "    repositories {\n" +
                                                   "        mavenCentral()\n" +
@@ -91,7 +91,7 @@ public class GradleFindUsagesTest extends GradleImportingTestCase {
                                                   "\n" +
                                                   "    if (it != rootProject) {\n" +
                                                   "        rootProject.dependencies {\n" +
-                                                  "            runtime project(path)\n" +
+                                                  "            runtimeOnly project(path)\n" +
                                                   "        }\n" +
                                                   "    }\n" +
                                                   "}\n");
@@ -240,14 +240,14 @@ public class GradleFindUsagesTest extends GradleImportingTestCase {
   }
 
   @SafeVarargs
-  private final void assertUsages(Trinity<String, GlobalSearchScope, Integer>... classUsageCount) throws Exception {
+  private void assertUsages(Trinity<String, GlobalSearchScope, Integer>... classUsageCount) throws Exception {
     for (Trinity<String, GlobalSearchScope, Integer> trinity : classUsageCount) {
       assertUsages(trinity.first, trinity.second, trinity.third);
     }
   }
 
   @SafeVarargs
-  private final void assertUsages(Pair<String, Integer>... classUsageCount) throws Exception {
+  private void assertUsages(Pair<String, Integer>... classUsageCount) throws Exception {
     for (Pair<String, Integer> pair : classUsageCount) {
       assertUsages(Trinity.create(pair.first, GlobalSearchScope.projectScope(myProject), pair.second));
     }

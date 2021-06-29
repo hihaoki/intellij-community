@@ -2,6 +2,8 @@
 package com.intellij.ide.util;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.util.PlatformUtils;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -16,8 +18,19 @@ public final class RunOnceUtil {
    * @param id unique id for the task
    * @return {@code true} if task was performed, {@code false} if task had already been performed before.
    */
-  public static boolean runOnceForProject(@NotNull Project project, @NotNull String id, @NotNull Runnable task) {
-    return _runOnce(PropertiesComponent.getInstance(project), id, task);
+  public static boolean runOnceForProject(@NotNull Project project, @NotNull @NonNls String id, @NotNull Runnable task) {
+    return _runOnce(PropertiesComponent.getInstance(project), id, false, task);
+  }
+
+  /**
+   * Perform the task if it was not performed before for the given project.
+   *
+   * @param id unique id for the task
+   * @param isIDEAware if {@code true}, the task will be performed for each IDE
+   * @return {@code true} if task was performed, {@code false} if task had already been performed before.
+   */
+  public static boolean runOnceForProject(@NotNull Project project, @NotNull @NonNls String id, boolean isIDEAware, @NotNull Runnable task) {
+    return _runOnce(PropertiesComponent.getInstance(project), id, isIDEAware, task);
   }
 
   /**
@@ -26,12 +39,15 @@ public final class RunOnceUtil {
    * @param id unique id for the task
    * @return {@code true} if task was performed, {@code false} if task had already been performed before.
    */
-  public static boolean runOnceForApp(@NotNull String id, @NotNull Runnable task) {
-    return _runOnce(PropertiesComponent.getInstance(), id, task);
+  public static boolean runOnceForApp(@NotNull @NonNls String id, @NotNull Runnable task) {
+    return _runOnce(PropertiesComponent.getInstance(), id, false, task);
   }
 
-  private static boolean _runOnce(@NotNull PropertiesComponent storage, @NotNull String id, @NotNull Runnable activity) {
-    String key = createKey(id);
+  private static boolean _runOnce(@NotNull PropertiesComponent storage,
+                                  @NotNull @NonNls String id,
+                                  boolean ideAware,
+                                  @NotNull Runnable activity) {
+    String key = createKey(id, ideAware);
     if (storage.isTrueValue(key)) {
       return false;
     }
@@ -41,7 +57,11 @@ public final class RunOnceUtil {
     return true;
   }
 
-  private static String createKey(@NotNull String id) {
-    return "RunOnceActivity." + id;
+  private static @NonNls String createKey(@NotNull String id, boolean ideAware) {
+    String key = "RunOnceActivity.";
+    if (ideAware) {
+      key += PlatformUtils.getPlatformPrefix() + ".";
+    }
+    return  key + id;
   }
 }

@@ -1,23 +1,24 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.execution;
 
-import com.google.common.base.Predicates;
-import com.google.common.collect.Maps;
+import com.intellij.execution.configurations.ParametersList;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.execution.ParametersListUtil;
 import com.intellij.util.xmlb.annotations.MapAnnotation;
 import com.intellij.util.xmlb.annotations.OptionTag;
 import com.intellij.util.xmlb.annotations.Transient;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
-import org.jetbrains.idea.maven.utils.Path;
 
 import java.io.File;
 import java.util.*;
 
 public final class MavenRunnerParameters implements Cloneable {
   private final boolean isPomExecution;
-  private Path myWorkingDirPath;
+  private String myWorkingDirPath;
   private String myPomFileName;
   private final List<String> myGoals = new ArrayList<>();
 
@@ -35,6 +36,7 @@ public final class MavenRunnerParameters implements Cloneable {
    * @deprecated use {@link MavenRunnerParameters#MavenRunnerParameters(boolean, String, String, List, Collection)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public MavenRunnerParameters(boolean isPomExecution,
                                @NotNull String workingDirPath,
                                @Nullable List<String> goals,
@@ -50,17 +52,6 @@ public final class MavenRunnerParameters implements Cloneable {
     this(isPomExecution, workingDirPath, pomFileName, goals, explicitEnabledProfiles, null);
   }
 
-  /**
-   * @deprecated use {@link MavenRunnerParameters#MavenRunnerParameters(boolean, String, String, List, MavenExplicitProfiles)}
-   */
-  @Deprecated
-  public MavenRunnerParameters(boolean isPomExecution,
-                               @NotNull String workingDirPath,
-                               @Nullable List<String> goals,
-                               @NotNull MavenExplicitProfiles explicitProfiles) {
-    this(isPomExecution, workingDirPath, null, goals, explicitProfiles);
-  }
-
   public MavenRunnerParameters(boolean isPomExecution,
                                @NotNull String workingDirPath,
                                @Nullable String pomFileName,
@@ -73,6 +64,7 @@ public final class MavenRunnerParameters implements Cloneable {
    * @deprecated use {@link MavenRunnerParameters#MavenRunnerParameters(boolean, String, String, List, Collection, Collection)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public MavenRunnerParameters(boolean isPomExecution,
                                @NotNull String workingDirPath,
                                @Nullable List<String> goals,
@@ -89,7 +81,7 @@ public final class MavenRunnerParameters implements Cloneable {
                                @Nullable Collection<String> explicitDisabledProfiles) {
     this.isPomExecution = isPomExecution;
     setWorkingDirPath(workingDirPath);
-    this.myPomFileName = pomFileName;
+    setPomFileName(pomFileName);
     setGoals(goals);
 
     if (explicitEnabledProfiles != null) {
@@ -105,7 +97,9 @@ public final class MavenRunnerParameters implements Cloneable {
     }
   }
 
-  public MavenRunnerParameters(String workingDirPath, String pomFileName, boolean isPomExecution,
+  public MavenRunnerParameters(@NotNull String workingDirPath,
+                               @Nullable String pomFileName,
+                               boolean isPomExecution,
                                @Nullable List<String> goals,
                                @NotNull Map<String, Boolean> profilesMap) {
     this.isPomExecution = isPomExecution;
@@ -116,7 +110,7 @@ public final class MavenRunnerParameters implements Cloneable {
   }
 
   public MavenRunnerParameters(MavenRunnerParameters that) {
-    this(that.getWorkingDirPath(), that.myPomFileName, that.isPomExecution, that.myGoals, that.myProfilesMap);
+    this(that.myWorkingDirPath, that.myPomFileName, that.isPomExecution, that.myGoals, that.myProfilesMap);
     myResolveToWorkspace = that.myResolveToWorkspace;
   }
 
@@ -124,25 +118,48 @@ public final class MavenRunnerParameters implements Cloneable {
     return isPomExecution;
   }
 
-  @NotNull
-  public String getWorkingDirPath() {
-    return myWorkingDirPath.getPath();
+  public @NotNull @NlsSafe String getWorkingDirPath() {
+    return myWorkingDirPath;
   }
 
-  public void setWorkingDirPath(@NotNull String workingDirPath) {
-    myWorkingDirPath = new Path(workingDirPath);
+  public void setWorkingDirPath(@NotNull @NlsSafe String workingDirPath) {
+    myWorkingDirPath = workingDirPath;
   }
 
-  @NotNull
-  public File getWorkingDirFile() {
-    return new File(myWorkingDirPath.getPath());
+  public @NotNull File getWorkingDirFile() {
+    assert myWorkingDirPath != null;
+    return new File(myWorkingDirPath);
+  }
+
+  @Transient
+  public void setCommandLine(@NotNull String value) {
+    List<String> commandLine = ParametersListUtil.parse(value);
+    int pomFileNameIndex = 1 + commandLine.indexOf("-f");
+    if (pomFileNameIndex != 0) {
+      if (pomFileNameIndex < commandLine.size()) {
+        setPomFileName(commandLine.remove(pomFileNameIndex));
+      }
+      commandLine.remove(pomFileNameIndex - 1);
+    }
+    setGoals(commandLine);
+  }
+
+  @Transient
+  public @NotNull String getCommandLine() {
+    List<String> commandLine = new ArrayList<>(getGoals());
+    String pomFileName = getPomFileName();
+    if (pomFileName != null) {
+      commandLine.add("-f");
+      commandLine.add(pomFileName);
+    }
+    return ParametersList.join(commandLine);
   }
 
   public void setPomFileName(String pomFileName) {
     myPomFileName = pomFileName;
   }
 
-  public String getPomFileName() {
+  public @NlsSafe String getPomFileName() {
     return myPomFileName;
   }
 
@@ -208,31 +225,6 @@ public final class MavenRunnerParameters implements Cloneable {
     }
   }
 
-  /**
-   * Was left for compatibility with old plugins.
-   * @deprecated use getProfileMap()
-   * @return
-   */
-  @Deprecated
-  @Transient
-  public Collection<String> getProfiles() {
-    return Maps.filterValues(myProfilesMap, Predicates.equalTo(true)).keySet();
-  }
-
-  /**
-   * Was left for compatibility with old plugins.
-   * @deprecated use getProfileMap()
-   * @param profiles
-   */
-  @Deprecated
-  public void setProfiles(@Nullable Collection<String> profiles) {
-    if (profiles != null) {
-      for (String profile : profiles) {
-        myProfilesMap.put(profile, true);
-      }
-    }
-  }
-
   public boolean isResolveToWorkspace() {
     return myResolveToWorkspace;
   }
@@ -255,7 +247,8 @@ public final class MavenRunnerParameters implements Cloneable {
     if (isPomExecution != that.isPomExecution) return false;
     if (myResolveToWorkspace != that.myResolveToWorkspace) return false;
     if (!myGoals.equals(that.myGoals)) return false;
-    if (myWorkingDirPath != null ? !myWorkingDirPath.equals(that.myWorkingDirPath) : that.myWorkingDirPath != null) return false;
+    if (!Objects.equals(myWorkingDirPath, that.myWorkingDirPath)) return false;
+    if (!Objects.equals(myPomFileName, that.myPomFileName)) return false;
     if (!myProfilesMap.equals(that.myProfilesMap)) return false;
 
     return true;
@@ -266,6 +259,7 @@ public final class MavenRunnerParameters implements Cloneable {
     result = isPomExecution ? 1 : 0;
     result = 31 * result + (myWorkingDirPath != null ? myWorkingDirPath.hashCode() : 0);
     result = 31 * result + myGoals.hashCode();
+    result = 31 * result + (myPomFileName != null ? myPomFileName.hashCode() : 0);
     result = 31 * result + myProfilesMap.hashCode();
     return result;
   }

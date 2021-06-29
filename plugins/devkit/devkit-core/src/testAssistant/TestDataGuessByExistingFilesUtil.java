@@ -1,7 +1,6 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.devkit.testAssistant;
 
-import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.ide.util.gotoByName.GotoFileModel;
 import com.intellij.openapi.application.Application;
@@ -37,6 +36,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FindSymbolParameters;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.devkit.DevKitBundle;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
 import java.util.*;
@@ -111,29 +111,11 @@ public final class TestDataGuessByExistingFilesUtil {
 
     TestFramework framework = TestFrameworks.detectFramework(psiClass);
 
-    if (framework == null || isUtilityMethod(method, psiClass, framework)) {
+    if (framework == null || !framework.isTestMethod(method)) {
       return null;
     }
 
     return getTestName(method.getName());
-  }
-
-  private static boolean isUtilityMethod(@NotNull PsiMethod method, @NotNull PsiClass psiClass, @NotNull TestFramework framework) {
-    if (method == framework.findSetUpMethod(psiClass) || method == framework.findTearDownMethod(psiClass)) {
-      return true;
-    }
-
-    // JUnit3
-    if (framework.getClass().getName().contains("JUnit3")) {
-      return !method.getName().startsWith("test");
-    }
-
-    // JUnit4
-    if (framework.getClass().getName().contains("JUnit4")) {
-      return !AnnotationUtil.isAnnotated(method, "org.junit.Test", 0);
-    }
-
-    return false;
   }
 
   @NotNull
@@ -164,14 +146,14 @@ public final class TestDataGuessByExistingFilesUtil {
   }
 
   @NotNull
-  private static TestDataDescriptor buildDescriptor(@NotNull String test,
+  private static TestDataDescriptor buildDescriptor(@NotNull String testName,
                                                     @NotNull PsiClass psiClass,
                                                     @Nullable String testDataPath) {
     String normalizedTestDataPath = testDataPath == null ? null : StringUtil.trimEnd(StringUtil.trimEnd(testDataPath, "/"), "\\");
 
     // PhpStorm has tests that use '$' symbol as a file path separator, e.g. 'test$while_stmt$declaration' test
     // stands for '/while_smt/declaration.php' file somewhere in a test data.
-    String possibleFileName = ContainerUtil.getLastItem(StringUtil.split(test, "$"), test);
+    String possibleFileName = ContainerUtil.getLastItem(StringUtil.split(testName, "$"), testName);
     assert possibleFileName != null;
     if (possibleFileName.isEmpty()) {
       return TestDataDescriptor.NOTHING_FOUND;
@@ -179,12 +161,12 @@ public final class TestDataGuessByExistingFilesUtil {
     Project project = psiClass.getProject();
     ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
     GotoFileModel gotoModel = new GotoFileModel(project);
-    String possibleFilePath = test.replace('$', '/');
+    String possibleFilePath = testName.replace('$', '/');
     Map<String, List<TestLocationDescriptor>> descriptorsByFileNames = new HashMap<>();
     Module module = ReadAction.compute(() -> ModuleUtilCore.findModuleForPsiElement(psiClass));
     Collection<String> fileNames = getAllFileNames(possibleFileName, gotoModel);
     ProgressIndicator indicator = EmptyProgressIndicator.notNullize(ProgressManager.getInstance().getProgressIndicator());
-    indicator.setText("Searching for '" + test + "' test data files...");
+    indicator.setText(DevKitBundle.message("testdata.progress.text.searching.for.test.data.files", testName));
     indicator.setIndeterminate(false);
     int fileNamesCount = fileNames.size();
     double currentIndex = 0;
@@ -214,7 +196,7 @@ public final class TestDataGuessByExistingFilesUtil {
         }
 
         String filePath = file.getPath();
-        if (!StringUtil.containsIgnoreCase(filePath, possibleFilePath) && !StringUtil.containsIgnoreCase(filePath, test)) {
+        if (!StringUtil.containsIgnoreCase(filePath, possibleFilePath) && !StringUtil.containsIgnoreCase(filePath, testName)) {
           continue;
         }
         String fileName = StringUtil.toLowerCase(PathUtil.getFileName(filePath));
@@ -257,7 +239,7 @@ public final class TestDataGuessByExistingFilesUtil {
   }
 
   private static Collection<String> getAllFileNames(final String testName, final GotoFileModel model) {
-    CommonProcessors.CollectProcessor<String> processor = new CommonProcessors.CollectProcessor<String>() {
+    CommonProcessors.CollectProcessor<String> processor = new CommonProcessors.CollectProcessor<>() {
       @Override
       public boolean accept(String name) {
         ProgressManager.checkCanceled();
@@ -429,7 +411,7 @@ public final class TestDataGuessByExistingFilesUtil {
 
     @Override
     public String toString() {
-      return String.format("%s[...]%s", pathPrefix, pathSuffix);
+      return String.format("%s[...]%s", pathPrefix, pathSuffix); //NON-NLS
     }
   }
 

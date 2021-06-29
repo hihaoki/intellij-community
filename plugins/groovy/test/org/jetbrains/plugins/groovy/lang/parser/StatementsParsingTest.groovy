@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.parser
 
 /**
@@ -169,6 +169,8 @@ class StatementsParsingTest extends GroovyParsingTestCase {
 
   void testDeclaration$var10() throws Throwable { doTest() }
 
+  void testDeclaration$multilineTuple() { doTest() }
+
   void testFor$for1() throws Throwable { doTest() }
 
   void testFor$for11() throws Throwable { doTest() }
@@ -221,6 +223,8 @@ class StatementsParsingTest extends GroovyParsingTestCase {
 
   void testFor$tupleDeclarationSingleVariable() { doTest() }
 
+  void testFor$multilineClause() { doTest() }
+  
   void testIfstmt$if1() throws Throwable { doTest() }
 
   void testIfstmt$if2() throws Throwable { doTest() }
@@ -339,6 +343,18 @@ class StatementsParsingTest extends GroovyParsingTestCase {
 
   void testMultiple_assign$without_assign() throws Throwable { doTest() }
 
+  void testMultiple_assign$lineBreakAfterLeftParen() { doTest() }
+
+  void testMultiple_assign$lineBreakBeforeComma() { doTest() }
+
+  void testMultiple_assign$lineBreakAfterComma() { doTest() }
+
+  void testMultiple_assign$lineBreakBeforeRightParen() { doTest() }
+
+  void testMultiple_assign$lineBreakBeforeAssignment() { doTest() }
+
+  void testMultiple_assign$lineBreakAfterAssignment() { doTest() }
+
   void testSwitch$laforge1() throws Throwable { doTest() }
 
   void testSwitch$swit1() throws Throwable { doTest() }
@@ -402,6 +418,8 @@ class StatementsParsingTest extends GroovyParsingTestCase {
   void testTry_catch$tryResourcesSeparators() { doTest() }
 
   void testTry_catch$tryResourcesTyped() { doTest() }
+
+  void testTry_catch$tryResourcesMultiline() { doTest() }
 
   void testTuples$doubleParens() throws Throwable { doTest() }
 

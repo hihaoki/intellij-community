@@ -4,7 +4,6 @@ package com.intellij.codeInsight.generation.actions;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.DumbService;
@@ -16,7 +15,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
-public class GenerateAction extends DumbAwareAction {
+public class GenerateAction extends DumbAwareAction implements UpdateInBackground {
   @Override
   public void actionPerformed(@NotNull final AnActionEvent e) {
     DataContext dataContext = e.getDataContext();
@@ -38,7 +37,7 @@ public class GenerateAction extends DumbAwareAction {
     Presentation presentation = event.getPresentation();
     if (ActionPlaces.isPopupPlace(event.getPlace())) {
       Editor editor = event.getData(CommonDataKeys.EDITOR);
-      presentation.setEnabledAndVisible(isEnabled(event) && editor != null && !editor.getSelectionModel().hasSelection());
+      presentation.setEnabledAndVisible(isEnabled(event) && editor != null);
     }
     else {
       presentation.setEnabled(isEnabled(event));
@@ -56,7 +55,7 @@ public class GenerateAction extends DumbAwareAction {
       return false;
     }
 
-    boolean groupEmpty = ActionGroupUtil.isGroupEmpty(getGroup(), event, LaterInvocator.isInModalContext());
+    boolean groupEmpty = ActionGroupUtil.isGroupEmpty(getGroup(), event);
     return !groupEmpty;
   }
 
@@ -88,7 +87,7 @@ public class GenerateAction extends DumbAwareAction {
     return copy;
   }
 
-  private static class GenerateWrappingGroup extends ActionGroup {
+  private static class GenerateWrappingGroup extends ActionGroup implements UpdateInBackground {
 
     private final AnAction myAction;
     private final AnAction myEditTemplateAction;
@@ -98,6 +97,11 @@ public class GenerateAction extends DumbAwareAction {
       myEditTemplateAction = editTemplateAction;
       copyFrom(action);
       setPopup(true);
+    }
+
+    @Override
+    public boolean isUpdateInBackground() {
+      return UpdateInBackground.isUpdateInBackground(myAction);
     }
 
     @Override

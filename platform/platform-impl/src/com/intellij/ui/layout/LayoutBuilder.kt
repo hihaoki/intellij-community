@@ -5,8 +5,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBRadioButton
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.awt.event.ActionListener
 import javax.swing.AbstractButton
@@ -33,7 +35,8 @@ open class LayoutBuilder @PublishedApi internal constructor(@PublishedApi intern
 
   @Suppress("PropertyName")
   @PublishedApi
-  @Deprecated("", replaceWith = ReplaceWith("builder"), level = DeprecationLevel.ERROR)
+  @get:Deprecated("", replaceWith = ReplaceWith("builder"), level = DeprecationLevel.ERROR)
+  @get:ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   internal val `$`: LayoutBuilderImpl
     get() = builder
 }
@@ -41,7 +44,7 @@ open class LayoutBuilder @PublishedApi internal constructor(@PublishedApi intern
 class CellBuilderWithButtonGroupProperty<T : Any>
 @PublishedApi internal constructor(private val prop: PropertyBinding<T>)  {
 
-  fun Cell.radioButton(@Nls text: String, value: T, @Nls comment: String? = null): CellBuilder<JBRadioButton> {
+  fun Cell.radioButton(@NlsContexts.RadioButton text: String, value: T, @Nls comment: String? = null): CellBuilder<JBRadioButton> {
     val component = JBRadioButton(text, prop.get() == value)
     return component(comment = comment).bindValue(value)
   }
@@ -53,7 +56,7 @@ class CellBuilderWithButtonGroupProperty<T : Any>
 class RowBuilderWithButtonGroupProperty<T : Any>
     @PublishedApi internal constructor(private val builder: RowBuilder, private val prop: PropertyBinding<T>) : RowBuilder by builder {
 
-  fun Row.radioButton(@Nls text: String, value: T, @Nls comment: String? = null): CellBuilder<JBRadioButton> {
+  fun Row.radioButton(@NlsContexts.RadioButton text: String, value: T, @Nls comment: String? = null): CellBuilder<JBRadioButton> {
     val component = JBRadioButton(text, prop.get() == value)
     attachSubRowsEnabled(component)
     return component(comment = comment).bindValue(value)
@@ -73,8 +76,5 @@ fun FileChooserDescriptor.chooseFile(event: AnActionEvent, fileChosen: (chosenFi
 }
 
 fun Row.attachSubRowsEnabled(component: AbstractButton) {
-  subRowsEnabled = component.isSelected
-  component.addChangeListener {
-    subRowsEnabled = component.isSelected
-  }
+  enableSubRowsIf(component.selected)
 }

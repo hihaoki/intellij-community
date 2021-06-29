@@ -1,14 +1,13 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.changeSignature;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents a parameter of a method affected by the "Change Signature" refactoring.
- *
- * @author yole
  */
 public interface ParameterInfo {
 
@@ -19,6 +18,7 @@ public interface ParameterInfo {
    *
    * @return parameter name.
    */
+  @NlsSafe
   String getName();
 
   /**
@@ -44,6 +44,7 @@ public interface ParameterInfo {
    * @return default value, or null if the parameter wasn't added.
    */
   @Nullable
+  @NlsSafe
   String getDefaultValue();
 
   /**
@@ -58,15 +59,17 @@ public interface ParameterInfo {
 
   /**
    * Set parameter new name (to be changed to during refactoring)
+   *
    * @param name new name
    */
-  void setName(String name);
+  void setName(@NlsSafe String name);
 
   /**
    * Returns parameter type text
    *
    * @return type text
    */
+  @NlsSafe
   String getTypeText();
 
   /**

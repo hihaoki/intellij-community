@@ -14,6 +14,7 @@ import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.JBPopupListener;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
@@ -167,7 +168,7 @@ public abstract class AbstractCreateFileFix extends LocalQuickFixAndIntentionAct
 
   private void showOptionsPopup(@NotNull Project project,
                                 @NotNull Editor editor,
-                                List<TargetDirectory> directories) {
+                                List<? extends TargetDirectory> directories) {
     List<TargetDirectoryListItem> items = getTargetDirectoryListItems(directories);
 
     String filePath = myNewFileName;
@@ -213,7 +214,7 @@ public abstract class AbstractCreateFileFix extends LocalQuickFixAndIntentionAct
   }
 
   @NotNull
-  private static List<TargetDirectoryListItem> getTargetDirectoryListItems(List<TargetDirectory> directories) {
+  private static List<TargetDirectoryListItem> getTargetDirectoryListItems(List<? extends TargetDirectory> directories) {
     return ContainerUtil.map(directories, targetDirectory -> {
       PsiDirectory d = targetDirectory.getDirectory();
       assert d != null : "Invalid PsiDirectory instances found";
@@ -240,8 +241,8 @@ public abstract class AbstractCreateFileFix extends LocalQuickFixAndIntentionAct
   }
 
   @NotNull
-  private static String getPresentableContentRootPath(@NotNull PsiDirectory directory,
-                                                      String @NotNull [] pathToCreate) {
+  private static @NlsSafe String getPresentableContentRootPath(@NotNull PsiDirectory directory,
+                                                               String @NotNull [] pathToCreate) {
     VirtualFile f = directory.getVirtualFile();
     Project project = directory.getProject();
 

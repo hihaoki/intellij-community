@@ -1,9 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ui;
 
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.AnalysisUIOptions;
+import com.intellij.analysis.problemsView.toolWindow.ProblemsView;
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.*;
@@ -127,7 +128,7 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
       }
     });
     add(mySplitter, BorderLayout.CENTER);
-    myExclusionHandler = new ExclusionHandler<InspectionTreeNode>() {
+    myExclusionHandler = new ExclusionHandler<>() {
       @Override
       public boolean isNodeExclusionAvailable(@NotNull InspectionTreeNode node) {
         return true;
@@ -159,7 +160,8 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
       public void onDone(boolean isExcludeAction) {
         if (isExcludeAction) {
           myTree.removeSelectedProblems();
-        } else {
+        }
+        else {
           myTree.repaint();
         }
         syncRightPanel();
@@ -171,7 +173,7 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
 
     getProject().getMessageBus().connect(this).subscribe(ProfileChangeAdapter.TOPIC, new ProfileChangeAdapter() {
       @Override
-      public void profileChanged(InspectionProfile profile) {
+      public void profileChanged(@NotNull InspectionProfile profile) {
         if (profile == ProjectInspectionProfileManager.getInstance(getProject()).getCurrentProfile()) {
           InspectionResultsView.this.profileChanged();
         }
@@ -262,9 +264,9 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
     return myTree.getOccurenceNavigator().getPreviousOccurenceActionName();
   }
 
-  private static JComponent createToolbar(final DefaultActionGroup specialGroup) {
+  private JComponent createToolbar(final DefaultActionGroup specialGroup) {
     final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.CODE_INSPECTION, specialGroup, false);
-    //toolbar.setTargetComponent(this);
+    toolbar.setTargetComponent(this);
     return toolbar.getComponent();
   }
 
@@ -283,7 +285,12 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
   boolean isAutoScrollMode() {
     String activeToolWindowId = ToolWindowManager.getInstance(getProject()).getActiveToolWindowId();
     return myGlobalInspectionContext.getUIOptions().AUTOSCROLL_TO_SOURCE &&
-           (activeToolWindowId == null || activeToolWindowId.equals(ToolWindowId.INSPECTION));
+           (activeToolWindowId == null
+            || activeToolWindowId.equals(ProblemsView.ID)
+            // TODO: compatibility mode for Rider where there's no problems view; remove in 2021.2
+            // see RIDER-59000
+            //noinspection deprecation
+            || activeToolWindowId.equals(ToolWindowId.INSPECTION));
   }
 
   public void setApplyingFix(boolean applyingFix) {
@@ -539,12 +546,14 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
                                             contents,
                                             problems::get);
 
-        myLoadingProgressPreviewAlarm.cancelAllRequests();
-        myLoadingProgressPreviewAlarm.addRequest(() -> {
-          if (myLoadingProgressPreview != null) {
-            myLoadingProgressPreview.updateLoadingProgress();
-          }
-        }, 200);
+        if (!myLoadingProgressPreviewAlarm.isDisposed()) {
+          myLoadingProgressPreviewAlarm.cancelAllRequests();
+          myLoadingProgressPreviewAlarm.addRequest(() -> {
+            if (myLoadingProgressPreview != null) {
+              myLoadingProgressPreview.updateLoadingProgress();
+            }
+          }, 200);
+        }
       }
     }));
   }
@@ -765,11 +774,17 @@ public class InspectionResultsView extends JPanel implements Disposable, DataPro
                                     @NotNull GlobalInspectionContextImpl context,
                                     @NotNull InspectionRVContentProvider contentProvider) {
     for (Tools currentTools : tools) {
-      for (ScopeToolState state : contentProvider.getTools(currentTools)) {
-        InspectionToolWrapper toolWrapper = state.getTool();
-        if (context.getPresentation(toolWrapper).hasReportedProblems() || contentProvider.checkReportedProblems(context, toolWrapper)) {
-          return true;
+      boolean hasProblems = ReadAction.compute(() -> {
+        for (ScopeToolState state : contentProvider.getTools(currentTools)) {
+          InspectionToolWrapper toolWrapper = state.getTool();
+          if (context.getPresentation(toolWrapper).hasReportedProblems() || contentProvider.checkReportedProblems(context, toolWrapper)) {
+            return true;
+          }
         }
+        return false;
+      });
+      if (hasProblems) {
+        return true;
       }
     }
     return false;

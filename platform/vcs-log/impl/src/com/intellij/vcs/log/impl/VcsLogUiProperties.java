@@ -16,10 +16,11 @@
 package com.intellij.vcs.log.impl;
 
 import com.intellij.openapi.util.ValueKey;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.EventListener;
 import java.util.Objects;
 
 public interface VcsLogUiProperties {
@@ -29,10 +30,10 @@ public interface VcsLogUiProperties {
 
   <T> boolean exists(@NotNull VcsLogUiProperty<T> property);
 
-  @CalledInAwt
+  @RequiresEdt
   void addChangeListener(@NotNull PropertiesChangeListener listener);
 
-  @CalledInAwt
+  @RequiresEdt
   void removeChangeListener(@NotNull PropertiesChangeListener listener);
 
   class VcsLogUiProperty<T> implements ValueKey<T> {
@@ -67,7 +68,7 @@ public interface VcsLogUiProperties {
     }
   }
 
-  interface PropertiesChangeListener {
+  interface PropertiesChangeListener extends EventListener {
     <T> void onPropertyChanged(@NotNull VcsLogUiProperty<T> property);
   }
 }

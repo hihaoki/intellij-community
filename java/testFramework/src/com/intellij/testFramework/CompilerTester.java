@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.compiler.CompilerManagerImpl;
@@ -8,7 +8,6 @@ import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathMacros;
-import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.compiler.*;
@@ -45,7 +44,6 @@ import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.cmdline.LogSetup;
-import org.jetbrains.jps.model.serialization.JpsGlobalLoader;
 import org.junit.Assert;
 
 import javax.swing.*;
@@ -54,6 +52,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+
+import static com.intellij.configurationStore.StoreUtilKt.getPersistentStateComponentStorageLocation;
+import static org.junit.Assert.assertNotNull;
 
 /**
  * @author peter
@@ -73,7 +74,16 @@ public final class CompilerTester {
     this(fixture.getProject(), modules, fixture.getTestRootDisposable());
   }
 
-  public CompilerTester(@NotNull Project project, @NotNull List<? extends Module> modules, @Nullable Disposable disposable) throws Exception {
+  public CompilerTester(@NotNull Project project,
+                        @NotNull List<? extends Module> modules,
+                        @Nullable Disposable disposable) throws Exception {
+    this(project, modules, disposable, true);
+  }
+
+  public CompilerTester(@NotNull Project project,
+                        @NotNull List<? extends Module> modules,
+                        @Nullable Disposable disposable,
+                        boolean overrideJdkAndOutput) throws Exception {
     myProject = project;
     myModules = modules;
     myMainOutput = new TempDirTestFixtureImpl();
@@ -89,15 +99,17 @@ public final class CompilerTester {
     }
 
     CompilerTestUtil.enableExternalCompiler();
-    WriteCommandAction.writeCommandAction(getProject()).run(() -> {
-      Objects.requireNonNull(CompilerProjectExtension.getInstance(getProject())).setCompilerOutputUrl(myMainOutput.findOrCreateDir("out").getUrl());
-      if (!myModules.isEmpty()) {
-        JavaAwareProjectJdkTableImpl projectJdkTable = JavaAwareProjectJdkTableImpl.getInstanceEx();
-        for (Module module : myModules) {
-          ModuleRootModificationUtil.setModuleSdk(module, projectJdkTable.getInternalJdk());
+    if (overrideJdkAndOutput) {
+      WriteCommandAction.writeCommandAction(getProject()).run(() -> {
+        Objects.requireNonNull(CompilerProjectExtension.getInstance(getProject())).setCompilerOutputUrl(myMainOutput.findOrCreateDir("out").getUrl());
+        if (!myModules.isEmpty()) {
+          JavaAwareProjectJdkTableImpl projectJdkTable = JavaAwareProjectJdkTableImpl.getInstanceEx();
+          for (Module module : myModules) {
+            ModuleRootModificationUtil.setModuleSdk(module, projectJdkTable.getInternalJdk());
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   public void tearDown() {
@@ -194,8 +206,8 @@ public final class CompilerTester {
       Map<String, String> userMacros = pathMacroManager.getUserMacros();
       if (!userMacros.isEmpty()) {
         // require to be presented on disk
-        Path configDir = PathManager.getConfigDir();
-        Path macroFilePath = configDir.resolve("options").resolve(JpsGlobalLoader.PathVariablesSerializer.STORAGE_FILE_NAME);
+        Path macroFilePath = getPersistentStateComponentStorageLocation(pathMacroManager.getClass());
+        assertNotNull(macroFilePath);
         if (!Files.exists(macroFilePath)) {
           String message = "File " + macroFilePath + " doesn't exist, but user macros defined: " + userMacros;
           // todo find out who deletes this file during tests
@@ -328,11 +340,12 @@ public final class CompilerTester {
     }
 
     private static boolean isSpamMessage(String text) {
-      return text.contains(JavaCompilerBundle.message("status.compilation.completed.successfully")) ||
+      return text.contains("Build completed successfully in ") ||
              text.contains("used to compile") ||
              text.contains("illegal reflective") ||
              text.contains("Picked up") ||
              text.contains("consider reporting this to the maintainers") ||
+             text.contains("Errors occurred while compiling module") ||
              text.startsWith("Using Groovy-Eclipse");
     }
 

@@ -23,7 +23,7 @@ public class MavenCompatibilityProjectImportingTest extends MavenImportingTestCa
   @Parameterized.Parameters(name = "with Maven-{0}")
   public static List<String[]> getMavenVersions() {
     return Arrays.asList(
-      new String[]{"3.7.0-SNAPSHOT"},
+      new String[]{"3.8.1"},
       new String[]{"3.6.3"},
       new String[]{"3.6.2"},
       new String[]{"3.6.1"},
@@ -93,7 +93,7 @@ public class MavenCompatibilityProjectImportingTest extends MavenImportingTestCa
   }
 
   private void assertCorrectVersion() {
-    assertEquals(myMavenVersion, MavenServerManager.getInstance().getConnector(myProject).getMavenDistribution().getVersion());
+    assertEquals(myMavenVersion, MavenServerManager.getInstance().getConnector(myProject, myProjectRoot.getPath()).getMavenDistribution().getVersion());
   }
 
   @Test

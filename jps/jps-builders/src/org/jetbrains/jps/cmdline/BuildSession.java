@@ -13,6 +13,8 @@ import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.io.DataOutputStream;
 import io.netty.channel.Channel;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.TimingLog;
@@ -109,6 +111,23 @@ final class BuildSession implements Runnable, CanceledStatus {
     if (myPreloadedData != null) {
       JpsServiceManager.getInstance().getExtensions(PreloadedDataExtension.class).forEach(ext-> ext.buildSessionInitialized(myPreloadedData));
     }
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Starting build:");
+      LOG.debug(" initial delta = " + (delta == null ? null : "FSEvent(ordinal = " + delta.getOrdinal() + ", changed = " + showFirstItemIfAny(delta.getChangedPathsList()) + ", deleted = " + delta.getDeletedPathsList() + ")"));
+      LOG.debug(" forceModelLoading = " + myForceModelLoading);
+      LOG.debug(" loadUnloadedModules = " + myLoadUnloadedModules);
+      LOG.debug(" preloadedData = " + myPreloadedData);
+      LOG.debug(" buildType = " + myBuildType);
+    }
+  }
+
+  private static @NonNls String showFirstItemIfAny(List<String> list) {
+    switch (list.size()) {
+      case 0: return "[]";
+      case 1: return "[" + list.get(0) + "]";
+      default: return "[" + list.get(0) + " and " + (list.size() - 1) + " more]";
+    }
   }
 
   @Override
@@ -149,7 +168,7 @@ final class BuildSession implements Runnable, CanceledStatus {
               kind, text, compilerMessage.getSourcePath(),
               compilerMessage.getProblemBeginOffset(), compilerMessage.getProblemEndOffset(),
               compilerMessage.getProblemLocationOffset(), compilerMessage.getLine(), compilerMessage.getColumn(),
-              -1.0f);
+              -1.0f, compilerMessage.getModuleNames());
           }
           else if (buildMessage instanceof CustomBuilderMessage) {
             CustomBuilderMessage builderMessage = (CustomBuilderMessage)buildMessage;
@@ -161,15 +180,16 @@ final class BuildSession implements Runnable, CanceledStatus {
             if (worthReporting) {
               LOG.info(message.getMessageText());
             }
+            //noinspection HardCodedStringLiteral
             response = worthReporting && REPORT_BUILD_STATISTICS ?
-                       CmdlineProtoUtil.createCompileMessage(BuildMessage.Kind.JPS_INFO, message.getMessageText(), null, -1, -1, -1, -1, -1, -1.0f):
-                       null;
+              CmdlineProtoUtil.createCompileMessage(BuildMessage.Kind.JPS_INFO, message.getMessageText(), null, -1, -1, -1, -1, -1, -1.0f, Collections.emptyList()) : null;
           }
           else if (!(buildMessage instanceof BuildingTargetProgressMessage)) {
             float done = -1.0f;
             if (buildMessage instanceof ProgressMessage) {
               done = ((ProgressMessage)buildMessage).getDone();
             }
+            //noinspection HardCodedStringLiteral
             response = CmdlineProtoUtil.createCompileProgressMessageResponse(buildMessage.getMessageText(), done);
           }
           else {
@@ -198,13 +218,15 @@ final class BuildSession implements Runnable, CanceledStatus {
   private void runBuild(final MessageHandler msgHandler, CanceledStatus cs) throws Throwable{
     final File dataStorageRoot = Utils.getDataStorageRoot(myProjectPath);
     if (dataStorageRoot == null) {
-      msgHandler.processMessage(new CompilerMessage("build", BuildMessage.Kind.ERROR, "Cannot determine build data storage root for project " + myProjectPath));
+      msgHandler.processMessage(new CompilerMessage(BuildRunner.getRootCompilerName(), BuildMessage.Kind.ERROR,
+                                                    JpsBuildBundle.message("build.message.cannot.determine.build.data.storage.root.for.project.0", myProjectPath)));
       return;
     }
     final boolean storageFilesAbsent = !dataStorageRoot.exists() || !new File(dataStorageRoot, FS_STATE_FILE).exists();
     if (storageFilesAbsent) {
       // invoked the very first time for this project
       myBuildRunner.setForceCleanCaches(true);
+      LOG.debug("Storage files are absent");
     }
     final ProjectDescriptor preloadedProject = myPreloadedData != null? myPreloadedData.getProjectDescriptor() : null;
     final DataInputStream fsStateStream =
@@ -213,6 +235,7 @@ final class BuildSession implements Runnable, CanceledStatus {
     if (fsStateStream != null || myPreloadedData != null) {
       // optimization: check whether we can skip the build
       final boolean hasWorkFlag = fsStateStream != null? fsStateStream.readBoolean() : myPreloadedData.hasWorkToDo();
+      LOG.debug("hasWorkFlag = " + hasWorkFlag);
       final boolean hasWorkToDoWithModules = hasWorkFlag || myInitialFSDelta == null;
       if (!myForceModelLoading && (myBuildType == BuildType.BUILD || myBuildType == BuildType.UP_TO_DATE_CHECK) && !hasWorkToDoWithModules
           && scopeContainsModulesOnlyForIncrementalMake(myScopes) && !containsChanges(myInitialFSDelta)) {
@@ -238,6 +261,7 @@ final class BuildSession implements Runnable, CanceledStatus {
         }
       }
     }
+    LOG.debug("Fast up-to-date check didn't work, continue to regular build");
 
     final BuildFSState fsState = preloadedProject != null? preloadedProject.fsState : new BuildFSState(false);
     try {
@@ -302,7 +326,10 @@ final class BuildSession implements Runnable, CanceledStatus {
   private static boolean scopeContainsModulesOnlyForIncrementalMake(List<TargetTypeBuildScope> scopes) {
     TargetTypeRegistry typeRegistry = null;
     for (TargetTypeBuildScope scope : scopes) {
-      if (scope.getForceBuild()) return false;
+      if (scope.getForceBuild()) {
+        LOG.debug("Build scope forces compilation for targets of type " + scope.getTypeId());
+        return false;
+      }
       final String typeId = scope.getTypeId();
       if (isJavaModuleBuildType(typeId)) { // fast check
         continue;
@@ -313,6 +340,9 @@ final class BuildSession implements Runnable, CanceledStatus {
       }
       final BuildTargetType<?> targetType = typeRegistry.getTargetType(typeId);
       if (targetType != null && !(targetType instanceof ModuleInducedTargetType)) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Build scope contains target of type " + targetType + " which isn't eligible for fast up-to-date check");
+        }
         return false;
       }
     }
@@ -359,6 +389,10 @@ final class BuildSession implements Runnable, CanceledStatus {
   private static void applyFSEvent(ProjectDescriptor pd, @Nullable CmdlineRemoteProto.Message.ControllerMessage.FSEvent event, final boolean saveEventStamp) throws IOException {
     if (event == null) {
       return;
+    }
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("applyFSEvent ordinal=" + event.getOrdinal());
     }
 
     final StampsStorage<? extends StampsStorage.Stamp> stampsStorage = pd.getProjectStamps().getStampStorage();
@@ -416,6 +450,9 @@ final class BuildSession implements Runnable, CanceledStatus {
   }
 
   private static void updateFsStateOnDisk(File dataStorageRoot, DataInputStream original, final long ordinal) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("updateFsStateOnDisk, ordinal=" + ordinal);
+    }
     final File file = new File(dataStorageRoot, FS_STATE_FILE);
     try {
       final BufferExposingByteArrayOutputStream bytes = new BufferExposingByteArrayOutputStream();
@@ -468,6 +505,9 @@ final class BuildSession implements Runnable, CanceledStatus {
     for (JpsModule module : pd.getProject().getModules()) {
       for (ModuleBasedTarget<?> target : targetIndex.getModuleBasedTargets(module, BuildTargetRegistry.ModuleTargetSelector.ALL)) {
         if (!pd.getBuildTargetIndex().isDummy(target) && state.hasWorkToDo(target)) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Has work to do in " + target);
+          }
           return true;
         }
       }
@@ -510,6 +550,9 @@ final class BuildSession implements Runnable, CanceledStatus {
       }
       final long savedOrdinal = in.readLong();
       if (savedOrdinal + 1L != currentEventOrdinal) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Discarding FS data: savedOrdinal=" + savedOrdinal + "; currentEventOrdinal=" + currentEventOrdinal);
+        }
         return null;
       }
       return in;
@@ -530,9 +573,9 @@ final class BuildSession implements Runnable, CanceledStatus {
     CmdlineRemoteProto.Message lastMessage = null;
     try {
       if (error instanceof CannotLoadJpsModelException) {
-        String text = "Failed to load project configuration: " + StringUtil.decapitalize(error.getMessage());
+        String text = JpsBuildBundle.message("build.message.failed.to.load.project.configuration.0", StringUtil.decapitalize(error.getMessage()));
         String path = ((CannotLoadJpsModelException)error).getFile().getAbsolutePath();
-        lastMessage = CmdlineProtoUtil.toMessage(mySessionId, CmdlineProtoUtil.createCompileMessage(BuildMessage.Kind.ERROR, text, path, -1, -1, -1, -1, -1, -1.0f));
+        lastMessage = CmdlineProtoUtil.toMessage(mySessionId, CmdlineProtoUtil.createCompileMessage(BuildMessage.Kind.ERROR, text, path, -1, -1, -1, -1, -1, -1.0f, Collections.emptyList()));
       }
       else if (error != null) {
         Throwable cause = error.getCause();
@@ -544,14 +587,14 @@ final class BuildSession implements Runnable, CanceledStatus {
           cause.printStackTrace(stream);
         }
 
-        final StringBuilder messageText = new StringBuilder();
-        messageText.append("Internal error: (").append(cause.getClass().getName()).append(") ").append(cause.getMessage());
+        @Nls StringBuilder messageText = new StringBuilder();
+        messageText.append(JpsBuildBundle.message("build.message.internal.error.0.1", cause.getClass().getName(),cause.getMessage()));
         final String trace = out.toString();
         if (!trace.isEmpty()) {
           messageText.append("\n").append(trace);
         }
         if (error instanceof RebuildRequestedException || cause instanceof IOException) {
-          messageText.append("\n").append("Please perform full project rebuild (Build | Rebuild Project)");
+          messageText.append("\n").append(JpsBuildBundle.message("build.message.perform.full.project.rebuild"));
         }
         lastMessage = CmdlineProtoUtil.toMessage(mySessionId, CmdlineProtoUtil.createFailure(messageText.toString(), cause));
       }

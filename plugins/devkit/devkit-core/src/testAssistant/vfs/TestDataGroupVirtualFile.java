@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.devkit.testAssistant.vfs;
 
 import com.intellij.ide.presentation.Presentation;
@@ -13,9 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-/**
- * @author yole
- */
+
 @Presentation(icon = "AllIcons.Nodes.TestSourceFolder")
 public class TestDataGroupVirtualFile extends VirtualFile {
   private final VirtualFile myBeforeFile;
@@ -109,7 +107,7 @@ public class TestDataGroupVirtualFile extends VirtualFile {
   }
 
   @Override
-  public InputStream getInputStream() throws IOException {
+  public @NotNull InputStream getInputStream() throws IOException {
     throw new UnsupportedOperationException();
   }
 

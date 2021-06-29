@@ -1,10 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
-import com.jetbrains.python.inspections.PyNonAsciiCharInspection;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.inspections.*;
@@ -12,11 +12,15 @@ import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.sdk.PythonSdkType;
 import com.jetbrains.python.sdk.PythonSdkUtil;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
+
 public class PythonInspectionsTest extends PyTestCase {
+
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
+  }
 
   public void testReturnValueFromInit() {
     LocalInspectionTool inspection = new PyReturnFromInitInspection();
@@ -131,11 +135,6 @@ public class PythonInspectionsTest extends PyTestCase {
     doTest(getTestName(false), inspection);
   }
 
-  public void testPyStringExceptionInspection() {
-    LocalInspectionTool inspection = new PyStringExceptionInspection();
-    doTest(getTestName(false), inspection);
-  }
-
   public void testPySuperArgumentsInspection() {
     LocalInspectionTool inspection = new PySuperArgumentsInspection();
     doTest(getTestName(false), inspection);
@@ -157,10 +156,6 @@ public class PythonInspectionsTest extends PyTestCase {
     myFixture.configureFromTempProjectFile("test.py");
     myFixture.enableInspections(PyInitNewSignatureInspection.class);
     myFixture.checkHighlighting(true, false, true);
-  }
-
-  public void testPyCallByClassInspection() {
-    doHighlightingTest(PyCallByClassInspection.class); // ok, we can handle insanely long lines :)
   }
 
   private void doHighlightingTest(final Class<? extends PyInspection> inspectionClass) {

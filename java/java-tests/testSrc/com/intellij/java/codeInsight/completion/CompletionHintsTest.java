@@ -19,24 +19,32 @@ import com.intellij.psi.JavaCodeFragmentFactory;
 import com.intellij.psi.PsiExpressionCodeFragment;
 import com.intellij.psi.PsiMethod;
 import com.intellij.testFramework.EditorTestUtil;
+import com.intellij.testFramework.NeedsIndex;
 import com.intellij.testFramework.fixtures.EditorMouseFixture;
 
 import java.util.LinkedHashMap;
 
+@NeedsIndex.SmartMode(reason = "Hints shouldn't work in dumb mode")
 public class CompletionHintsTest extends AbstractParameterInfoTestCase {
-  private boolean myStoredSettingValue;
+  private boolean myStoredParamHintsValue;
+  private boolean myStoredTabOutValue;
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myStoredSettingValue = CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION;
-    CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION = true;
+    CodeInsightSettings settings = CodeInsightSettings.getInstance();
+    myStoredParamHintsValue = settings.SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION;
+    myStoredTabOutValue = settings.TAB_EXITS_BRACKETS_AND_QUOTES;
+    settings.SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION = true;
+    settings.TAB_EXITS_BRACKETS_AND_QUOTES = false;
   }
 
   @Override
   protected void tearDown() throws Exception {
     try {
-      CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION = myStoredSettingValue;
+      CodeInsightSettings settings = CodeInsightSettings.getInstance();
+      settings.SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION = myStoredParamHintsValue;
+      settings.TAB_EXITS_BRACKETS_AND_QUOTES = myStoredTabOutValue;
     }
     catch (Throwable e) {
       addSuppressedException(e);

@@ -1,15 +1,15 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.actions;
 
 import com.intellij.model.ModelPatch;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.*;
@@ -35,7 +35,12 @@ public final class VcsFacadeImpl extends VcsFacade {
 
   @NotNull
   public static VcsFacadeImpl getVcsInstance() {
-    return (VcsFacadeImpl)ServiceManager.getService(VcsFacade.class);
+    return (VcsFacadeImpl)ApplicationManager.getApplication().getService(VcsFacade.class);
+  }
+
+  @Override
+  public boolean hasActiveVcss(@NotNull Project project) {
+    return ProjectLevelVcsManager.getInstance(project).hasActiveVcss();
   }
 
   @Override
@@ -125,7 +130,7 @@ public final class VcsFacadeImpl extends VcsFacade {
 
   @NotNull
   private static List<PsiFile> getChangedFiles(@NotNull final Project project, @NotNull Collection<? extends Change> changes) {
-    Function<Change, PsiFile> changeToPsiFileMapper = new Function<Change, PsiFile>() {
+    Function<Change, PsiFile> changeToPsiFileMapper = new Function<>() {
       private final PsiManager myPsiManager = PsiManager.getInstance(project);
 
       @Override
@@ -181,8 +186,10 @@ public final class VcsFacadeImpl extends VcsFacade {
 
     BitSet changedLines = new BitSet();
     for (Range range : ranges) {
-      if (range.getType() == Range.DELETED) {
-        changedLines.set(Math.max(0, range.getLine1() - 1), range.getLine1() + 1);
+      if (!range.hasLines()) {
+        if (range.hasVcsLines()) {
+          changedLines.set(Math.max(0, range.getLine1() - 1), range.getLine1() + 1);
+        }
       }
       else {
         changedLines.set(range.getLine1(), range.getLine2());
@@ -241,7 +248,7 @@ public final class VcsFacadeImpl extends VcsFacade {
       return revision.getContent();
     }
     catch (VcsException e) {
-      LOG.error("Can't get content for: " + change.getVirtualFile(), e);
+      LOG.warn("Can't get content for: " + change.getVirtualFile(), e);
       return null;
     }
   }
@@ -287,7 +294,7 @@ public final class VcsFacadeImpl extends VcsFacade {
     final List<TextRange> insertedRanges = new ArrayList<>();
 
     for (Range range : changedRanges) {
-      if (range.getType() != Range.DELETED) {
+      if (range.hasLines()) {
         int changeStartLine = range.getLine1();
         int changeEndLine = range.getLine2();
 
@@ -296,7 +303,7 @@ public final class VcsFacadeImpl extends VcsFacade {
 
         TextRange changedTextRange = new TextRange(lineStartOffset, lineEndOffset);
         ranges.add(changedTextRange);
-        if (range.getType() == Range.INSERTED) {
+        if (!range.hasVcsLines()) {
           insertedRanges.add(changedTextRange);
         }
       }
@@ -310,9 +317,7 @@ public final class VcsFacadeImpl extends VcsFacade {
     boolean isUnderVcs = VcsUtil.isFileUnderVcs(project, VcsUtil.getFilePath(file.getVirtualFile()));
     if (!isUnderVcs) return true;
 
-    ChangeListManagerImpl changeListManager = ChangeListManagerImpl.getInstanceImpl(project);
-    List<VirtualFile> unversionedFiles = changeListManager.getUnversionedFiles();
-    if (unversionedFiles.contains(file.getVirtualFile())) {
+    if (ChangeListManager.getInstance(project).isUnversioned(file.getVirtualFile())) {
       return true;
     }
 

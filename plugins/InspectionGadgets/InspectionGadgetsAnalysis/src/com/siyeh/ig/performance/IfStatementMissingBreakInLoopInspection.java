@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.performance;
 
 import com.intellij.codeInsight.BlockUtils;
@@ -15,12 +15,14 @@ import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.SideEffectChecker;
 import com.siyeh.ig.psiutils.VariableAccessUtils;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
@@ -29,7 +31,7 @@ public class IfStatementMissingBreakInLoopInspection extends BaseInspection {
   @NotNull
   @Override
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("inspection.if.statement.missing.break.in.loop.name");
+    return InspectionGadgetsBundle.message("inspection.if.statement.missing.break.in.loop.description");
   }
 
   @Override
@@ -226,9 +228,18 @@ public class IfStatementMissingBreakInLoopInspection extends BaseInspection {
       if (ref != null) return isDeclaredVariable(ref.resolve(), declaredVariables);
       PsiArrayAccessExpression arrayAccess = tryCast(operand, PsiArrayAccessExpression.class);
       if (arrayAccess == null) return true;
-      return ExpressionUtils.nonStructuralChildren(arrayAccess.getArrayExpression())
-        .map(child -> tryCast(child, PsiReferenceExpression.class)).filter(Objects::nonNull)
-        .allMatch(r -> isDeclaredVariable(r.resolve(), declaredVariables));
+      return loopOnlyVariablesChanged(arrayAccess, declaredVariables);
+    }
+
+    private static boolean loopOnlyVariablesChanged(@NotNull PsiArrayAccessExpression arrayAccess,
+                                                    @NotNull Set<PsiVariable> declaredVariables) {
+      return ExpressionUtils.nonStructuralChildren(arrayAccess.getArrayExpression()).allMatch(child -> {
+        PsiArrayAccessExpression childArrayAccess = tryCast(child, PsiArrayAccessExpression.class);
+        if (childArrayAccess != null) return loopOnlyVariablesChanged(childArrayAccess, declaredVariables);
+        PsiReferenceExpression childRef = tryCast(child, PsiReferenceExpression.class);
+        if (childRef != null) return isDeclaredVariable(childRef.resolve(), declaredVariables);
+        return true;
+      });
     }
 
     private static boolean isDeclaredVariable(PsiElement element, Set<PsiVariable> declaredVariables) {

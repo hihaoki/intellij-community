@@ -5,6 +5,7 @@ import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.CopyProvider;
 import com.intellij.ide.DefaultTreeExpander;
 import com.intellij.ide.TreeExpander;
+import com.intellij.ide.dnd.DnDAware;
 import com.intellij.ide.projectView.impl.ProjectViewTree;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.treeView.TreeState;
@@ -35,10 +36,7 @@ import com.intellij.util.containers.TreeTraversal;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.intellij.lang.annotations.JdkConstants;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
@@ -81,9 +79,10 @@ public abstract class ChangesTree extends Tree implements DataProvider {
 
   @NotNull private final ChangesTreeHandlers myHandlers;
   private boolean myKeepTreeState = false;
+  private boolean myScrollToSelection = true;
 
   @Deprecated @NonNls private final static String FLATTEN_OPTION_KEY = "ChangesBrowser.SHOW_FLATTEN";
-  @NonNls private static final String GROUPING_KEYS = "ChangesTree.GroupingKeys";
+  @NonNls protected static final String GROUPING_KEYS = "ChangesTree.GroupingKeys";
 
   public static final String[] DEFAULT_GROUPING_KEYS = ar(DIRECTORY_GROUPING, MODULE_GROUPING);
 
@@ -112,7 +111,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     new TreeSpeedSearch(this, ChangesBrowserNode.TO_TEXT_CONVERTER, expandInSpeedSearch);
 
     final ChangesBrowserNodeRenderer nodeRenderer = new ChangesBrowserNodeRenderer(myProject, this::isShowFlatten, highlightProblems);
-    setCellRenderer(new CheckboxTreeCellRenderer(nodeRenderer));
+    setCellRenderer(new ChangesTreeCellRenderer(nodeRenderer));
 
     new MyToggleSelectionAction().registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0)), this);
     showCheckboxesChanged();
@@ -155,20 +154,15 @@ public abstract class ChangesTree extends Tree implements DataProvider {
   TreePath getPathIfCheckBoxClicked(@NotNull Point p) {
     if (!myShowCheckboxes || !isEnabled()) return null;
 
-    TreePath path = getPathIfInsideComponent(p);
-    if (path != null && isIncludable(path)) return path;
-    return null;
-  }
-
-  public @Nullable TreePath getPathIfInsideComponent(@NotNull Point p) {
     TreePath path = getPathForLocation(p.x, p.y);
     if (path == null) return null;
+    if (!isIncludable(path)) return null;
 
     Rectangle pathBounds = getPathBounds(path);
     if (pathBounds == null) return null;
 
     Rectangle checkBoxBounds = pathBounds.getBounds();
-    checkBoxBounds.setSize(getComponentWidth(path), checkBoxBounds.height);
+    checkBoxBounds.setSize(myCheckboxWidth, checkBoxBounds.height);
     if (!checkBoxBounds.contains(p)) return null;
 
     return path;
@@ -179,8 +173,10 @@ public abstract class ChangesTree extends Tree implements DataProvider {
       @Override
       protected int getRendererRelativeX(@NotNull MouseEvent e, @NotNull JTree tree, @NotNull TreePath path) {
         int x = super.getRendererRelativeX(e, tree, path);
-
-        return x - getComponentWidth(path);
+        if (myShowCheckboxes && isIncludable(path)) {
+          x -= myCheckboxWidth;
+        }
+        return x;
       }
 
       @Override
@@ -192,20 +188,28 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     }.installOn(this);
   }
 
-  protected int getComponentWidth(@NotNull TreePath path) {
-    if (!myShowCheckboxes) return 0;
-    return myCheckboxWidth;
-  }
-
   @NotNull
   protected ChangesGroupingSupport installGroupingSupport() {
     ChangesGroupingSupport result = new ChangesGroupingSupport(myProject, this, false);
 
     migrateShowFlattenSetting();
-    result.setGroupingKeysOrSkip(set(notNull(PropertiesComponent.getInstance(myProject).getValues(GROUPING_KEYS), DEFAULT_GROUPING_KEYS)));
-    result.addPropertyChangeListener(e -> changeGrouping());
+    installGroupingSupport(this, result, GROUPING_KEYS, DEFAULT_GROUPING_KEYS);
 
     return result;
+  }
+
+  protected static void installGroupingSupport(@NotNull ChangesTree tree, @NotNull ChangesGroupingSupport groupingSupport,
+                                               @NotNull @NonNls String propertyName, @NonNls String... defaultGroupingKeys) {
+    groupingSupport.setGroupingKeysOrSkip(set(notNull(PropertiesComponent.getInstance(tree.getProject()).getValues(propertyName),
+                                                      defaultGroupingKeys)));
+    groupingSupport.addPropertyChangeListener(e -> {
+      PropertiesComponent.getInstance(tree.getProject()).setValues(propertyName,
+                                                                   ArrayUtilRt.toStringArray(groupingSupport.getGroupingKeys()));
+
+      List<Object> oldSelection = selected(tree).userObjects();
+      tree.rebuildTree();
+      tree.setSelectedChanges(oldSelection);
+    });
   }
 
   private void migrateShowFlattenSetting() {
@@ -242,6 +246,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
    * @deprecated Use {@link #setDoubleClickAndEnterKeyHandler(Runnable)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setDoubleClickHandler(@NotNull Runnable doubleClickHandler) {
     setDoubleClickAndEnterKeyHandler(doubleClickHandler);
   }
@@ -258,25 +263,25 @@ public abstract class ChangesTree extends Tree implements DataProvider {
   }
 
   @Nullable
-  public Processor<MouseEvent> getDoubleClickHandler() {
+  public Processor<? super MouseEvent> getDoubleClickHandler() {
     return myHandlers.getDoubleClickHandler();
   }
 
-  public void setDoubleClickHandler(@Nullable Processor<MouseEvent> handler) {
+  public void setDoubleClickHandler(@Nullable Processor<? super MouseEvent> handler) {
     myHandlers.setDoubleClickHandler(handler);
   }
 
   @Nullable
-  public Processor<KeyEvent> getEnterKeyHandler() {
+  public Processor<? super KeyEvent> getEnterKeyHandler() {
     return myHandlers.getEnterKeyHandler();
   }
 
-  public void setEnterKeyHandler(@Nullable Processor<KeyEvent> handler) {
+  public void setEnterKeyHandler(@Nullable Processor<? super KeyEvent> handler) {
     myHandlers.setEnterKeyHandler(handler);
   }
 
   public void installPopupHandler(ActionGroup group) {
-    PopupHandler.installUnknownPopupHandler(this, group, ActionManager.getInstance());
+    PopupHandler.installPopupMenu(this, group, "ChangesTreePopup");
   }
 
   public JComponent getPreferredFocusedComponent() {
@@ -334,14 +339,6 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     repaint();
   }
 
-  private void changeGrouping() {
-    PropertiesComponent.getInstance(myProject).setValues(GROUPING_KEYS, ArrayUtilRt.toStringArray(getGroupingSupport().getGroupingKeys()));
-
-    List<Object> oldSelection = selected(this).userObjects();
-    rebuildTree();
-    setSelectedChanges(oldSelection);
-  }
-
   private boolean isCurrentModelFlat() {
     boolean isFlat = true;
     Enumeration enumeration = getRoot().depthFirstEnumeration();
@@ -363,6 +360,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
       TreeState state = null;
       if (myKeepTreeState) {
         state = TreeState.createOn(this, getRoot());
+        state.setScrollToSelection(myScrollToSelection);
       }
 
       setModel(model);
@@ -386,9 +384,9 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     return myModelUpdateInProgress;
   }
 
-  protected void resetTreeState() {
+  public void resetTreeState() {
     // expanding lots of nodes is a slow operation (and result is not very useful)
-    if (hasAtLeastNodes(this, 30000)) {
+    if (TreeUtil.hasManyNodes(this, 30000)) {
       TreeUtil.collapseAll(this, 1);
       return;
     }
@@ -424,10 +422,6 @@ public abstract class ChangesTree extends Tree implements DataProvider {
       setSelectionRow(selectedTreeRow);
     }
     TreeUtil.showRowCentered(this, selectedTreeRow, false);
-  }
-
-  private static boolean hasAtLeastNodes(@NotNull Tree tree, int nodeNumber) {
-    return TreeUtil.treeTraverser(tree).traverse().take(nodeNumber).size() >= nodeNumber;
   }
 
   public void selectFile(@Nullable VirtualFile toSelect) {
@@ -492,6 +486,10 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     if (myTreeInclusionListener != null) myTreeInclusionListener.run();
   }
 
+  /**
+   * If called during component initialization, should be followed by {@link #resetTreeState()} or {@link #rebuildTree()}
+   * to update initial selection.
+   */
   public void setIncludedChanges(@NotNull Collection<?> changes) {
     getInclusionModel().setInclusion(changes);
   }
@@ -565,6 +563,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
    * @deprecated See {@link ChangesTree#GROUP_BY_ACTION_GROUP}, {@link TreeActionsToolbarPanel}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public AnAction[] getTreeActions() {
     return new AnAction[]{
       ActionManager.getInstance().getAction(GROUP_BY_ACTION_GROUP),
@@ -599,8 +598,13 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     }
 
     @Override
-    public boolean isVisible(@NotNull AnActionEvent event) {
+    public boolean isExpandAllVisible() {
       return !myGroupingSupport.isNone() || !myIsModelFlat;
+    }
+
+    @Override
+    public boolean isCollapseAllVisible() {
+      return isExpandAllVisible();
     }
   }
 
@@ -610,7 +614,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
   }
 
   @NotNull
-  State getNodeStatus(@NotNull ChangesBrowserNode<?> node) {
+  protected State getNodeStatus(@NotNull ChangesBrowserNode<?> node) {
     boolean hasIncluded = false;
     boolean hasExcluded = false;
 
@@ -648,12 +652,12 @@ public abstract class ChangesTree extends Tree implements DataProvider {
     return isIncludable((ChangesBrowserNode<?>)lastComponent);
   }
 
-  private boolean isIncludable(@NotNull ChangesBrowserNode<?> node) {
+  protected boolean isIncludable(@NotNull ChangesBrowserNode<?> node) {
     return isInclusionVisible(node) && isInclusionEnabled(node);
   }
 
   @NotNull
-  private List<Object> getIncludableUserObjects(@NotNull VcsTreeModelData treeModelData) {
+  protected List<Object> getIncludableUserObjects(@NotNull VcsTreeModelData treeModelData) {
     return treeModelData
       .nodesStream()
       .filter(node -> isIncludable(node))
@@ -693,6 +697,14 @@ public abstract class ChangesTree extends Tree implements DataProvider {
 
   public void setKeepTreeState(boolean keepTreeState) {
     myKeepTreeState = keepTreeState;
+  }
+
+  public boolean isScrollToSelection() {
+    return myScrollToSelection;
+  }
+
+  public void setScrollToSelection(boolean scrollToSelection) {
+    myScrollToSelection = scrollToSelection;
   }
 
   @Nullable

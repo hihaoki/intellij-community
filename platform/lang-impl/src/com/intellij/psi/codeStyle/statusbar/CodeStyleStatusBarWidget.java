@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBarWidget;
@@ -65,7 +66,7 @@ public class CodeStyleStatusBarWidget extends EditorBasedStatusBarPopup implemen
 
 
   @Nullable
-  private static IndentStatusBarUIContributor getUiContributor(@NotNull VirtualFile file, @NotNull IndentOptions indentOptions) {
+  private static CodeStyleStatusBarUIContributor getUiContributor(@NotNull VirtualFile file, @NotNull IndentOptions indentOptions) {
     FileIndentOptionsProvider provider = findProvider(file, indentOptions);
     if (provider != null) {
       return provider.getIndentStatusBarUiContributor(indentOptions);
@@ -78,7 +79,7 @@ public class CodeStyleStatusBarWidget extends EditorBasedStatusBarPopup implemen
     FileIndentOptionsProvider optionsProvider = indentOptions.getFileIndentOptionsProvider();
     if (optionsProvider != null) return optionsProvider;
     for (FileIndentOptionsProvider provider : FileIndentOptionsProvider.EP_NAME.getExtensions()) {
-      IndentStatusBarUIContributor uiContributor = provider.getIndentStatusBarUiContributor(indentOptions);
+      CodeStyleStatusBarUIContributor uiContributor = provider.getIndentStatusBarUiContributor(indentOptions);
       if (uiContributor != null && uiContributor.areActionsAvailable(file)) {
         return provider;
       }
@@ -194,8 +195,8 @@ public class CodeStyleStatusBarWidget extends EditorBasedStatusBarPopup implemen
     private final @Nullable CodeStyleStatusBarUIContributor myContributor;
     private final @NotNull PsiFile myPsiFile;
 
-    protected MyWidgetState(String toolTip,
-                            String text,
+    protected MyWidgetState(@NlsContexts.Tooltip String toolTip,
+                            @NlsContexts.StatusBarText String text,
                             @NotNull PsiFile psiFile,
                             @NotNull IndentOptions indentOptions,
                             @Nullable CodeStyleStatusBarUIContributor uiContributor) {

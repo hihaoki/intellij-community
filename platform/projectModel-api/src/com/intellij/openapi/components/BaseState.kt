@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.components
 
 import com.intellij.openapi.diagnostic.logger
@@ -8,18 +8,21 @@ import com.intellij.util.xmlb.Accessor
 import com.intellij.util.xmlb.SerializationFilter
 import com.intellij.util.xmlb.annotations.Transient
 import org.jetbrains.annotations.ApiStatus
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.MethodType
 import java.nio.charset.Charset
-import java.util.*
 import java.util.concurrent.atomic.AtomicLongFieldUpdater
-import kotlin.collections.ArrayList
-import kotlin.collections.LinkedHashMap
 
 internal val LOG = logger<BaseState>()
 
-private val factory: StatePropertyFactory = ServiceLoader.load(StatePropertyFactory::class.java, BaseState::class.java.classLoader).first()
+private val factory: StatePropertyFactory = run {
+  val implClass = BaseState::class.java.classLoader.loadClass("com.intellij.serialization.stateProperties.StatePropertyFactoryImpl")
+  MethodHandles.lookup().findConstructor(implClass, MethodType.methodType(Void.TYPE)).invoke() as StatePropertyFactory
+}
 
 abstract class BaseState : SerializationFilter, ModificationTracker {
   companion object {
+    @JvmStatic
     // should be part of class and not file level to access private field of class
     private val MOD_COUNT_UPDATER = AtomicLongFieldUpdater.newUpdater(BaseState::class.java, "ownModificationCount")
   }
@@ -67,16 +70,12 @@ abstract class BaseState : SerializationFilter, ModificationTracker {
    * Collection considered as default if empty. It is *your* responsibility to call `incrementModificationCount` on collection modification.
    * You cannot set value to a new collection - on set current collection is cleared and new collection is added to current.
    */
-  protected fun <E> treeSet(): StoredPropertyBase<MutableSet<E>> where E : Comparable<E>, E : BaseState = addProperty(factory.treeSet<E>())
+  protected fun <E> treeSet(): StoredPropertyBase<MutableSet<E>> where E : Comparable<E>, E : BaseState = addProperty(factory.treeSet())
 
   /**
    * Charset is an immutable, so, it is safe to use it as default value.
    */
   protected fun <T : Charset> property(initialValue: T) = addProperty(factory.obj(initialValue))
-
-  // Enum is an immutable, so, it is safe to use it as default value.
-  @Deprecated(message = "Use [enum] instead", replaceWith = ReplaceWith("enum(defaultValue)"), level = DeprecationLevel.ERROR)
-  protected fun <T : Enum<*>> property(defaultValue: T) = addProperty(factory.obj(defaultValue))
 
   protected inline fun <reified T : Enum<*>> enum(defaultValue: T): StoredPropertyBase<T> {
     @Suppress("UNCHECKED_CAST")
@@ -91,17 +90,11 @@ abstract class BaseState : SerializationFilter, ModificationTracker {
   /**
    * Not-null list. Initialized as SmartList.
    */
-  protected fun <T : Any> list(): StoredPropertyBase<MutableList<T>> = addProperty(factory.list<T>())
+  protected fun <T : Any> list(): StoredPropertyBase<MutableList<T>> = addProperty(factory.list())
 
-  protected fun <K : Any, V: Any> map(): StoredPropertyBase<MutableMap<K, V>> = addProperty(factory.map<K, V>(null))
+  protected fun <K : Any, V: Any> map(): StoredPropertyBase<MutableMap<K, V>> = addProperty(factory.map(null))
 
-  protected fun <K : Any, V: Any> linkedMap(): StoredPropertyBase<MutableMap<K, V>> = addProperty(factory.map<K, V>(LinkedHashMap()))
-
-  @Deprecated(level = DeprecationLevel.ERROR, message = "Use map", replaceWith = ReplaceWith("map()"))
-  protected fun <K : Any, V: Any> map(value: MutableMap<K, V>): StoredPropertyBase<MutableMap<K, V>> = addProperty(factory.map(value))
-
-  @Deprecated(level = DeprecationLevel.ERROR, message = "Use string", replaceWith = ReplaceWith("string(defaultValue)"))
-  protected fun property(defaultValue: String?) = string(defaultValue)
+  protected fun <K : Any, V: Any> linkedMap(): StoredPropertyBase<MutableMap<K, V>> = addProperty(factory.map(LinkedHashMap()))
 
   /**
    * Empty string is always normalized to null.
@@ -130,6 +123,11 @@ abstract class BaseState : SerializationFilter, ModificationTracker {
   @ApiStatus.Internal
   fun intIncrementModificationCount() {
     MOD_COUNT_UPDATER.incrementAndGet(this)
+  }
+
+  @ApiStatus.Internal
+  fun addModificationCount(delta: Long) {
+    MOD_COUNT_UPDATER.addAndGet(this, delta)
   }
 
   override fun accepts(accessor: Accessor, bean: Any): Boolean {
@@ -168,16 +166,7 @@ abstract class BaseState : SerializationFilter, ModificationTracker {
   override fun hashCode(): Int = properties.hashCode()
 
   override fun toString(): String {
-    if (properties.isEmpty()) {
-      return ""
-    }
-
-    val builder = StringBuilder()
-    for (property in properties) {
-      builder.append(property.toString()).append(" ")
-    }
-    builder.setLength(builder.length - 1)
-    return builder.toString()
+    return properties.joinToString(" ")
   }
 
   @JvmOverloads

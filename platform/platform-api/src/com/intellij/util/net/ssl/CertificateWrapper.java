@@ -1,7 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.io.DigestUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -44,7 +46,7 @@ public final class CertificateWrapper {
    * @param name - Common name of desired subject field
    * @return field value of {@link #NOT_AVAILABLE}, if it doesn't exist
    */
-  public @NotNull String getSubjectField(@NotNull CommonField name) {
+  public @NotNull @NlsSafe String getSubjectField(@NotNull CommonField name) {
     String field = mySubjectFields.get(name.getShortName());
     return field == null ? NOT_AVAILABLE : field;
   }
@@ -142,7 +144,7 @@ public final class CertificateWrapper {
     return myIssuerFields;
   }
 
-  public Map<String, String> getSubjectFields() {
+  public Map<String, @Nls String> getSubjectFields() {
     return mySubjectFields;
   }
 
@@ -160,12 +162,12 @@ public final class CertificateWrapper {
   }
 
   @Override
-  public final boolean equals(Object other) {
+  public boolean equals(Object other) {
     return other instanceof CertificateWrapper && myCertificate.equals(((CertificateWrapper)other).getCertificate());
   }
 
   @Override
-  public final int hashCode() {
+  public int hashCode() {
     return myCertificate.hashCode();
   }
 
@@ -189,11 +191,11 @@ public final class CertificateWrapper {
       myLongName = longName;
     }
 
-    public String getShortName() {
+    public @NlsSafe String getShortName() {
       return myShortName;
     }
 
-    public String getLongName() {
+    public @NlsSafe String getLongName() {
       return myLongName;
     }
   }

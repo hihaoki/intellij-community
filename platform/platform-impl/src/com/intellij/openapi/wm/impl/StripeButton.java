@@ -1,18 +1,22 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.featureStatistics.FeatureUsageTracker;
+import com.intellij.ide.HelpTooltip;
 import com.intellij.ide.actions.ActivateToolWindowAction;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.WindowInfo;
 import com.intellij.ui.MouseDragHelper;
 import com.intellij.ui.PopupHandler;
+import com.intellij.ui.RelativeFont;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,7 +33,7 @@ import java.awt.image.BufferedImage;
  * @author Eugene Belyaev
  * @author Vladimir Kondratyev
  */
-public final class StripeButton extends AnchoredButton implements DataProvider {
+public class StripeButton extends AnchoredButton implements DataProvider {
   /**
    * This is analog of Swing mnemonic. We cannot use the standard ones
    * because it causes typing of "funny" characters into the editor.
@@ -38,7 +42,7 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
   private boolean myPressedWhenSelected;
 
   private JLayeredPane myDragPane;
-  private final ToolWindowsPane pane;
+  @NotNull final ToolWindowsPane pane;
   final ToolWindowImpl toolWindow;
   private JLabel myDragButtonImage;
   private Point myPressedPoint;
@@ -56,16 +60,15 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
 
     addActionListener(e -> {
       String id = toolWindow.getId();
+      ToolWindowManagerImpl manager = toolWindow.getToolWindowManager();
       if (myPressedWhenSelected) {
-        toolWindow.getToolWindowManager().hideToolWindow(id, false);
+        manager.hideToolWindow(id, false, true, ToolWindowEventSource.StripeButton);
       }
       else {
-        toolWindow.getToolWindowManager().activated$intellij_platform_ide_impl(toolWindow);
+        manager.activated$intellij_platform_ide_impl(toolWindow, ToolWindowEventSource.StripeButton);
       }
 
       myPressedWhenSelected = false;
-      //noinspection SpellCheckingInspection
-      FeatureUsageTracker.getInstance().triggerFeatureUsed("toolwindow.clickstat." + id);
     });
     addMouseListener(new PopupHandler() {
       @Override
@@ -77,13 +80,24 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
     setOpaque(false);
 
     enableEvents(AWTEvent.MOUSE_EVENT_MASK);
-
     addMouseMotionListener(new MouseMotionAdapter() {
       @Override
       public void mouseDragged(MouseEvent e) {
-        processDrag(e);
+        if (!Registry.is("ide.new.tool.window.dnd")) processDrag(e);
       }
     });
+
+    updateHelpTooltip();
+  }
+
+  private void updateHelpTooltip() {
+    HelpTooltip.dispose(this);
+
+    HelpTooltip tooltip = new HelpTooltip();
+    tooltip.setTitle(toolWindow.getStripeTitle());
+    String activateActionId = ActivateToolWindowAction.getActionIdForToolWindow(toolWindow.getId());
+    tooltip.setShortcut(ActionManager.getInstance().getKeyboardShortcut(activateActionId));
+    tooltip.installOn(this);
   }
 
   public @NotNull WindowInfo getWindowInfo() {
@@ -118,6 +132,7 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
 
   private void setMnemonic2(int mnemonic) {
     myMnemonic = mnemonic;
+    updateHelpTooltip();
     revalidate();
     repaint();
   }
@@ -182,18 +197,11 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
         return;
       }
 
-      int width = getWidth() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor == ToolWindowAnchor.LEFT)
-      int height = getHeight() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor.isHorizontal())
-      BufferedImage image = UIUtil.createImage(e.getComponent(), width, height, BufferedImage.TYPE_INT_RGB);
-      Graphics graphics = image.getGraphics();
-      graphics.setColor(UIUtil.getBgFillColor(getParent()));
-      graphics.fillRect(0, 0, width, height);
-      paint(graphics);
-      graphics.dispose();
+      BufferedImage image = createDragImage();
       myDragButtonImage = new JLabel(IconUtil.createImageIcon((Image)image)) {
         @Override
         public String toString() {
-          return "Image for: " + StripeButton.this.toString();
+          return "Image for: " + StripeButton.this;
         }
       };
 
@@ -227,7 +235,7 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
 
     SwingUtilities.convertPointToScreen(xy, myDragPane);
 
-    Stripe stripe = pane.getStripeFor(new Rectangle(xy, myDragButtonImage.getSize()), (Stripe)getParent());
+    Stripe stripe = pane.getStripeFor(xy, (Stripe)getParent());
     if (stripe == null) {
       if (myLastStripe != null) {
         myLastStripe.resetDrop();
@@ -241,6 +249,28 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
     }
 
     myLastStripe = stripe;
+  }
+
+  @NotNull
+  BufferedImage createDragImage() {
+    Rectangle initialBounds = getBounds();
+    try {
+      if (initialBounds.isEmpty()) {
+        setSize(getPreferredSize());
+      }
+      int width = getWidth() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor == ToolWindowAnchor.LEFT)
+      int height = getHeight() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor.isHorizontal())
+      BufferedImage image = UIUtil.createImage(this, width, height, BufferedImage.TYPE_INT_RGB);
+      Graphics graphics = image.getGraphics();
+      graphics.setColor(UIUtil.getBgFillColor(getParent()));
+      graphics.fillRect(0, 0, width, height);
+      paint(graphics);
+      graphics.dispose();
+      return image;
+    }
+    finally {
+      setBounds(initialBounds);
+    }
   }
 
   public @NotNull ToolWindowImpl getToolWindow() {
@@ -260,8 +290,7 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
   }
 
   private boolean isWithinDeadZone(final MouseEvent e) {
-    return Math.abs(myPressedPoint.x - e.getPoint().x) < MouseDragHelper.DRAG_START_DEADZONE && Math.abs(myPressedPoint.y - e.getPoint().y) < MouseDragHelper
-      .DRAG_START_DEADZONE;
+    return myPressedPoint.distance(e.getPoint()) < JBUI.scale(MouseDragHelper.DRAG_START_DEADZONE);
   }
 
   private static @Nullable JLayeredPane findLayeredPane(MouseEvent e) {
@@ -314,7 +343,10 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
   @Override
   public void updateUI() {
     setUI(StripeButtonUI.createUI(this));
-    setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
+
+    Font font = StartupUiUtil.getLabelFont();
+    RelativeFont relativeFont = RelativeFont.NORMAL.fromResource("StripeButton.fontSizeOffset", -2, JBUIScale.scale(11f));
+    setFont(relativeFont.derive(font));
   }
 
   void updatePresentation() {
@@ -341,6 +373,7 @@ public final class StripeButton extends AnchoredButton implements DataProvider {
       }
     }
     setText(text);
+    updateHelpTooltip();
   }
 
   private void updateState(@NotNull ToolWindowImpl toolWindow) {

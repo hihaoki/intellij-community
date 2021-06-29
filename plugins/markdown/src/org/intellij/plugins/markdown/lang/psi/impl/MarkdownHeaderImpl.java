@@ -1,16 +1,20 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.markdown.lang.psi.impl;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.model.psi.PsiExternalReferenceHost;
 import com.intellij.navigation.ColoredItemPresentation;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtilCore;
 import org.intellij.plugins.markdown.lang.MarkdownElementTypes;
 import org.intellij.plugins.markdown.lang.MarkdownTokenTypeSets;
-import org.intellij.plugins.markdown.lang.psi.MarkdownRecursiveElementVisitor;
+import org.intellij.plugins.markdown.lang.psi.MarkdownElementVisitor;
 import org.intellij.plugins.markdown.lang.stubs.MarkdownStubBasedPsiElementBase;
 import org.intellij.plugins.markdown.lang.stubs.MarkdownStubElement;
 import org.intellij.plugins.markdown.lang.stubs.impl.MarkdownHeaderStubElement;
@@ -20,10 +24,11 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
+import static org.intellij.plugins.markdown.lang.MarkdownTokenTypeSets.LIST_MARKERS;
 import static org.intellij.plugins.markdown.structureView.MarkdownStructureColors.MARKDOWN_HEADER;
 import static org.intellij.plugins.markdown.structureView.MarkdownStructureColors.MARKDOWN_HEADER_BOLD;
 
-public class MarkdownHeaderImpl extends MarkdownStubBasedPsiElementBase<MarkdownStubElement> {
+public class MarkdownHeaderImpl extends MarkdownStubBasedPsiElementBase<MarkdownStubElement> implements PsiExternalReferenceHost {
   public MarkdownHeaderImpl(@NotNull ASTNode node) {
     super(node);
   }
@@ -34,8 +39,8 @@ public class MarkdownHeaderImpl extends MarkdownStubBasedPsiElementBase<Markdown
 
   @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
-    if (visitor instanceof MarkdownRecursiveElementVisitor) {
-      ((MarkdownRecursiveElementVisitor)visitor).visitHeader(this);
+    if (visitor instanceof MarkdownElementVisitor) {
+      ((MarkdownElementVisitor)visitor).visitHeader(this);
       return;
     }
 
@@ -51,12 +56,12 @@ public class MarkdownHeaderImpl extends MarkdownStubBasedPsiElementBase<Markdown
     return new ColoredItemPresentation() {
       @Override
       public String getPresentableText() {
-        return text;
-      }
+        PsiElement prevSibling = getPrevSibling();
+        if (Registry.is("markdown.structure.view.list.visibility") && LIST_MARKERS.contains(PsiUtilCore.getElementType(prevSibling))) {
+          return prevSibling.getText() + text;
+        }
 
-      @Override
-      public String getLocationString() {
-        return null;
+        return text;
       }
 
       @Override

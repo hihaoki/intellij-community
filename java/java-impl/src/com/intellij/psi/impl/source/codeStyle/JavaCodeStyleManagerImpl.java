@@ -45,6 +45,8 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
     "as", "at", "by", "down", "for", "from", "in", "into", "of", "on", "onto", "out", "over",
     "per", "to", "up", "upon", "via", "with"};
 
+  @NonNls private static final String[] ourCommonTypeSuffixes = {"Entity"};
+
 
   private final Project myProject;
 
@@ -403,6 +405,11 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
     String result = type instanceof PsiArrayType ? StringUtil.pluralize(typeName) : typeName;
     if (variableKind == VariableKind.PARAMETER && type instanceof PsiClassType && typeName.endsWith("Exception")) {
       return Arrays.asList("e", result);
+    }
+    for (String suffix : ourCommonTypeSuffixes) {
+      if (result.length() > suffix.length() && result.endsWith(suffix)) {
+        return Arrays.asList(result, result.substring(0, result.length() - suffix.length()));
+      }
     }
     return Collections.singletonList(result);
   }
@@ -772,7 +779,7 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
 
   private static String @NotNull [] getSuggestionsByValue(@NotNull String stringValue) {
     List<String> result = new ArrayList<>();
-    StringBuffer currentWord = new StringBuffer();
+    StringBuilder currentWord = new StringBuilder();
 
     boolean prevIsUpperCase = false;
 
@@ -781,7 +788,7 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
       if (Character.isUpperCase(c)) {
         if (currentWord.length() > 0 && !prevIsUpperCase) {
           result.add(currentWord.toString());
-          currentWord = new StringBuffer();
+          currentWord = new StringBuilder();
         }
         currentWord.append(c);
       }
@@ -796,7 +803,7 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
       else {
         if (currentWord.length() > 0) {
           result.add(currentWord.toString());
-          currentWord = new StringBuffer();
+          currentWord = new StringBuilder();
         }
       }
 

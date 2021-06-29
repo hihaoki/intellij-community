@@ -1,11 +1,14 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.execution.test.runner
 
+import com.intellij.execution.RunManager
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfiguration
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiMethod
+import org.jetbrains.plugins.gradle.service.execution.GradleExternalTaskConfigurationType
+import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration
 import org.jetbrains.plugins.gradle.settings.TestRunner
 import org.jetbrains.plugins.gradle.util.runReadActionAndWait
 import org.junit.Test
@@ -111,12 +114,12 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
       projectData["my module"]["MyModuleTestCase"]["test2"].element
     )
     assertConfigurationFromContext<TestMethodGradleConfigurationProducer>(
-      """:test --tests "GroovyTestCase.Don\'t use single * quo\*tes"""",
-      projectData["project"]["GroovyTestCase"]["""Don\'t use single . quo\"tes"""].element
+      """:test --tests "GroovyTestCase.Don\'t use single quo\*tes"""",
+      projectData["project"]["GroovyTestCase"]["""Don\'t use single quo\"tes"""].element
     )
     assertConfigurationFromContext<PatternGradleConfigurationProducer>(
-      """:test --tests "GroovyTestCase.Don\'t use single * quo\*tes" --tests "GroovyTestCase.test2"""",
-      projectData["project"]["GroovyTestCase"]["""Don\'t use single . quo\"tes"""].element,
+      """:test --tests "GroovyTestCase.Don\'t use single quo\*tes" --tests "GroovyTestCase.test2"""",
+      projectData["project"]["GroovyTestCase"]["""Don\'t use single quo\"tes"""].element,
       projectData["project"]["GroovyTestCase"]["test2"].element
     )
   }
@@ -207,13 +210,32 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
   }
 
   @Test
+  fun `test execution action children`() {
+    val projectData = generateAndImportTemplateProject()
+    assertGutterRunActionsSize(projectData["project"]["TestCase"].element, 0)
+    assertGutterRunActionsSize(projectData["project"]["TestCase"]["test1"].element, 0)
+    assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"].element, 0)
+    assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"]["test2"].element, 0)
+  }
+
+  @Test
+  fun `test execution action children in choose per test mode`() {
+    currentExternalProjectSettings.testRunner = TestRunner.CHOOSE_PER_TEST
+    val projectData = generateAndImportTemplateProject()
+    assertGutterRunActionsSize(projectData["project"]["TestCase"].element, 2)
+    assertGutterRunActionsSize(projectData["project"]["TestCase"]["test1"].element, 2)
+    //assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"].element, 2)
+    assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"]["test2"].element, 2)
+  }
+
+  @Test
   fun `test multiple selected abstract tests`() {
     val projectData = generateAndImportTemplateProject()
     runReadActionAndWait {
       val producer = getConfigurationProducer<PatternGradleConfigurationProducer>()
       val testClass = projectData["project"]["TestCase"].element
-      val abstractTestClass = projectData["project"]["AbstractTestCase"].element
-      val abstractTestMethod = projectData["project"]["AbstractTestCase"]["test"].element
+      val abstractTestClass = projectData["project"]["org.example.AbstractTestCase"].element
+      val abstractTestMethod = projectData["project"]["org.example.AbstractTestCase"]["test"].element
       val templateConfiguration = producer.createTemplateConfiguration()
       getContextByLocation(testClass, abstractTestClass).let {
         assertTrue(producer.setupConfigurationFromContext(templateConfiguration, it, Ref(it.psiLocation)))
@@ -227,6 +249,32 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
       getContextByLocation(abstractTestMethod, abstractTestMethod).let {
         assertFalse(producer.setupConfigurationFromContext(templateConfiguration, it, Ref(it.psiLocation)))
       }
+    }
+  }
+
+  @Test
+  fun `test template-defined arguments are kept`() {
+    val projectData = generateAndImportTemplateProject()
+    val gradleRCTemplate = RunManager.getInstance(myProject).getConfigurationTemplate(
+      GradleExternalTaskConfigurationType.getInstance().factory).configuration as? GradleRunConfiguration
+
+    gradleRCTemplate?.settings?.scriptParameters = "-DmyKey=myVal --debug"
+
+    try {
+      assertConfigurationFromContext<TestMethodGradleConfigurationProducer>(
+        """:test --tests "TestCase.test1" -DmyKey=myVal --debug""",
+        projectData["project"]["TestCase"]["test1"].element
+      )
+      assertConfigurationFromContext<TestClassGradleConfigurationProducer>(
+        """:test --tests "TestCase" -DmyKey=myVal --debug""",
+        projectData["project"]["TestCase"].element
+      )
+      assertConfigurationFromContext<AllInPackageGradleConfigurationProducer>(
+        """:test --tests "pkg.*" -DmyKey=myVal --debug""",
+        runReadActionAndWait { projectData["project"]["pkg.TestCase"].element.containingFile.containingDirectory }
+      )
+    } finally {
+      gradleRCTemplate?.settings?.scriptParameters = ""
     }
   }
 }

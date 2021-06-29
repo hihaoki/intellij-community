@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
 import com.intellij.util.messages.Topic;
@@ -9,7 +9,7 @@ import java.io.File;
 
 public interface IdePerformanceListener {
   @Topic.AppLevel
-  Topic<IdePerformanceListener> TOPIC = new Topic<>(IdePerformanceListener.class, Topic.BroadcastDirection.NONE);
+  Topic<IdePerformanceListener> TOPIC = new Topic<>(IdePerformanceListener.class, Topic.BroadcastDirection.NONE, true);
 
   /**
    * Invoked after thread state has been dumped to a file.
@@ -19,26 +19,26 @@ public interface IdePerformanceListener {
 
   /**
    * Invoked when IDE has detected that the UI hasn't responded for some time (5 seconds by default)
+   * @deprecated use {{@link #uiFreezeStarted(File)}}
    */
+  @Deprecated
   default void uiFreezeStarted() {
   }
 
   /**
-   * Invoked after the UI has become responsive again following a {@link #uiFreezeStarted()} event.
-   * @param lengthInSeconds approximate length in seconds of the interval that the IDE was unresponsive
-   * @deprecated use {@link #uiFreezeFinished(long, File)}
+   * Invoked when IDE has detected that the UI hasn't responded for some time (5 seconds by default)
+   * @param reportDir folder where all freeze report data is collected
    */
-  @Deprecated
-  default void uiFreezeFinished(int lengthInSeconds) {
+  default void uiFreezeStarted(@NotNull File reportDir) {
+    uiFreezeStarted();
   }
 
   /**
-   * Invoked after the UI has become responsive again following a {@link #uiFreezeStarted()} event.
+   * Invoked after the UI has become responsive again following a {@link #uiFreezeStarted(File)} event.
    * @param durationMs freeze duration in milliseconds
    * @param reportDir folder where all freeze report data is collected
    */
   default void uiFreezeFinished(long durationMs, @Nullable File reportDir) {
-    uiFreezeFinished((int)(durationMs / 1000));
   }
 
   /**

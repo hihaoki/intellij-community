@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.CommonBundle;
@@ -21,6 +21,7 @@ import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -35,14 +36,10 @@ import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.GuiUtils;
 import com.intellij.ui.SimpleColoredText;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.popup.list.ListPopupImpl;
-import com.intellij.util.DocumentUtil;
-import com.intellij.util.IJSwingUtilities;
-import com.intellij.util.Processor;
-import com.intellij.util.SmartList;
+import com.intellij.util.*;
 import com.intellij.xdebugger.*;
 import com.intellij.xdebugger.breakpoints.*;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
@@ -159,9 +156,8 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
               return StringUtil.notNullize(StringUtil.unpluralize(type.getTitle()), type.getTitle());
             }
 
-            @Nullable
             @Override
-            public Icon getIcon() {
+            public @NotNull Icon getIcon() {
               return type.getEnabledIcon();
             }
           });
@@ -196,7 +192,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
 
     return getLineBreakpointVariants(project, types, position).thenAsync(variants -> {
       final AsyncPromise<XLineBreakpoint> res = new AsyncPromise<>();
-      GuiUtils.invokeLaterIfNeeded(() -> {
+      ModalityUiUtil.invokeLaterIfNeeded(() -> {
         for (XLineBreakpointType<?> type : types) {
           if (breakpointManager.findBreakpointAtLine(type, file, line) != null) {
             return;
@@ -259,7 +255,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
 
             final MySelectionListener selectionListener = new MySelectionListener();
             BaseListPopupStep<XLineBreakpointType.XLineBreakpointVariant> step =
-              new BaseListPopupStep<XLineBreakpointType.XLineBreakpointVariant>(XDebuggerBundle.message("popup.title.set.breakpoint"), variants) {
+              new BaseListPopupStep<>(XDebuggerBundle.message("popup.title.set.breakpoint"), variants) {
                 @NotNull
                 @Override
                 public String getTextFor(XLineBreakpointType.XLineBreakpointVariant value) {
@@ -330,15 +326,22 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
         !ApplicationManager.getApplication().isHeadlessEnvironment() &&
         !ApplicationManager.getApplication().isUnitTestMode() &&
         XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().isConfirmBreakpointRemoval()) {
-      StringBuilder message = new StringBuilder(XDebuggerBundle.message("message.confirm.breakpoint.removal.message"));
+      StringBuilder message = new StringBuilder("<html>").append(XDebuggerBundle.message("message.confirm.breakpoint.removal.message"));
       if (!isEmptyExpression(breakpoint.getConditionExpression())) {
-        message.append(XDebuggerBundle.message("message.confirm.breakpoint.removal.message.condition",
-                                               StringUtil.escapeXmlEntities(breakpoint.getConditionExpression().getExpression())));
+        message.append("<br>")
+          .append(XDebuggerBundle.message("message.confirm.breakpoint.removal.message.condition"))
+          .append("<br><pre>")
+          .append(StringUtil.escapeXmlEntities(breakpoint.getConditionExpression().getExpression()))
+          .append("</pre>");
       }
       if (!isEmptyExpression(breakpoint.getLogExpressionObject())) {
-        message.append(XDebuggerBundle.message("message.confirm.breakpoint.removal.message.log",
-                                               StringUtil.escapeXmlEntities(breakpoint.getLogExpressionObject().getExpression())));
+        message.append("<br>")
+          .append(XDebuggerBundle.message("message.confirm.breakpoint.removal.message.log"))
+          .append("<br><pre>")
+          .append(StringUtil.escapeXmlEntities(breakpoint.getLogExpressionObject().getExpression()))
+          .append("</pre>");
       }
+      //noinspection HardCodedStringLiteral
       if (Messages.showOkCancelDialog(message.toString(),
                                       XDebuggerBundle.message("message.confirm.breakpoint.removal.title"),
                                       CommonBundle.message("button.remove"),
@@ -566,9 +569,9 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
   @Nullable
   public static Editor createEditor(@NotNull OpenFileDescriptor descriptor) {
     if (descriptor.canNavigate()) {
-      FileEditorManager fileEditorManager = FileEditorManager.getInstance(descriptor.getProject());
-      Editor editor = fileEditorManager.getSelectedTextEditor();
-      return fileEditorManager.openTextEditor(descriptor, editor != null && IJSwingUtilities.hasFocus(editor.getContentComponent()));
+      FileEditorManagerEx fileEditorManager = FileEditorManagerEx.getInstanceEx(descriptor.getProject());
+      boolean isEditorAreaFocused = IJSwingUtilities.hasFocus(fileEditorManager.getComponent());
+      return fileEditorManager.openTextEditor(descriptor, isEditorAreaFocused);
     }
     return null;
   }

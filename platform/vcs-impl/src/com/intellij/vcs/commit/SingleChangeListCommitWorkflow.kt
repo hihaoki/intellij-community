@@ -13,6 +13,7 @@ import com.intellij.openapi.vcs.checkin.CheckinHandler
 import com.intellij.openapi.vcs.impl.PartialChangesUtil
 import com.intellij.util.ui.UIUtil.removeMnemonic
 import com.intellij.vcs.commit.SingleChangeListCommitter.Companion.moveToFailedList
+import org.jetbrains.annotations.Nls
 
 private val LOG = logger<SingleChangeListCommitWorkflow>()
 
@@ -25,7 +26,10 @@ internal fun CommitOptions.changeListChanged(changeList: LocalChangeList) = chan
 
 internal fun CommitOptions.saveChangeListSpecificOptions() = changeListSpecificOptions.forEach { it.saveState() }
 
+@Nls
 internal fun String.removeEllipsisSuffix() = StringUtil.removeEllipsisSuffix(this)
+
+@Nls
 internal fun CommitExecutor.getPresentableText() = removeMnemonic(actionText).removeEllipsisSuffix()
 
 open class SingleChangeListCommitWorkflow(
@@ -105,6 +109,7 @@ open class SingleChangeListCommitWorkflow(
 private class DefaultNameChangeListCleaner(val project: Project, commitState: ChangeListCommitState) {
   private val isChangeListFullyIncluded = commitState.changeList.changes.size == commitState.changes.size
   private val isDefaultNameChangeList = commitState.changeList.hasDefaultName()
+  private val listName = commitState.changeList.name
 
   fun use(block: () -> Unit) {
     block()
@@ -113,7 +118,7 @@ private class DefaultNameChangeListCleaner(val project: Project, commitState: Ch
 
   fun clean() {
     if (isDefaultNameChangeList && isChangeListFullyIncluded) {
-      ChangeListManager.getInstance(project).editComment(LocalChangeList.getDefaultName(), "")
+      ChangeListManager.getInstance(project).editComment(listName, "")
     }
   }
 }

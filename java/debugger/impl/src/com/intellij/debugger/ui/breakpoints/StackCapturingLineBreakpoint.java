@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
 import com.intellij.debugger.JavaDebuggerBundle;
@@ -10,6 +10,7 @@ import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluatorImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.DecompiledLocalVariable;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
@@ -124,7 +125,7 @@ public class StackCapturingLineBreakpoint extends SyntheticMethodBreakpoint {
 
   @Override
   public void customizeRenderer(SimpleColoredComponent renderer) {
-    renderer.append("Capture point at " + myCapturePoint.myClassName + "." + myCapturePoint.myMethodName);
+    renderer.append(JavaDebuggerBundle.message("label.capture.point.at", myCapturePoint.myClassName, myCapturePoint.myMethodName));
   }
 
   @Override
@@ -163,7 +164,7 @@ public class StackCapturingLineBreakpoint extends SyntheticMethodBreakpoint {
     try {
       Location location = frame.location();
       String className = location.declaringType().name();
-      String methodName = location.method().name();
+      String methodName = DebuggerUtilsEx.getLocationMethodName(location);
 
       for (StackCapturingLineBreakpoint b : captureBreakpoints) {
         String insertClassName = b.myCapturePoint.myInsertClassName;

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.services;
 
 import com.intellij.execution.services.ServiceModel.ServiceNode;
@@ -12,13 +12,14 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
-class ServiceViewNavBarPanel extends NavBarPanel {
+final class ServiceViewNavBarPanel extends NavBarPanel {
   private final Consumer<ServiceViewItem> mySelector;
   private boolean myRebuildNeeded = true;
 
@@ -37,7 +38,7 @@ class ServiceViewNavBarPanel extends NavBarPanel {
 
   @Override
   protected NavBarModel createModel() {
-    NavBarModelListener listener = new NavBarModelListener() {
+    return new ServiceViewNavBarModel(myProject, new NavBarModelListener() {
       @Override
       public void modelChanged() {
         myRebuildNeeded = true;
@@ -49,8 +50,7 @@ class ServiceViewNavBarPanel extends NavBarPanel {
         updateItems();
         scrollSelectionToVisible();
       }
-    };
-    return new ServiceViewNavBarModel(myProject, listener);
+    });
   }
 
   @Override
@@ -74,7 +74,7 @@ class ServiceViewNavBarPanel extends NavBarPanel {
     hideHint(false);
   }
 
-  private static class ServiceViewNavBarModel extends NavBarModel {
+  private static final class ServiceViewNavBarModel extends NavBarModel {
     private ServiceViewModel myViewModel;
     private final ServiceViewNavBarRoot myRoot = new ServiceViewNavBarRoot();
 
@@ -87,7 +87,11 @@ class ServiceViewNavBarPanel extends NavBarPanel {
     }
 
     @Override
-    protected void updateModel(DataContext dataContext) {
+    public void updateModel(DataContext dataContext) {
+    }
+
+    @Override
+    public void updateModelAsync(@NotNull DataContext dataContext, @Nullable Runnable callback) {
     }
 
     @Override
@@ -138,6 +142,6 @@ class ServiceViewNavBarPanel extends NavBarPanel {
     }
   }
 
-  static class ServiceViewNavBarRoot {
+  static final class ServiceViewNavBarRoot {
   }
 }

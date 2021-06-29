@@ -1,7 +1,6 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service;
 
-import com.intellij.CommonBundle;
 import com.intellij.configurationStore.StorageUtilKt;
 import com.intellij.execution.DefaultExecutionResult;
 import com.intellij.execution.ExecutionException;
@@ -17,6 +16,7 @@ import com.intellij.execution.rmi.RemoteProcessSupport;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ClassPathUtil;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -44,6 +44,7 @@ import com.intellij.ui.PlaceHolder;
 import com.intellij.util.Alarm;
 import com.intellij.util.PathUtil;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.concurrency.AtomicFieldUpdater;
 import com.intellij.util.containers.ContainerUtil;
 import kotlin.Unit;
 import kotlin.reflect.full.NoSuchPropertyException;
@@ -54,7 +55,8 @@ import java.io.File;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -73,7 +75,7 @@ public final class RemoteExternalSystemCommunicationManager implements ExternalS
 
   public RemoteExternalSystemCommunicationManager() {
     myProgressManager = (ExternalSystemProgressNotificationManagerImpl)ApplicationManager.getApplication().getService(ExternalSystemProgressNotificationManager.class);
-    mySupport = new RemoteProcessSupport<Object, RemoteExternalSystemFacade, String>(RemoteExternalSystemFacade.class) {
+    mySupport = new RemoteProcessSupport<>(RemoteExternalSystemFacade.class) {
       @Override
       protected void fireModificationCountChanged() {
       }
@@ -107,7 +109,7 @@ public final class RemoteExternalSystemCommunicationManager implements ExternalS
         params.setWorkingDirectory(myWorkingDirectory.isDirectory() ? myWorkingDirectory.getPath() : PathManager.getBinPath());
 
         // IDE jars.
-        List<String> classPath = new ArrayList<>(PathManager.getUtilClassPath());
+        Collection<String> classPath = new LinkedHashSet<>(ClassPathUtil.getUtilClassPath());
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(Project.class)); //intellij.platform.core
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(PlaceHolder.class)); //intellij.platform.editor
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(DependencyScope.class)); //intellij.platform.projectModel
@@ -116,6 +118,7 @@ public final class RemoteExternalSystemCommunicationManager implements ExternalS
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(ExtensionPointName.class)); //intellij.platform.extensions
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(StorageUtilKt.class)); //intellij.platform.ide.impl
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(ExternalSystemTaskNotificationListener.class)); //intellij.platform.externalSystem
+        ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(AtomicFieldUpdater.class)); //intellij.platform.concurrency
 
         // java plugin jar if it's installed
         Class<? extends SdkType> javaSdkClass = ExternalSystemJdkProvider.getInstance().getJavaSdkType().getClass();
@@ -132,11 +135,10 @@ public final class RemoteExternalSystemCommunicationManager implements ExternalS
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(getClass()));
         // external-system-rt.jar
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(ExternalSystemException.class));
-        ExternalSystemApiUtil.addBundle(params.getClassPath(), "messages.CommonBundle", CommonBundle.class);
         // com.intellij.openapi.externalSystem.model.FSTSerializer dependencies
         ContainerUtil.addIfNotNull(classPath, PathUtil.getJarPathForClass(ObjectSerializer.class));
 
-        params.getClassPath().addAll(classPath);
+        params.getClassPath().addAll(new ArrayList<>(classPath));
 
         params.setMainClass(MAIN_CLASS_NAME);
         params.getVMParametersList().addParametersString("-Djava.awt.headless=true");

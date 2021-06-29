@@ -1,5 +1,14 @@
 <html>
 <body>
 Reports unnecessary cast expressions.
+
+<p>Example:</p>
+<pre><code>
+  static void foo() {
+        String o = null;
+        Object o2 = (Object) o;
+  }
+</code></pre>
 </body>
 </html>
+<!-- tooltip end -->

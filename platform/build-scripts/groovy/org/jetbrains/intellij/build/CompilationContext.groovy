@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
 import groovy.transform.CompileStatic
 import org.jetbrains.intellij.build.impl.JpsCompilationData
+import org.jetbrains.intellij.build.kotlin.KotlinBinaries
 import org.jetbrains.jps.model.JpsModel
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
+
+import java.nio.file.Path
 
 @CompileStatic
 interface CompilationContext {
@@ -32,6 +21,12 @@ interface CompilationContext {
   JpsModel getProjectModel()
 
   JpsCompilationData getCompilationData()
+  KotlinBinaries getKotlinBinaries()
+
+  /**
+   * @return directory with compiled project classes, url attribute value of output tag from .idea/misc.xml by default
+   */
+  File getProjectOutputDirectory()
 
   JpsModule findRequiredModule(String name)
 
@@ -48,6 +43,9 @@ interface CompilationContext {
   String getModuleTestsOutputPath(JpsModule module)
 
   List<String> getModuleRuntimeClasspath(JpsModule module, boolean forTests)
+
+  // "Was" added due to Groovy bug (compilation error - cannot find method with same name but different parameter type)
+  void notifyArtifactWasBuilt(Path artifactPath)
 
   void notifyArtifactBuilt(String artifactPath)
 }

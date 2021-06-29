@@ -2,6 +2,7 @@
 package com.intellij.codeInspection;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.org.objectweb.asm.*;
 import org.jetbrains.org.objectweb.asm.signature.SignatureReader;
 import org.jetbrains.org.objectweb.asm.signature.SignatureVisitor;
@@ -333,7 +334,18 @@ public abstract class AbstractDependencyVisitor extends ClassVisitor {
 
   private void addHandle(Handle h) {
     addName(h.getOwner());
-    addMethodDesc(h.getDesc());
+    int tag = h.getTag();
+    String desc = h.getDesc();
+    if (tag == Opcodes.H_INVOKEVIRTUAL ||
+        tag == Opcodes.H_INVOKESTATIC || 
+        tag == Opcodes.H_INVOKESPECIAL ||
+        tag == Opcodes.H_NEWINVOKESPECIAL || 
+        tag == Opcodes.H_INVOKEINTERFACE) {
+      addMethodDesc(desc);
+    }
+    else {
+      addDesc(desc);
+    }
   }
 
   private void addMethodDesc(String desc) {
@@ -365,6 +377,7 @@ public abstract class AbstractDependencyVisitor extends ClassVisitor {
     if (signature != null) new SignatureReader(signature).acceptType(mySignatureVisitor);
   }
 
+  @NlsSafe
   public String getCurrentClassName() {
     return myCurrentClassName;
   }

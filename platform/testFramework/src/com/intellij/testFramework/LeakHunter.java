@@ -14,6 +14,7 @@ import com.intellij.project.TestProjectManager;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.io.PersistentEnumeratorBase;
+import com.intellij.util.io.PersistentEnumeratorCache;
 import com.intellij.util.ref.DebugReflectionUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -71,20 +72,18 @@ public final class LeakHunter {
   @TestOnly
   public static <T> void processLeaks(@NotNull Supplier<? extends Map<Object, String>> rootsSupplier,
                                       @NotNull Class<T> suspectClass,
-                                      @Nullable final Predicate<? super T> isReallyLeak,
-                                      @NotNull final PairProcessor<? super T, Object> processor) throws AssertionError {
+                                      @Nullable Predicate<? super T> isReallyLeak,
+                                      @NotNull PairProcessor<? super T, Object> processor) throws AssertionError {
     if (SwingUtilities.isEventDispatchThread()) {
       UIUtil.dispatchAllInvocationEvents();
     }
     else {
       UIUtil.pump();
     }
-    PersistentEnumeratorBase.clearCacheForTests();
+    PersistentEnumeratorCache.clearCacheForTests();
     Runnable runnable = () -> {
       try (AccessToken ignored = ProhibitAWTEvents.start("checking for leaks")) {
-        DebugReflectionUtil.walkObjects(10000, rootsSupplier.get(), suspectClass, __->true, (value, backLink) -> {
-          @SuppressWarnings("unchecked")
-          T leaked = (T)value;
+        DebugReflectionUtil.walkObjects(10000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
           if (isReallyLeak == null || isReallyLeak.test(leaked)) {
             return processor.process(leaked, backLink);
           }
@@ -109,8 +108,7 @@ public final class LeakHunter {
     checkLeak(() -> Collections.singletonMap(root, "Root object"), suspectClass, isReallyLeak);
   }
 
-  @NotNull
-  public static Supplier<Map<Object, String>> allRoots() {
+  public static @NotNull Supplier<Map<Object, String>> allRoots() {
     return () -> {
       ClassLoader classLoader = LeakHunter.class.getClassLoader();
       // inspect static fields of all loaded classes

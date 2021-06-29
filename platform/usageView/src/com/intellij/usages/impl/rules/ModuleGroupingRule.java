@@ -1,12 +1,10 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl.rules;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.navigation.ItemPresentation;
-import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.actionSystem.DataSink;
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.TypeSafeDataProvider;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleGrouper;
 import com.intellij.openapi.module.ModuleType;
@@ -19,7 +17,6 @@ import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usages.Usage;
 import com.intellij.usages.UsageGroup;
 import com.intellij.usages.UsageTarget;
-import com.intellij.usages.UsageView;
 import com.intellij.usages.rules.UsageGroupingRuleEx;
 import com.intellij.usages.rules.UsageInLibrary;
 import com.intellij.usages.rules.UsageInModule;
@@ -78,6 +75,11 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
   }
 
   @Override
+  public int getRank() {
+    return UsageGroupingRulesDefaultRanks.MODULE.getAbsoluteRank();
+  }
+
+  @Override
   public @Nullable String getGroupingActionId() {
     return "UsageGrouping.Module";
   }
@@ -92,13 +94,13 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
 
     @Override
-    public Icon getIcon(boolean isOpen) {
+    public Icon getIcon() {
       return AllIcons.Nodes.PpLibFolder;
     }
 
     @Override
     @NotNull
-    public String getText(UsageView view) {
+    public String getPresentableGroupText() {
       return myEntry.getPresentableName();
     }
 
@@ -121,14 +123,14 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
 
     @Override
-    public Icon getIcon(boolean isOpen) {
+    public Icon getIcon() {
       return myItemPresentation.getIcon(false);
     }
 
     @Override
     @NotNull
-    public String getText(UsageView view) {
-      return StringUtil.notNullize(myItemPresentation.getPresentableText(), "Library");
+    public String getPresentableGroupText() {
+      return StringUtil.notNullize(myItemPresentation.getPresentableText(), UsageViewBundle.message("list.item.library"));
     }
 
     public boolean equals(Object o) {
@@ -141,7 +143,7 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
   }
 
-  private static class ModuleUsageGroup extends UsageGroupBase implements TypeSafeDataProvider {
+  private static class ModuleUsageGroup extends UsageGroupBase implements DataProvider {
     private final Module myModule;
     private final ModuleGrouper myGrouper;
 
@@ -165,13 +167,13 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
 
     @Override
-    public Icon getIcon(boolean isOpen) {
+    public Icon getIcon() {
       return myModule.isDisposed() ? null : ModuleType.get(myModule).getIcon();
     }
 
     @Override
     @NotNull
-    public String getText(UsageView view) {
+    public String getPresentableGroupText() {
       return myModule.isDisposed() ? "" : myGrouper != null ? myGrouper.getShortenedName(myModule) : myModule.getName();
     }
 
@@ -181,15 +183,17 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
 
     public String toString() {
-      return UsageViewBundle.message("node.group.module") + getText(null);
+      return UsageViewBundle.message("node.group.module", getPresentableGroupText());
     }
 
+    @Nullable
     @Override
-    public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
-      if (!isValid()) return;
-      if (LangDataKeys.MODULE_CONTEXT == key) {
-        sink.put(LangDataKeys.MODULE_CONTEXT, myModule);
+    public Object getData(@NotNull String dataId) {
+      if (!isValid()) return null;
+      if (LangDataKeys.MODULE_CONTEXT.is(dataId)) {
+        return myModule;
       }
+      return null;
     }
   }
 
@@ -211,18 +215,18 @@ class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
     }
 
     @Override
-    public Icon getIcon(boolean isOpen) {
+    public Icon getIcon() {
       return AllIcons.Nodes.ModuleGroup;
     }
 
     @Override
     @NotNull
-    public String getText(UsageView view) {
+    public String getPresentableGroupText() {
       return myGroupPath.get(myGroupPath.size()-1);
     }
 
     public String toString() {
-      return UsageViewBundle.message("node.group.module.group") + getText(null);
+      return UsageViewBundle.message("node.group.module.group", getPresentableGroupText());
     }
   }
 }

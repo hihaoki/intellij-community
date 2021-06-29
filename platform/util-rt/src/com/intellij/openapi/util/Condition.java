@@ -15,8 +15,10 @@
  */
 package com.intellij.openapi.util;
 
+import org.jetbrains.annotations.ApiStatus;
+
 /**
- * Please use {@link java.util.function.Predicate} instead.
+ * Deprecated. Please use {@link java.util.function.Predicate} instead.
  *
  * Returns {@code true} or {@code false} for the given input object.
  * <p/>
@@ -46,6 +48,7 @@ public interface Condition<T> {
    * @deprecated use {@link Conditions#alwaysTrue()} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   Condition<Object> TRUE = new Condition<Object>() {
     public boolean value(final Object object) {
       return true;
@@ -60,6 +63,7 @@ public interface Condition<T> {
    * @deprecated use {@link Conditions#alwaysFalse()} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   Condition<Object> FALSE = new Condition<Object>() {
     public boolean value(final Object object) {
       return false;

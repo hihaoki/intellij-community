@@ -15,7 +15,6 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,13 +25,9 @@ public class SelectWordAtCaretAction extends TextComponentEditorAction implement
     setInjectedContext(true);
   }
 
-  private static final class DefaultHandler extends EditorActionHandler {
-    private DefaultHandler() {
-      super(true);
-    }
-
+  private static final class DefaultHandler extends EditorActionHandler.ForEachCaret {
     @Override
-    public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
       assert caret != null;
       Document document = editor.getDocument();
 
@@ -60,8 +55,6 @@ public class SelectWordAtCaretAction extends TextComponentEditorAction implement
       int line = document.getLineNumber(caretOffset);
       ranges.add(new TextRange(document.getLineStartOffset(line), document.getLineEndOffset(line)));
 
-      if (ranges.isEmpty()) return;
-
       final TextRange selectionRange = new TextRange(caret.getSelectionStart(), caret.getSelectionEnd());
 
       TextRange minimumRange = new TextRange(0, document.getTextLength());
@@ -77,18 +70,15 @@ public class SelectWordAtCaretAction extends TextComponentEditorAction implement
     }
   }
 
-  public static class Handler extends EditorActionHandler {
+  public static class Handler extends EditorActionHandler.ForEachCaret {
     private final EditorActionHandler myDefaultHandler;
 
     public Handler(EditorActionHandler defaultHandler) {
-      super(true);
       myDefaultHandler = defaultHandler;
-
     }
 
     @Override
-    public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
-      assert caret != null;
+    public void doExecute(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
       final IndentGuideDescriptor guide = editor.getIndentsModel().getCaretIndentGuide();
       if (guide != null && !caret.hasSelection() && isWhitespaceAtCaret(caret)) {
         selectWithGuide(caret, guide);
@@ -120,7 +110,7 @@ public class SelectWordAtCaretAction extends TextComponentEditorAction implement
 
         final CharSequence chars = doc.getCharsSequence();
         int nonWhitespaceOffset = CharArrayUtil.shiftForward(chars, endOffset, " \t\n");
-        HighlighterIterator iterator = ((EditorEx)editor).getHighlighter().createIterator(nonWhitespaceOffset);
+        HighlighterIterator iterator = editor.getHighlighter().createIterator(nonWhitespaceOffset);
         if (BraceMatchingUtil.isRBraceToken(iterator, chars, file.getFileType())) {
           if (editor.offsetToLogicalPosition(iterator.getStart()).column == guide.indentLevel) {
             endOffset = iterator.getEnd();

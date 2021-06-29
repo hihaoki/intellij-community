@@ -1,14 +1,15 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.containers.ContainerUtil;
 import io.netty.channel.*;
 import io.netty.util.concurrent.GenericFutureListener;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -18,7 +19,9 @@ public final class ChannelRegistrar extends ChannelInboundHandlerAdapter {
   private static final Logger LOG = Logger.getInstance(ChannelRegistrar.class);
 
   private final AtomicReference<ServerChannel> serverChannel = new AtomicReference<>();
-  private final Set<Channel> clientChannels = ContainerUtil.newConcurrentSet();
+  // don't use ContainerUtil here!
+  @SuppressWarnings("SSBasedInspection")
+  private final Set<Channel> clientChannels = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private boolean isEventLoopGroupOwner;
 
@@ -68,7 +71,7 @@ public final class ChannelRegistrar extends ChannelInboundHandlerAdapter {
       this.clientChannels.clear();
 
       final CountDownLatch countDown = new CountDownLatch(clientChannels.length + 1);
-      GenericFutureListener<ChannelFuture> listener = new GenericFutureListener<ChannelFuture>() {
+      GenericFutureListener<ChannelFuture> listener = new GenericFutureListener<>() {
         @Override
         public void operationComplete(@NotNull ChannelFuture future) {
           try {

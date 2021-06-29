@@ -2,6 +2,7 @@
 package com.intellij.openapi.application.impl;
 
 import com.intellij.openapi.application.*;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.Callable;
@@ -11,7 +12,7 @@ import java.util.concurrent.Executor;
  * @author peter
  */
 public class AsyncExecutionServiceImpl extends AsyncExecutionService {
-  private static long ourWriteActionCounter = 0;
+  private static long ourWriteActionCounter;
 
   public AsyncExecutionServiceImpl() {
     Application app = ApplicationManager.getApplication();
@@ -44,11 +45,12 @@ public class AsyncExecutionServiceImpl extends AsyncExecutionService {
 
   @NotNull
   @Override
-  public <T> NonBlockingReadAction<T> buildNonBlockingReadAction(@NotNull Callable<T> computation) {
+  public <T> NonBlockingReadAction<T> buildNonBlockingReadAction(@NotNull Callable<? extends T> computation) {
     return new NonBlockingReadActionImpl<>(computation);
   }
 
-  static long getWriteActionCounter() {
+  @ApiStatus.Internal
+  public static long getWriteActionCounter() {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     return ourWriteActionCounter;
   }

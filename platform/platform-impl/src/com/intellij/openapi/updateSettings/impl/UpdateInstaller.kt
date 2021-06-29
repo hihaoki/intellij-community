@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl
 
 import com.intellij.ide.IdeBundle
@@ -8,28 +8,31 @@ import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.util.ArrayUtil
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.copy
+import com.intellij.util.system.CpuArch
 import java.io.File
 import java.io.IOException
 import java.net.URL
 import java.nio.file.Files
-import java.nio.file.Paths
+import java.nio.file.Path
+import java.util.zip.ZipException
 import java.util.zip.ZipFile
-import javax.swing.JComponent
 import javax.swing.UIManager
 
 internal data class PluginUpdateResult(val pluginsInstalled: List<IdeaPluginDescriptor>, val restartRequired: Boolean)
 
 internal object UpdateInstaller {
   const val UPDATER_MAIN_CLASS = "com.intellij.updater.Runner"
+
+  private val LOG = logger<UpdateInstaller>()
 
   private const val PATCH_FILE_NAME = "patch-file.zip"
   private const val UPDATER_ENTRY = "com/intellij/updater/Runner.class"
@@ -58,11 +61,17 @@ internal object UpdateInstaller {
           super.setFraction((i - 1) * share + fraction / share)
         }
       }
+      LOG.info("downloading ${url}")
       HttpRequests.request(url).gzip(false).saveToFile(patchFile, partIndicator)
-      ZipFile(patchFile).use {
-        if (it.getEntry(PATCH_FILE_NAME) == null || it.getEntry(UPDATER_ENTRY) == null) {
-          throw IOException("Corrupted patch file: ${patchFile.name}")
+      try {
+        ZipFile(patchFile).use {
+          if (it.getEntry(PATCH_FILE_NAME) == null || it.getEntry(UPDATER_ENTRY) == null) {
+            throw IOException("Corrupted patch file: ${patchFile.name}")
+          }
         }
+      }
+      catch (e: ZipException) {
+        throw IOException("Corrupted patch file: ${patchFile.name}", e)
       }
       files += patchFile
     }
@@ -94,13 +103,14 @@ internal object UpdateInstaller {
   }
 
   @JvmStatic
-  fun installDownloadedPluginUpdates(downloaders: Collection<PluginDownloader>, ownerComponent: JComponent?, allowInstallWithoutRestart: Boolean): PluginUpdateResult {
+  fun installDownloadedPluginUpdates(downloaders: Collection<PluginDownloader>,
+                                     requiresRestart: (PluginDownloader) -> Boolean): PluginUpdateResult {
     val pluginsInstalled = mutableListOf<IdeaPluginDescriptor>()
     var restartRequired = false
 
     for (downloader in downloaders) {
       try {
-        if (!allowInstallWithoutRestart || !downloader.tryInstallWithoutRestart(ownerComponent)) {
+        if (requiresRestart.invoke(downloader)) {
           downloader.install()
           restartRequired = true
         }
@@ -118,7 +128,7 @@ internal object UpdateInstaller {
   fun installPluginUpdates(downloaders: Collection<PluginDownloader>, indicator: ProgressIndicator): Boolean {
     val downloadedPluginUpdates = downloadPluginUpdates(downloaders, indicator)
     val result = ProgressManager.getInstance().computeInNonCancelableSection<PluginUpdateResult, RuntimeException> {
-      installDownloadedPluginUpdates(downloadedPluginUpdates, null, false)
+      installDownloadedPluginUpdates(downloadedPluginUpdates) { true }
     }
     return result.pluginsInstalled.isNotEmpty()
   }
@@ -131,15 +141,9 @@ internal object UpdateInstaller {
 
   @JvmStatic
   @Throws(IOException::class)
-  fun preparePatchCommand(patchFile: File, indicator: ProgressIndicator): Array<String> =
-    preparePatchCommand(listOf(patchFile), indicator)
-
-  @JvmStatic
-  @Throws(IOException::class)
   fun preparePatchCommand(patchFiles: List<File>, indicator: ProgressIndicator): Array<String> {
     indicator.text = IdeBundle.message("update.preparing.patch.progress")
 
-    val log4j = findLib("log4j.jar")
     val jna = findLib("jna.jar")
     val jnaUtils = findLib("jna-platform.jar")
 
@@ -151,23 +155,30 @@ internal object UpdateInstaller {
       throw IOException("Cannot create temp directory: $tempDir")
     }
 
-    val log4jCopy = log4j.copyTo(File(tempDir, log4j.name), true)
     val jnaCopy = jna.copyTo(File(tempDir, jna.name), true)
     val jnaUtilsCopy = jnaUtils.copyTo(File(tempDir, jnaUtils.name), true)
 
     var java = System.getProperty("java.home")
-    val jrePath = Paths.get(java)
-    val idePath = Paths.get(PathManager.getHomePath()).toRealPath()
+    val jrePath = Path.of(java)
+    val idePath = Path.of(PathManager.getHomePath()).toRealPath()
     if (jrePath.startsWith(idePath)) {
       val javaCopy = File(tempDir, "jre")
       if (javaCopy.exists()) FileUtil.delete(javaCopy)
       FileUtil.copyDir(File(java), javaCopy)
+
+      val jnf = File(java, "../Frameworks/JavaNativeFoundation.framework")
+      if (jnf.isDirectory) {
+        val jnfCopy = File(tempDir, "Frameworks/JavaNativeFoundation.framework")
+        if (jnfCopy.exists()) FileUtil.delete(jnfCopy)
+        FileUtil.copyDir(jnf, jnfCopy)
+      }
+
       java = javaCopy.path
     }
 
     val args = mutableListOf<String>()
 
-    if (SystemInfo.isWindows && !Files.isWritable(Paths.get(PathManager.getHomePath()))) {
+    if (SystemInfo.isWindows && !Files.isWritable(Path.of(PathManager.getHomePath()))) {
       val launcher = PathManager.findBinFile("launcher.exe")
       val elevator = PathManager.findBinFile("elevator.exe")  // "launcher" depends on "elevator"
       if (launcher != null && elevator != null && Files.isExecutable(launcher) && Files.isExecutable(elevator)) {
@@ -176,12 +187,10 @@ internal object UpdateInstaller {
       }
     }
 
-    val mx = System.getProperty("idea.updater.heap")?.toInt() ?: if (SystemInfo.is32Bit) Runtime.getRuntime().maxMemory() shr 20 else 2000
-
     args += File(java, if (SystemInfo.isWindows) "bin\\java.exe" else "bin/java").path
-    args += "-Xmx${mx}m"
+    args += "-Xmx${2000}m"
     args += "-cp"
-    args += arrayOf(patchFiles.last().path, log4jCopy.path, jnaCopy.path, jnaUtilsCopy.path).joinToString(File.pathSeparator)
+    args += arrayOf(patchFiles.last().path, jnaCopy.path, jnaUtilsCopy.path).joinToString(File.pathSeparator)
 
     args += "-Djna.nosys=true"
     args += "-Djna.boot.library.path="
@@ -198,7 +207,7 @@ internal object UpdateInstaller {
       args += patchFiles.joinToString(File.pathSeparator)
     }
 
-    return ArrayUtil.toStringArray(args)
+    return args.toTypedArray()
   }
 
   private fun findLib(libName: String): File {
@@ -209,8 +218,8 @@ internal object UpdateInstaller {
   private fun getTempDir() = File(PathManager.getTempPath(), "patch-update")
 
   private fun getJdkSuffix(): String = when {
-    !SystemInfo.isMac && Files.isDirectory(Paths.get(PathManager.getHomePath(), "jbr-x86")) -> "-jbr11-x86"
-    Files.isDirectory(Paths.get(PathManager.getHomePath(), "jbr")) -> "-jbr11"
+    SystemInfo.isMac && CpuArch.isArm64() -> "-jbr11-aarch64"
+    Files.isDirectory(Path.of(PathManager.getHomePath(), "jbr")) -> "-jbr11"
     else -> "-no-jbr"
   }
 }

@@ -1,12 +1,14 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.*;
 
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * <p>Manages a parent-child relation of chained objects requiring cleanup.</p>
@@ -32,12 +34,12 @@ public final class Disposer {
   @Contract(pure = true, value = "->new")
   public static Disposable newDisposable() {
     // must not be lambda because we care about identity in ObjectTree.myObject2NodeMap
-    return newDisposable("");
+    return newDisposable("newDisposable");
   }
 
   @NotNull
   @Contract(pure = true, value = "_->new")
-  public static Disposable newDisposable(@NotNull String debugName) {
+  public static Disposable newDisposable(@NotNull @NonNls String debugName) {
     // must not be lambda because we care about identity in ObjectTree.myObject2NodeMap
     return new Disposable() {
       @Override
@@ -64,14 +66,27 @@ public final class Disposer {
    * This overrides parent disposable for {@code child}, i.e. if {@code child} is already registered with {@code oldParent},
    * it's unregistered from {@code oldParent} before registering with {@code parent}.
    *
-   * @throws com.intellij.util.IncorrectOperationException If {@code child} has been registered with {@code parent} before;
-   *                                                       if {@code parent} is being disposed ({@link #isDisposing(Disposable)}) or
-   *                                                       already disposed ({@link #isDisposed(Disposable)}.
+   * @throws IncorrectOperationException If {@code child} has been registered with {@code parent} before;
+   *                                     if {@code parent} is being disposed or already disposed ({@link #isDisposed(Disposable)}.
    */
-  public static void register(@NotNull Disposable parent, @NotNull Disposable child) {
-    ourTree.register(parent, child);
+  public static void register(@NotNull Disposable parent, @NotNull Disposable child) throws IncorrectOperationException {
+    RuntimeException e = ourTree.register(parent, child);
+    if (e != null) throw e;
   }
 
+  /**
+   * Registers child disposable under parent unless the parent has already been disposed
+   * @return whether the registration succeeded
+   */
+  public static boolean tryRegister(@NotNull Disposable parent, @NotNull Disposable child) {
+    return ourTree.register(parent, child) == null;
+  }
+
+  /**
+   * @deprecated Use {@link #register(Disposable, Disposable)} instead
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static void register(@NotNull Disposable parent, @NotNull Disposable child, @NonNls @NotNull final String key) {
     register(parent, child);
     Disposable v = get(key);
@@ -80,7 +95,7 @@ public final class Disposer {
     register(child, new KeyDisposable(key));
   }
 
-  private static class KeyDisposable implements Disposable {
+  private static final class KeyDisposable implements Disposable {
     @NotNull
     private final String myKey;
 
@@ -97,14 +112,29 @@ public final class Disposer {
     }
   }
 
+  /**
+   * <b>Note</b>: This method may return wrong result after dynamic plugin unload (see {@link #clearDisposalTraces}).<br/>
+   * If this method is intent to be used in such cases, consider to use own <b>myDisposed</b> flag instead.
+   *
+   * @return true if {@code disposable} is disposed or being disposed (i.e. its {@link Disposable#dispose()} method is executing).
+   */
   public static boolean isDisposed(@NotNull Disposable disposable) {
     return ourTree.getDisposalInfo(disposable) != null;
   }
 
+  /**
+   * @deprecated use {@link #isDisposed(Disposable)} instead
+   */
+  @Deprecated
   public static boolean isDisposing(@NotNull Disposable disposable) {
-    return ourTree.isDisposing(disposable);
+    return isDisposed(disposable);
   }
 
+  /**
+   * @deprecated Store and use your own Disposable instead. Instead of {@code Disposer.get("ui")} use {@link com.intellij.openapi.application.ApplicationManager#getApplication()}
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
+  @Deprecated
   public static Disposable get(@NotNull String key) {
     return ourKeyDisposables.get(key);
   }
@@ -113,14 +143,16 @@ public final class Disposer {
     dispose(disposable, true);
   }
 
+  /**
+   * {@code predicate} is used only for direct children.
+   */
   @ApiStatus.Internal
-  @ApiStatus.Experimental
-  public static void disposeChildren(@NotNull Disposable disposable) {
-    ourTree.executeAll(disposable, false, /* onlyChildren */ true);
+  public static void disposeChildren(@NotNull Disposable disposable, @Nullable Predicate<? super Disposable> predicate) {
+    ourTree.executeAllChildren(disposable, predicate);
   }
 
   public static void dispose(@NotNull Disposable disposable, boolean processUnregistered) {
-    ourTree.executeAll(disposable, processUnregistered, /* onlyChildren */ false);
+    ourTree.executeAll(disposable, processUnregistered);
   }
 
   @NotNull
@@ -166,6 +198,16 @@ public final class Disposer {
     return ObjectUtils.tryCast(getTree().getDisposalInfo(disposable), Throwable.class);
   }
 
+  /**
+   * Returns stacktrace of the place where {@code disposable} was registered in {@code Disposer} or {@code null} if it's unknown. Works only
+   * if {@link #setDebugMode debug mode} was enabled when {@code disposable} was registered.
+   */
+  @TestOnly
+  public static @Nullable Throwable getRegistrationTrace(@NotNull Disposable disposable) {
+    return getTree().getRegistrationTrace(disposable);
+  }
+
+  @ApiStatus.Internal
   public static void clearDisposalTraces() {
     ourTree.clearDisposedObjectTraces();
   }

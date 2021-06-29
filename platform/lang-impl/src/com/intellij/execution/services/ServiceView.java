@@ -61,6 +61,8 @@ abstract class ServiceView extends JPanel implements Disposable {
 
   abstract Promise<Void> expand(@NotNull Object service, @NotNull Class<?> contributorClass);
 
+  abstract Promise<Void> extract(@NotNull Object service, @NotNull Class<?> contributorClass);
+
   abstract void onViewSelected();
 
   abstract void onViewUnselected();
@@ -81,7 +83,7 @@ abstract class ServiceView extends JPanel implements Disposable {
     myModel.setGroupByContributor(value);
   }
 
-  abstract List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath);
+  abstract List<Object> getChildrenSafe(@NotNull List<Object> valueSubPath, @NotNull Class<?> contributorClass);
 
   void setAutoScrollToSourceHandler(@NotNull AutoScrollToSourceHandler autoScrollToSourceHandler) {
     myAutoScrollToSourceHandler = autoScrollToSourceHandler;
@@ -135,7 +137,7 @@ abstract class ServiceView extends JPanel implements Disposable {
       if (CommonDataKeys.NAVIGATABLE_ARRAY.is(dataId)) {
         List<Navigatable> navigatables =
           ContainerUtil.mapNotNull(serviceView.getSelectedItems(), item -> item.getViewDescriptor().getNavigatable());
-        return navigatables.toArray(new Navigatable[0]);
+        return navigatables.toArray(Navigatable.EMPTY_NAVIGATABLE_ARRAY);
       }
       if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
         List<ServiceViewItem> selection = serviceView.getSelectedItems();

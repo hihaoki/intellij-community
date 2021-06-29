@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.lookup;
 
 import com.intellij.codeInsight.AutoPopupController;
@@ -7,6 +7,7 @@ import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.daemon.impl.JavaColorProvider;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.lookup.impl.JavaElementLookupRenderer;
+import com.intellij.codeInspection.dataFlow.jvm.descriptors.PlainDescriptor;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
@@ -18,8 +19,8 @@ import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.impl.source.PsiFieldImpl;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.ColorIcon;
-import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -80,6 +81,7 @@ public class VariableLookupItem extends LookupItem<PsiVariable> implements Typed
   @Nullable
   private String getInitializerText(PsiVariable var) {
     if (myColor != null || !var.hasModifierProperty(PsiModifier.FINAL) || !var.hasModifierProperty(PsiModifier.STATIC)) return null;
+    if (PlainDescriptor.hasInitializationHacks(var)) return null;
 
     PsiElement initializer = var instanceof PsiEnumConstant ? ((PsiEnumConstant)var).getArgumentList() : getInitializer(var);
     String initText = initializer == null ? null : initializer.getText();
@@ -127,7 +129,7 @@ public class VariableLookupItem extends LookupItem<PsiVariable> implements Typed
     mySubstitutor = substitutor;
     return this;
   }
-  
+
   @Override
   public void setShouldBeImported(boolean shouldImportStatic) {
     assert myHelper != null;
@@ -169,7 +171,7 @@ public class VariableLookupItem extends LookupItem<PsiVariable> implements Typed
       myHelper.renderElement(presentation, qualify, true, getSubstitutor());
     }
     if (myColor != null) {
-      presentation.setTypeText("", JBUI.scale(new ColorIcon(12, myColor)));
+      presentation.setTypeText("", JBUIScale.scaleIcon(new ColorIcon(12, myColor)));
     } else {
       presentation.setTypeText(getType().getPresentableText());
     }
@@ -254,6 +256,7 @@ public class VariableLookupItem extends LookupItem<PsiVariable> implements Typed
     if (ref != null && ref.getParent() instanceof PsiMethodCallExpression) {
       PsiExpressionList argList = ((PsiMethodCallExpression)ref.getParent()).getArgumentList();
       if (argList.getExpressionCount() == 0) {
+        PsiDocumentManager.getInstance(argList.getProject()).doPostponedOperationsAndUnblockDocument(context.getDocument());
         context.getDocument().deleteString(argList.getTextRange().getStartOffset(), argList.getTextRange().getEndOffset());
       }
     }
@@ -289,7 +292,8 @@ public class VariableLookupItem extends LookupItem<PsiVariable> implements Typed
   }
 
   private static boolean shouldQualify(@NotNull PsiField field, @Nullable PsiReference context) {
-    if (context instanceof PsiReferenceExpression && !((PsiReferenceExpression)context).isQualified()) {
+    if ((context instanceof PsiReferenceExpression && !((PsiReferenceExpression)context).isQualified()) || 
+        (context instanceof PsiJavaCodeReferenceElement && !((PsiJavaCodeReferenceElement)context).isQualified())) {
       PsiVariable target = JavaPsiFacade.getInstance(context.getElement().getProject()).getResolveHelper()
         .resolveReferencedVariable(field.getName(), (PsiElement)context);
       return !field.getManager().areElementsEquivalent(target, field) &&

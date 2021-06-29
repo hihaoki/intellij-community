@@ -23,6 +23,8 @@ import com.intellij.ui.components.fields.ExtendableTextField;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -90,7 +92,7 @@ public class CommonProgramParametersPanel extends JPanel implements PanelWithAnc
     myWorkingDirectoryComponent = LabeledComponent.create(myWorkingDirectoryField,
                                                           ExecutionBundle.message("run.configuration.working.directory.label"));
 
-    myEnvVariablesComponent = new EnvironmentVariablesComponent();
+    myEnvVariablesComponent = createEnvironmentVariablesComponent();
 
     myEnvVariablesComponent.setLabelLocation(BorderLayout.WEST);
     myProgramParametersComponent.setLabelLocation(BorderLayout.WEST);
@@ -106,10 +108,16 @@ public class CommonProgramParametersPanel extends JPanel implements PanelWithAnc
     copyDialogCaption(myProgramParametersComponent);
   }
 
+  @NotNull
+  protected EnvironmentVariablesComponent createEnvironmentVariablesComponent() {
+    return new EnvironmentVariablesComponent();
+  }
+
   /**
    * @deprecated use {@link MacroComboBoxWithBrowseButton}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected JComponent createComponentWithMacroBrowse(@NotNull final TextFieldWithBrowseButton textAccessor) {
     final FixedSizeButton button = new FixedSizeButton(textAccessor);
     button.setIcon(AllIcons.Actions.ListFiles);
@@ -183,7 +191,7 @@ public class CommonProgramParametersPanel extends JPanel implements PanelWithAnc
     component.getLabel().setLabelFor(rawCommandLineEditor.getTextField());
   }
 
-  public void setProgramParametersLabel(String textWithMnemonic) {
+  public void setProgramParametersLabel(@Nls String textWithMnemonic) {
     myProgramParametersComponent.setText(textWithMnemonic);
     copyDialogCaption(myProgramParametersComponent);
   }
@@ -237,8 +245,7 @@ public class CommonProgramParametersPanel extends JPanel implements PanelWithAnc
     configuration.setProgramParameters(fromTextField(myProgramParametersComponent.getComponent(), configuration));
     configuration.setWorkingDirectory(fromTextField(myWorkingDirectoryField, configuration));
 
-    configuration.setEnvs(myEnvVariablesComponent.getEnvs());
-    configuration.setPassParentEnvs(myEnvVariablesComponent.isPassParentEnvs());
+    myEnvVariablesComponent.apply(configuration);
   }
 
   @Nullable
@@ -250,7 +257,6 @@ public class CommonProgramParametersPanel extends JPanel implements PanelWithAnc
     setProgramParameters(configuration.getProgramParameters());
     setWorkingDirectory(PathUtil.toSystemDependentName(configuration.getWorkingDirectory()));
 
-    myEnvVariablesComponent.setEnvs(configuration.getEnvs());
-    myEnvVariablesComponent.setPassParentEnvs(configuration.isPassParentEnvs());
+    myEnvVariablesComponent.reset(configuration);
   }
 }

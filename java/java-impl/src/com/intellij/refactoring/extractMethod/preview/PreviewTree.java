@@ -2,7 +2,6 @@
 package com.intellij.refactoring.extractMethod.preview;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
@@ -14,6 +13,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.ui.tree.TreeUtil;
 import one.util.streamex.IntStreamEx;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -47,7 +47,8 @@ class PreviewTree implements Disposable {
     tree.setShowsRootHandles(true);
     tree.setRootVisible(false);
     tree.setCellRenderer(new PreviewTreeRenderer());
-    tree.setName("ExtractMethodPreview");
+    @NonNls String treeName = "ExtractMethodPreview";
+    tree.setName(treeName);
     tree.getSelectionModel().addTreeSelectionListener(
       e -> ApplicationManager.getApplication().invokeLater(
         () -> onSelectionUpdate()));
@@ -57,7 +58,7 @@ class PreviewTree implements Disposable {
     TreeUtil.expand(tree, 2);
     TreeUtil.promiseSelectFirst(tree);
 
-    PopupHandler.installPopupHandler(tree, IdeActions.EXTRACT_METHOD_TOOL_WINDOW_TREE_POPUP, ActionPlaces.UNKNOWN);
+    PopupHandler.installPopupMenu(tree, IdeActions.EXTRACT_METHOD_TOOL_WINDOW_TREE_POPUP, "ExtractMethodTreePopup");
     return tree;
   }
 

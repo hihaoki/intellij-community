@@ -81,6 +81,7 @@ def pytest_addoption(parser):
                      dest="teamcity", default=0, help="force output of JetBrains TeamCity service messages")
     group._addoption('--no-teamcity', action="count",
                      dest="no_teamcity", default=0, help="disable output of JetBrains TeamCity service messages")
+    parser.addoption('--jb-swapdiff', action="store", dest="swapdiff", default=False, help="Swap actual/expected in diff")
 
     kwargs = {"help": "skip output of passed tests for JetBrains TeamCity service messages"}
     if _is_bool_supported():
@@ -108,7 +109,7 @@ def pytest_configure(config):
             output_capture_enabled,
             coverage_controller,
             skip_passed_output,
-            bool(config.getini('swapdiff'))
+            bool(config.getini('swapdiff') or config.option.swapdiff)
         )
         config.pluginmanager.register(config._teamcityReporting)
 
@@ -286,12 +287,21 @@ class EchoTeamCityMessages(object):
         except Exception:
             pass
 
+        if not diff_error:
+            from .jb_local_exc_store import get_exception
+            diff_error = get_exception()
+
         if diff_error:
             # Cut everything after postfix: it is internal view of DiffError
             strace = str(report.longrepr)
             data_postfix = "_ _ _ _ _"
+            # Error message in pytest must be in "file.py:22 AssertionError" format
+            # This message goes to strace
+            # With custom error we must add real exception class explicitly
             if data_postfix in strace:
-                strace = strace[0:strace.index(data_postfix)]
+                strace = strace[0:strace.index(data_postfix)].strip()
+                if strace.endswith(":") and diff_error.real_exception:
+                    strace += " " + type(diff_error.real_exception).__name__
             self.teamcity.testFailed(test_id, diff_error.msg if diff_error.msg else message, strace,
                                      flowId=test_id,
                                      comparison_failure=diff_error

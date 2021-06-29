@@ -1,15 +1,14 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+@file:JvmName("DynamicPluginsTestUtil")
 @file:Suppress("UsePropertyAccessSyntax")
 package com.intellij.ide.plugins
 
-import com.intellij.ide.plugins.DynamicPlugins.loadPlugin
-import com.intellij.ide.plugins.DynamicPlugins.unloadPlugin
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.testFramework.assertions.Assertions.assertThat
-import com.intellij.util.io.write
+import com.intellij.util.io.Ksuid
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
 import java.nio.file.Files
@@ -18,19 +17,25 @@ import java.util.function.Supplier
 
 internal fun loadDescriptorInTest(dir: Path, disabledPlugins: Set<PluginId> = emptySet(), isBundled: Boolean = false): IdeaPluginDescriptorImpl {
   assertThat(dir).exists()
-  PluginManagerCore.ourPluginError = null
-  val buildNumber = BuildNumber.fromString("2042.42")
-  val parentContext = DescriptorListLoadingContext(0, disabledPlugins, PluginLoadingResult(emptyMap(), Supplier { buildNumber }))
-  val result = DescriptorLoadingContext(parentContext, isBundled, /* isEssential = */ true,
-                                        PathBasedJdomXIncluder.DEFAULT_PATH_RESOLVER).use { context ->
-    PluginDescriptorLoader.loadDescriptorFromFileOrDir(dir, PluginManagerCore.PLUGIN_XML, context, Files.isDirectory(dir))
-  }
+  PluginManagerCore.getAndClearPluginLoadingErrors()
+  val buildNumber = BuildNumber.fromString("2042.42")!!
+  val parentContext = DescriptorListLoadingContext(disabledPlugins = disabledPlugins,
+                                                   result = PluginLoadingResult(emptyMap(), Supplier { buildNumber }))
+  val result = loadDescriptorFromFileOrDir(file = dir,
+                                           pathName = PluginManagerCore.PLUGIN_XML,
+                                           context = parentContext,
+                                           pathResolver = PluginXmlPathResolver.DEFAULT_PATH_RESOLVER,
+                                           isBundled = isBundled,
+                                           isEssential = true,
+                                           isDirectory = Files.isDirectory(dir))
   if (result == null) {
     @Suppress("USELESS_CAST")
-    assertThat(PluginManagerCore.ourPluginError as String?).isNotNull
-    PluginManagerCore.ourPluginError = null
+    assertThat(PluginManagerCore.getAndClearPluginLoadingErrors()).isNotEmpty()
+    throw AssertionError("Cannot load plugin from $dir")
   }
-  return result!!
+
+  result.jarFiles = emptyList()
+  return result
 }
 
 @JvmOverloads
@@ -40,36 +45,54 @@ fun loadExtensionWithText(
   ns: String = "com.intellij"
 ): Disposable {
   val builder = PluginBuilder().extensions(extensionTag, ns)
-  return loadPluginWithText(builder, loader, FileSystems.getDefault())
+  return loadPluginWithText(builder, FileSystems.getDefault())
 }
 
-internal fun loadPluginWithText(pluginBuilder: PluginBuilder, loader: ClassLoader, fs: FileSystem): Disposable {
-  val pair = preparePluginDescriptor(pluginBuilder.text(), fs)
-  val plugin = pair.first
-  var descriptor = pair.second
+internal fun loadPluginWithText(
+  pluginBuilder: PluginBuilder,
+  fs: FileSystem,
+): Disposable {
+  val directory = if (fs == FileSystems.getDefault()) {
+    FileUtil.createTempDirectory("test", "test", true).toPath()
+  }
+  else {
+    fs.getPath("/").resolve(Ksuid.generate())
+  }
+
+  val descriptor = loadDescriptorInTest(
+    pluginBuilder,
+    directory,
+  )
   assertThat(DynamicPlugins.checkCanUnloadWithoutRestart(descriptor)).isNull()
-  descriptor.setLoader(loader)
   try {
-    loadPlugin(descriptor)
+    DynamicPlugins.loadPlugin(pluginDescriptor = descriptor)
   }
   catch (e: Exception) {
-    unloadPlugin(descriptor)
+    DynamicPlugins.unloadPlugin(descriptor)
     throw e
   }
 
   return Disposable {
-    descriptor = loadDescriptorInTest(plugin.parent.parent)
-    val canBeUnloaded = DynamicPlugins.allowLoadUnloadWithoutRestart(descriptor)
-    unloadPlugin(descriptor)
-
-    assertThat(canBeUnloaded).isTrue()
+    val reason = DynamicPlugins.checkCanUnloadWithoutRestart(descriptor)
+    DynamicPlugins.unloadPlugin(descriptor)
+    assertThat(reason).isNull()
   }
 }
 
-private fun preparePluginDescriptor(pluginXml: String, fs: FileSystem): Pair<Path, IdeaPluginDescriptorImpl> {
-  val directory = if (fs == FileSystems.getDefault()) FileUtil.createTempDirectory("test", "test", true).toPath() else Files.createTempDirectory(fs.getPath("/"), null)
-  val plugin = directory.resolve("plugin/META-INF/plugin.xml")
-  plugin.write(pluginXml)
-  val descriptor = loadDescriptorInTest(plugin.parent.parent)
-  return Pair(plugin, descriptor)
+internal fun loadDescriptorInTest(
+  pluginBuilder: PluginBuilder,
+  directory: Path,
+): IdeaPluginDescriptorImpl {
+  val pluginDirectory = directory.resolve("plugin")
+  pluginBuilder.build(pluginDirectory)
+  return loadDescriptorInTest(pluginDirectory)
+}
+
+internal fun setPluginClassLoaderForMainAndSubPlugins(rootDescriptor: IdeaPluginDescriptorImpl, classLoader: ClassLoader?) {
+  rootDescriptor.classLoader = classLoader
+  for (dependency in rootDescriptor.pluginDependencies) {
+    if (dependency.subDescriptor != null) {
+      dependency.subDescriptor!!.classLoader = classLoader
+    }
+  }
 }

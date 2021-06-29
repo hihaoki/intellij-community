@@ -13,9 +13,9 @@ import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewUnsupport
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateState;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorActivityManager;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -32,6 +32,7 @@ import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.CommonProcessors;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -120,6 +121,9 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
     Editor injectedEditor = null;
     PsiFile injectedFile = null;
     ProgressIndicator indicator = ProgressIndicatorProvider.getGlobalProgressIndicator();
+
+    boolean hasAvailableAction = false;
+    HighlightInfo.IntentionActionDescriptor unavailableAction = null;
     for (Pair<HighlightInfo.IntentionActionDescriptor, RangeMarker> pair : info.quickFixActionMarkers) {
       HighlightInfo.IntentionActionDescriptor actionInGroup = pair.first;
       RangeMarker range = pair.second;
@@ -154,6 +158,17 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
       }
       if (actionInGroup.getAction().isAvailable(project, editorToUse, fileToUse)) {
         outList.add(actionInGroup);
+        hasAvailableAction = true;
+      }
+      else if (unavailableAction == null) {
+        unavailableAction = actionInGroup;
+      }
+    }
+
+    if (!hasAvailableAction && unavailableAction != null) {
+      HighlightInfo.IntentionActionDescriptor emptyActionDescriptor = unavailableAction.copyWithEmptyAction();
+      if (emptyActionDescriptor != null) {
+        outList.add(emptyActionDescriptor);
       }
     }
   }
@@ -166,7 +181,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
     public final List<HighlightInfo.IntentionActionDescriptor> intentionsToShow = ContainerUtil.createLockFreeCopyOnWriteList();
     public final List<HighlightInfo.IntentionActionDescriptor> errorFixesToShow = ContainerUtil.createLockFreeCopyOnWriteList();
     public final List<HighlightInfo.IntentionActionDescriptor> inspectionFixesToShow = ContainerUtil.createLockFreeCopyOnWriteList();
-    public final List<HighlightInfo.IntentionActionDescriptor> guttersToShow = ContainerUtil.createLockFreeCopyOnWriteList();
+    public final List<AnAction> guttersToShow = ContainerUtil.createLockFreeCopyOnWriteList();
     public final List<HighlightInfo.IntentionActionDescriptor> notificationActionsToShow = ContainerUtil.createLockFreeCopyOnWriteList();
     private int myOffset;
 
@@ -175,7 +190,6 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
       filter(intentionsToShow, psiFile, filters);
       filter(errorFixesToShow, psiFile, filters);
       filter(inspectionFixesToShow, psiFile, filters);
-      filter(guttersToShow, psiFile, filters);
       filter(notificationActionsToShow, psiFile, filters);
     }
 
@@ -220,7 +234,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
 
   @Override
   public void doCollectInformation(@NotNull ProgressIndicator progress) {
-    if (!EditorActivityManager.getInstance().isFocused(myEditor)) return;
+    if (!UIUtil.hasFocus(myEditor.getContentComponent())) return;
     TemplateState state = TemplateManagerImpl.getTemplateState(myEditor);
     if (state != null && !state.isFinished()) return;
     getActionsToShow(myEditor, myFile, myIntentionsInfo, myPassIdToShowIntentionsFor, myQueryIntentionActions);
@@ -326,7 +340,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
           enableDisableIntentionAction.add(new EnableDisableIntentionAction(action));
           enableDisableIntentionAction.add(new EditIntentionSettingsAction(action));
           HighlightInfo.IntentionActionDescriptor descriptor =
-            new HighlightInfo.IntentionActionDescriptor(action, enableDisableIntentionAction, null);
+            new HighlightInfo.IntentionActionDescriptor(action, enableDisableIntentionAction, null, null, null, null, null);
           if (!fixes.contains(descriptor)) {
             intentions.intentionsToShow.add(descriptor);
           }

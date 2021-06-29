@@ -1,8 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide
 
 import com.google.common.collect.ArrayListMultimap
-import com.intellij.ide.impl.NewProjectUtil
+import com.google.common.collect.Multimap
 import com.intellij.ide.impl.NewProjectUtil.setCompilerOutputPath
 import com.intellij.ide.impl.ProjectViewSelectInTarget
 import com.intellij.ide.projectView.impl.ProjectViewPane
@@ -14,26 +14,26 @@ import com.intellij.ide.util.projectWizard.WizardContext
 import com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSourcesBuilderImpl
 import com.intellij.notification.*
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileTypes.FileTypeRegistry
+import com.intellij.openapi.module.JavaModuleType
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdk
-import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.projectRoots.ex.JavaSdkUtil
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService
-import com.intellij.openapi.roots.ui.configuration.SdkLookup
-import com.intellij.openapi.roots.ui.configuration.SdkLookupDecision
+import com.intellij.openapi.roots.ui.configuration.findAndSetupSdk
 import com.intellij.openapi.startup.StartupActivity
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.*
 import com.intellij.platform.PlatformProjectOpenProcessor
+import com.intellij.platform.PlatformProjectOpenProcessor.Companion.isOpenedByPlatformProcessor
 import com.intellij.projectImport.ProjectOpenProcessor
-import com.intellij.util.ThrowableRunnable
 import java.io.File
-import java.util.concurrent.CompletableFuture
 import javax.swing.event.HyperlinkEvent
 
 private val NOTIFICATION_GROUP = NotificationGroup("Build Script Found", NotificationDisplayType.STICKY_BALLOON, true)
@@ -47,7 +47,7 @@ internal class SetupJavaProjectFromSourcesActivity : StartupActivity {
     if (ApplicationManager.getApplication().isHeadlessEnvironment) {
       return
     }
-    if (project.hasBeenOpenedBySpecificProcessor()) {
+    if (!project.isOpenedByPlatformProcessor()) {
       return
     }
 
@@ -66,10 +66,6 @@ internal class SetupJavaProjectFromSourcesActivity : StartupActivity {
         }
       }
     })
-  }
-
-  private fun Project.hasBeenOpenedBySpecificProcessor(): Boolean {
-    return getUserData(PlatformProjectOpenProcessor.PROJECT_OPENED_BY_PLATFORM_PROCESSOR) != true
   }
 
   private fun searchImporters(projectDirectory: VirtualFile): ArrayListMultimap<ProjectOpenProcessor, VirtualFile> {
@@ -120,20 +116,13 @@ internal class SetupJavaProjectFromSourcesActivity : StartupActivity {
     }
     else {
       title = JavaUiBundle.message("build.scripts.from.multiple.providers.found.notification")
-      content = providersAndFiles.asMap().entries.joinToString("<br/>") { (provider, files) ->
-        provider.name + ": " + filesToLinks(files, projectDirectory)
-      }
+      content = formatContent(providersAndFiles, projectDirectory)
     }
 
-    val notification = NOTIFICATION_GROUP.createNotification(title, content, NotificationType.INFORMATION, showFileInProjectViewListener)
+    val notification = NOTIFICATION_GROUP.createNotification(title, content, NotificationType.INFORMATION).setListener(showFileInProjectViewListener)
 
     if (providersAndFiles.keySet().all { it.canImportProjectAfterwards() }) {
-      val actionName = if (providersAndFiles.keySet().size > 1) {
-        JavaUiBundle.message("build.script.found.notification.import.all")
-      }
-      else {
-        JavaUiBundle.message("build.script.found.notification.import")
-      }
+      val actionName = JavaUiBundle.message("build.script.found.notification.import", providersAndFiles.keySet().size)
       notification.addAction(NotificationAction.createSimpleExpiring(actionName) {
         for ((provider, files) in providersAndFiles.asMap()) {
           for (file in files) {
@@ -146,6 +135,15 @@ internal class SetupJavaProjectFromSourcesActivity : StartupActivity {
     notification.notify(project)
   }
 
+  @NlsSafe
+  private fun formatContent(providersAndFiles: Multimap<ProjectOpenProcessor, VirtualFile>,
+                            projectDirectory: VirtualFile): String {
+    return providersAndFiles.asMap().entries.joinToString("<br/>") { (provider, files) ->
+      provider.name + ": " + filesToLinks(files, projectDirectory)
+    }
+  }
+
+  @NlsSafe
   private fun filesToLinks(files: MutableCollection<VirtualFile>, projectDirectory: VirtualFile) =
     files.joinToString { file ->
       "<a href='${file.path}'>${VfsUtil.getRelativePath(file, projectDirectory)}</a>"
@@ -177,50 +175,24 @@ internal class SetupJavaProjectFromSourcesActivity : StartupActivity {
       setCompilerOutputPath(project, compileOutput)
     }
 
-    findAndSetupJdk(project, indicator)
+    val modules = ModuleManager.getInstance(project).modules
+    if (modules.any { it is JavaModuleType }) {
+      findAndSetupSdk(project, indicator, JavaSdk.getInstance()) {
+        JavaSdkUtil.applyJdkToProject(project, it)
+      }
+    }
 
     if (roots.size > MAX_ROOTS_IN_TRIVIAL_PROJECT_STRUCTURE) {
       notifyAboutAutomaticProjectStructure(project)
     }
   }
 
-  private fun findAndSetupJdk(project: Project, indicator: ProgressIndicator) {
-    val future = CompletableFuture<Sdk>()
-    SdkLookup.newLookupBuilder()
-      .withProgressIndicator(indicator)
-      .withSdkType(JavaSdk.getInstance())
-      .withVersionFilter { true }
-      .withProject(project)
-      .onDownloadableSdkSuggested { SdkLookupDecision.STOP }
-      .onSdkResolved {
-        future.complete(it)
-      }
-      .executeLookup()
-
-    try {
-      val sdk = future.get()
-      if (sdk != null) {
-        WriteAction.runAndWait(
-          ThrowableRunnable<Throwable> {
-            NewProjectUtil.applyJdkToProject(project, sdk)
-          }
-        )
-      }
-    }
-    catch (t: Throwable) {
-      LOG.warn("Couldn't lookup for a JDK", t)
-    }
-  }
-
   private fun notifyAboutAutomaticProjectStructure(project: Project) {
-    val message = JavaUiBundle.message("project.structure.automatically.detected.notification")
-    val notification = NOTIFICATION_GROUP.createNotification("", message, NotificationType.INFORMATION, null)
-    notification.addAction(NotificationAction.createSimpleExpiring(
-      JavaUiBundle.message("project.structure.automatically.detected.notification.gotit.action")) {})
-    notification.addAction(NotificationAction.createSimpleExpiring(
-      JavaUiBundle.message("project.structure.automatically.detected.notification.configure.action")) {
-      ProjectSettingsService.getInstance(project).openProjectSettings()
-    })
-    notification.notify(project)
+    NOTIFICATION_GROUP.createNotification(JavaUiBundle.message("project.structure.automatically.detected.notification"), NotificationType.INFORMATION)
+      .addAction(NotificationAction.createSimpleExpiring(JavaUiBundle.message("project.structure.automatically.detected.notification.gotit.action")) {})
+      .addAction(NotificationAction.createSimpleExpiring(JavaUiBundle.message("project.structure.automatically.detected.notification.configure.action")) {
+        ProjectSettingsService.getInstance(project).openProjectSettings()
+      })
+      .notify(project)
   }
 }

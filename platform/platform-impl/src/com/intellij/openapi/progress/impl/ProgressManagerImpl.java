@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.*;
 import com.intellij.openapi.progress.util.PingProgress;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.wm.WindowManager;
@@ -52,7 +53,7 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
   @Override
   public void executeProcessUnderProgress(@NotNull Runnable process, ProgressIndicator progress) throws ProcessCanceledException {
     CheckCanceledHook hook = progress instanceof PingProgress && ApplicationManager.getApplication().isDispatchThread()
-                             ? p -> { ((PingProgress)progress).interact(); return true; } 
+                             ? p -> { ((PingProgress)progress).interact(); return true; }
                              : null;
     if (hook != null) {
       addCheckCanceledHook(hook);
@@ -82,9 +83,9 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
   }
 
   @Override
-  public boolean runProcessWithProgressSynchronously(@NotNull Task task, @Nullable JComponent parentComponent) {
+  public boolean runProcessWithProgressSynchronously(@NotNull Task task) {
     long start = System.currentTimeMillis();
-    boolean result = super.runProcessWithProgressSynchronously(task, parentComponent);
+    boolean result = super.runProcessWithProgressSynchronously(task);
     if (result) {
       long end = System.currentTimeMillis();
       Task.NotificationInfo notificationInfo = task.notifyFinished();
@@ -104,17 +105,35 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
   }
 
   @Override
+  protected final void startTask(@NotNull Task task,
+                                 @NotNull ProgressIndicator indicator,
+                                 @Nullable Runnable continuation) {
+    ProgressManagerListener listener = getProjectManagerListener();
+    try {
+      listener.beforeTaskStart(task, indicator);
+    }
+    finally {
+      try {
+        super.startTask(task, indicator, continuation);
+      }
+      finally {
+        listener.afterTaskStart(task, indicator);
+      }
+    }
+  }
+
+  @Override
   @NotNull
   public Future<?> runProcessWithProgressAsynchronously(@NotNull Task.Backgroundable task) {
-    CompletableFuture<ProgressIndicator> progressIndicator = CompletableFuture.supplyAsync(
+    CompletableFuture<@NotNull ProgressIndicator> progressIndicator = CompletableFuture.supplyAsync(
       () -> {
-        if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
-          return new BackgroundableProcessIndicator(task);
+        if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+          return shouldKeepTasksAsynchronousInHeadlessMode()
+                 ? new ProgressIndicatorBase()
+                 : new EmptyProgressIndicator();
         }
-
-        return shouldRunHeadlessTasksSynchronously()
-               ? new ProgressIndicatorBase()
-               : new EmptyProgressIndicator();
+        Project project = task.getProject();
+        return project != null && project.isDisposed() ? new EmptyProgressIndicator() : new BackgroundableProcessIndicator(task);
       }, PlainEdtExecutor.INSTANCE);
     return runProcessWithProgressAsync(task, progressIndicator, null, null, null);
   }
@@ -126,6 +145,24 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
       Component window = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
       if (window == null || notificationInfo.isShowWhenFocused()) {
         systemNotify(notificationInfo);
+      }
+    }
+  }
+
+  @Override
+  protected final void finishTask(@NotNull Task task,
+                                  boolean canceled,
+                                  @Nullable Throwable error) {
+    ProgressManagerListener listener = getProjectManagerListener();
+    try {
+      listener.beforeTaskFinished(task);
+    }
+    finally {
+      try {
+        super.finishTask(task, canceled, error);
+      }
+      finally {
+        listener.afterTaskFinished(task);
       }
     }
   }
@@ -176,5 +213,11 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
   @Override
   protected void prioritizingFinished() {
     removeCheckCanceledHook(mySleepHook);
+  }
+
+  private static @NotNull ProgressManagerListener getProjectManagerListener() {
+    return ApplicationManager.getApplication()
+      .getMessageBus()
+      .syncPublisher(ProgressManagerListener.TOPIC);
   }
 }

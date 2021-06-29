@@ -2,6 +2,7 @@
 package com.intellij.openapi.module;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.util.graph.Graph;
 import org.jdom.JDOMException;
@@ -169,12 +170,12 @@ public abstract class ModuleManager extends SimpleModificationTracker {
    * Returns the path to the group to which the specified module belongs, as an array of group names starting from the project root.
    * <p>
    * <strong>Use {@link ModuleGrouper#getGroupPath(Module)} instead.</strong> Explicit module groups will be replaced
-   * by automatical module grouping accordingly to qualified names of modules, see https://youtrack.jetbrains.com/issue/IDEA-166061 for details.
+   * by automatic module grouping accordingly to qualified names of modules, see <a href="https://youtrack.jetbrains.com/issue/IDEA-166061">IDEA-166061</a> for details.
    * </p>
    * @param module the module for which the path is requested.
    * @return the path to the group for the module, or null if the module does not belong to any group.
    */
-  public abstract String @Nullable [] getModuleGroupPath(@NotNull Module module);
+  public abstract @NlsSafe String @Nullable [] getModuleGroupPath(@NotNull Module module);
 
   public abstract boolean hasModuleGroups();
 

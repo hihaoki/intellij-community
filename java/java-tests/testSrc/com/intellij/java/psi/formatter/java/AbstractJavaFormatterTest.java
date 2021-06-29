@@ -125,7 +125,7 @@ public abstract class AbstractJavaFormatterTest extends LightIdeaTestCase {
 
   public void doTextTest(@NotNull Action action, @NotNull String text, @NotNull String textAfter) throws IncorrectOperationException {
     final PsiFile file = createFile("A.java", text);
-    file.putUserData(PsiUtil.FILE_LANGUAGE_LEVEL_KEY, LanguageLevel.JDK_14_PREVIEW);
+    file.putUserData(PsiUtil.FILE_LANGUAGE_LEVEL_KEY, LanguageLevel.JDK_15_PREVIEW);
     final PsiDocumentManager manager = PsiDocumentManager.getInstance(getProject());
     final Document document = manager.getDocument(file);
     if (document == null) {
@@ -176,7 +176,7 @@ public abstract class AbstractJavaFormatterTest extends LightIdeaTestCase {
         ACTIONS.get(action).run(file, rangeToUse.getStartOffset(), rangeToUse.getEndOffset());
       }
       catch (IncorrectOperationException e) {
-        assertTrue(e.getLocalizedMessage(), false);
+        fail(e.getLocalizedMessage());
       }
     }), action == REFORMAT ? ReformatCodeProcessor.getCommandName() : "", "");
 

@@ -18,6 +18,7 @@ package org.intellij.plugins.relaxNG.model.descriptors;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.navigation.NavigationItem;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -30,6 +31,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.FakePsiElement;
 import com.intellij.psi.impl.PsiCachedValueImpl;
+import com.intellij.psi.impl.source.html.dtd.HtmlSymbolDeclaration;
 import com.intellij.psi.impl.source.tree.TreeUtil;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.XmlAttribute;
@@ -53,7 +55,12 @@ import org.xml.sax.Locator;
 import javax.xml.namespace.QName;
 import java.util.*;
 
+import static com.intellij.util.ObjectUtils.doIfNotNull;
+
 public class RngElementDescriptor implements XmlElementDescriptor {
+
+  private static final Logger LOG = Logger.getInstance(RngElementDescriptor.class);
+
   private static final Key<ParameterizedCachedValue<XmlElementDescriptor, RngElementDescriptor>> DESCR_KEY = Key.create("DESCR");
   private static final Key<ParameterizedCachedValue<XmlAttributeDescriptor[], RngElementDescriptor>> ATTRS_KEY = Key.create("ATTRS");
 
@@ -398,20 +405,35 @@ public class RngElementDescriptor implements XmlElementDescriptor {
     return myElementPattern;
   }
 
-  private static final class RncLocationPsiElement extends FakePsiElement implements NavigationItem {
+  private static final class RncLocationPsiElement extends FakePsiElement implements NavigationItem, HtmlSymbolDeclaration {
     private final PsiFile myFile;
     private final int myStartOffset;
     private final int myColumn;
+    private final String myName;
+    private final Kind myKind;
 
     private RncLocationPsiElement(PsiFile file, int startOffset, int column) {
       myFile = file;
       myStartOffset = startOffset;
       myColumn = column;
+      PsiElement definition = getNavigationElement();
+      myName = definition.getText();
+      PsiElement prevPrevSibling = doIfNotNull(definition.getPrevSibling(), PsiElement::getPrevSibling);
+      if (prevPrevSibling == null) {
+        LOG.error("Failed to locate type for RNC element - " + myName);
+      }
+      myKind = prevPrevSibling != null && "element".equals(prevPrevSibling.getText()) ? Kind.ELEMENT : Kind.ATTRIBUTE;
     }
 
     @Override
     public String getName() {
-      return getNavigationElement().getText();
+      return myName;
+    }
+
+    @NotNull
+    @Override
+    public HtmlSymbolDeclaration.Kind getKind() {
+      return myKind;
     }
 
     @NotNull

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.libraries;
 
 import com.intellij.configurationStore.ComponentSerializationUtil;
@@ -12,7 +12,6 @@ import com.intellij.openapi.project.ProjectUtilCore;
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.impl.ProjectRootManagerImpl;
-import com.intellij.openapi.roots.impl.RootModelImpl;
 import com.intellij.openapi.roots.libraries.*;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -22,16 +21,14 @@ import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerContainer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
+import com.intellij.projectModel.ProjectModelBundle;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.EventDispatcher;
+import com.intellij.util.PathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
 import org.jdom.Element;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 import org.jetbrains.jps.model.serialization.SerializationConstants;
 import org.jetbrains.jps.model.serialization.library.JpsLibraryTableSerializer;
 
@@ -45,7 +42,7 @@ import java.util.*;
 public class LibraryImpl extends TraceableDisposable implements LibraryEx.ModifiableModelEx, LibraryEx, RootProvider {
   private static final Logger LOG = Logger.getInstance(LibraryImpl.class);
   private static final String EXCLUDED_ROOTS_TAG = "excluded";
-  private String myName;
+  private @NlsSafe String myName;
   private final LibraryTable myLibraryTable;
   private final Map<OrderRootType, VirtualFilePointerContainer> myRoots = new HashMap<>(3);
   @Nullable private VirtualFilePointerContainer myExcludedRoots;
@@ -164,6 +161,11 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   }
 
   @Override
+  public @NotNull String getPresentableName() {
+    return getPresentableName(this);
+  }
+
+  @Override
   public String @NotNull [] getUrls(@NotNull OrderRootType rootType) {
     checkDisposed();
 
@@ -191,12 +193,6 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   public ModifiableModelEx getModifiableModel() {
     checkDisposed();
     return new LibraryImpl(this, this, myRootModel);
-  }
-
-  @NotNull
-  public Library cloneLibrary(@NotNull RootModelImpl rootModel) {
-    LOG.assertTrue(myLibraryTable == null);
-    return new LibraryImpl(this, null, rootModel);
   }
 
   @NotNull
@@ -239,8 +235,9 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   @NotNull
   private VirtualFilePointerListener getListener() {
     Project project = myLibraryTable instanceof ProjectLibraryTable ? ((ProjectLibraryTable)myLibraryTable).getProject() : null;
-    return myRootModel != null ? ((RootModelImpl)myRootModel).getRootsChangedListener() : project != null ? ProjectRootManagerImpl
-      .getInstanceImpl(project).getRootsValidityChangedListener() : ProjectJdkImpl.getGlobalVirtualFilePointerListener();
+    return project != null
+           ? ProjectRootManagerImpl.getInstanceImpl(project).getRootsValidityChangedListener()
+           : ProjectJdkImpl.getGlobalVirtualFilePointerListener();
   }
 
   @Nullable
@@ -710,7 +707,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   }
 
   private void disposeMyPointers() {
-    for (VirtualFilePointerContainer container : new THashSet<>(myRoots.values())) {
+    for (VirtualFilePointerContainer container : new HashSet<>(myRoots.values())) {
       container.killAll();
     }
     if (myExcludedRoots != null) {
@@ -775,5 +772,21 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
 
   private void fireRootSetChanged() {
     myDispatcher.getMulticaster().rootSetChanged(this);
+  }
+
+  @NotNull
+  public static @Nls(capitalization = Nls.Capitalization.Title) String getPresentableName(@NotNull LibraryEx library) {
+    final String name = library.getName();
+    if (name != null) {
+      return name;
+    }
+    if (library.isDisposed()) {
+      return ProjectModelBundle.message("disposed.library.title");
+    }
+    String[] urls = library.getUrls(OrderRootType.CLASSES);
+    if (urls.length > 0) {
+      return PathUtil.getFileName(PathUtil.toPresentableUrl(urls[0]));
+    }
+    return ProjectModelBundle.message("empty.library.title");
   }
 }

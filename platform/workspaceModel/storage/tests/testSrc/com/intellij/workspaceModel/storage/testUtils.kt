@@ -1,15 +1,17 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.workspaceModel.storage
 
-import com.intellij.util.containers.BidirectionalMap
+import com.google.common.collect.HashBiMap
 import com.intellij.util.containers.BidirectionalMultiMap
 import com.intellij.workspaceModel.storage.impl.*
+import com.intellij.workspaceModel.storage.impl.containers.BidirectionalMap
+import com.intellij.workspaceModel.storage.impl.containers.BidirectionalSetMap
 import com.intellij.workspaceModel.storage.impl.containers.copy
+import com.intellij.workspaceModel.storage.url.VirtualFileUrlManager
 import junit.framework.TestCase.*
 import org.junit.Assert
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.util.*
 import java.util.function.BiPredicate
 import kotlin.reflect.full.memberProperties
 
@@ -19,6 +21,7 @@ class TestEntityTypesResolver : EntityTypesResolver {
   override fun getPluginId(clazz: Class<*>): String? = pluginPrefix + clazz.name
   override fun resolveClass(name: String, pluginId: String?): Class<*> {
     Assert.assertEquals(pluginPrefix + name, pluginId)
+    if (name.startsWith("[")) return Class.forName(name)
     return javaClass.classLoader.loadClass(name)
   }
 }
@@ -26,16 +29,16 @@ class TestEntityTypesResolver : EntityTypesResolver {
 object SerializationRoundTripChecker {
   fun verifyPSerializationRoundTrip(storage: WorkspaceEntityStorage, virtualFileManager: VirtualFileUrlManager): ByteArray {
     storage as WorkspaceEntityStorageImpl
+    storage.assertConsistency()
 
-    val serializer = EntityStorageSerializerImpl(
-      TestEntityTypesResolver(),
-      virtualFileManager)
+    val serializer = EntityStorageSerializerImpl(TestEntityTypesResolver(), virtualFileManager)
 
     val stream = ByteArrayOutputStream()
     serializer.serializeCache(stream, storage)
 
     val byteArray = stream.toByteArray()
     val deserialized = (serializer.deserializeCache(ByteArrayInputStream(byteArray)) as WorkspaceEntityStorageBuilderImpl).toStorage()
+    deserialized.assertConsistency()
 
     assertStorageEquals(storage, deserialized)
 
@@ -59,7 +62,7 @@ object SerializationRoundTripChecker {
       val expectedEntities = expectedEntityFamily.entities
       val actualEntities = actualEntityFamily.entities
 
-      assertOrderedEquals(expectedEntities, actualEntities)
+      assertOrderedEquals(expectedEntities, actualEntities) { a, b -> a == null && b == null || a != null && b != null && a.equalsIgnoringEntitySource(b) }
     }
 
     // Assert refs
@@ -67,13 +70,13 @@ object SerializationRoundTripChecker {
     assertMapsEqual(expected.refs.oneToManyContainer, actual.refs.oneToManyContainer)
     assertMapsEqual(expected.refs.abstractOneToOneContainer, actual.refs.abstractOneToOneContainer)
     assertMapsEqual(expected.refs.oneToAbstractManyContainer, actual.refs.oneToAbstractManyContainer)
+    assertMapsEqual(expected.indexes.virtualFileIndex.entityId2VirtualFileUrl, actual.indexes.virtualFileIndex.entityId2VirtualFileUrl)
+    assertMapsEqual(expected.indexes.virtualFileIndex.vfu2EntityId, actual.indexes.virtualFileIndex.vfu2EntityId)
     // Just checking that all properties have been asserted
     assertEquals(4, RefsTable::class.memberProperties.size)
 
     // Assert indexes
     assertBiMultiMap(expected.indexes.softLinks.index, actual.indexes.softLinks.index)
-    assertBiMultiMap(expected.indexes.virtualFileIndex.index, actual.indexes.virtualFileIndex.index)
-    assertBiMap(expected.indexes.entitySourceIndex.index, actual.indexes.entitySourceIndex.index)
     assertBiMap(expected.indexes.persistentIdIndex.index, actual.indexes.persistentIdIndex.index)
     // External index should not be persisted
     assertTrue(actual.indexes.externalMappings.isEmpty())
@@ -82,8 +85,8 @@ object SerializationRoundTripChecker {
   }
 
   // Use UsefulTestCase.assertOrderedEquals in case it'd be used in this module
-  private fun <T> assertOrderedEquals(actual: Iterable<T?>, expected: Iterable<T?>) {
-    if (!equals(actual, expected, BiPredicate { a: T?, b: T? -> a == b })) {
+  private fun <T> assertOrderedEquals(actual: Iterable<T?>, expected: Iterable<T?>, comparator: (T?, T?) -> Boolean) {
+    if (!equals(actual, expected, BiPredicate(comparator))) {
       val expectedString: String = expected.toString()
       val actualString: String = actual.toString()
       Assert.assertEquals("", expectedString, actualString)
@@ -127,15 +130,15 @@ object SerializationRoundTripChecker {
       val expectedValue = local.getValues(key)
       local.removeKey(key)
 
-      assertOrderedEquals(expectedValue, value)
+      assertOrderedEquals(expectedValue, value) { a, b -> a == b }
     }
     if (!local.isEmpty) {
       Assert.fail("No mappings found for the following keys: " + local.keys)
     }
   }
 
-  private fun <A, B> assertBiMap(expected: BidirectionalMap<A, B>, actual: BidirectionalMap<A, B>) {
-    val local = expected.copy()
+  private fun <T> assertBiMap(expected: HashBiMap<EntityId, T>, actual: HashBiMap<EntityId, T>) {
+    val local = HashBiMap.create(expected)
     for (key in actual.keys) {
       val value = actual.getValue(key)
       val expectedValue = local.remove(key)

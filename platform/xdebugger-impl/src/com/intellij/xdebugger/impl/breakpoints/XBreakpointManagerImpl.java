@@ -1,24 +1,30 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.ex.http.HttpFileSystem;
 import com.intellij.util.Consumer;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.*;
@@ -82,9 +88,17 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
           myAllBreakpointsDispatcher.getMulticaster().breakpointChanged(breakpoint);
         }
       }
+
+      @SuppressWarnings("unchecked")
+      @Override
+      public void breakpointPresentationUpdated(@NotNull XBreakpoint breakpoint, @Nullable XDebugSession session) {
+        if (myAllBreakpointsDispatcher != null) {
+          myAllBreakpointsDispatcher.getMulticaster().breakpointPresentationUpdated(breakpoint, session);
+        }
+      }
     });
 
-    XBreakpointType.EXTENSION_POINT_NAME.addExtensionPointListener(new ExtensionPointListener<XBreakpointType>() {
+    XBreakpointType.EXTENSION_POINT_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
       public void extensionAdded(@NotNull XBreakpointType type, @NotNull PluginDescriptor pluginDescriptor) {
         //noinspection unchecked
@@ -116,14 +130,24 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   }
 
   private void updateBreakpointInFile(final VirtualFile file) {
-    ApplicationManager.getApplication().invokeLater(() -> {
-      for (XBreakpointBase breakpoint : getAllBreakpoints()) {
-        XSourcePosition position = breakpoint.getSourcePosition();
-        if (position != null && Comparing.equal(position.getFile(), file)) {
-          fireBreakpointChanged(breakpoint);
-        }
+    ReadAction
+      .nonBlocking(() -> changedBreakpoints(file))
+      .coalesceBy(Pair.create(this, file))
+      .expireWith(myProject)
+      .finishOnUiThread(ModalityState.defaultModalityState(), this::fireBreakpointsChanged)
+      .submit(AppExecutorUtil.getAppExecutorService());
+  }
+
+  private @NotNull Collection<? extends XBreakpointBase<?, ?, ?>> changedBreakpoints(VirtualFile file) {
+    Collection<XBreakpointBase<?, ?, ?>> result = new ArrayList<>();
+    for (XBreakpointBase<?, ?, ?> breakpoint : getAllBreakpoints()) {
+      ProgressManager.checkCanceled();
+      XSourcePosition position = breakpoint.getSourcePosition();
+      if (position != null && Comparing.equal(position.getFile(), file)) {
+        result.add(breakpoint);
       }
-    }, myProject.getDisposed());
+    }
+    return result;
   }
 
   public XLineBreakpointManager getLineBreakpointManager() {
@@ -198,6 +222,12 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
     return myProject.getMessageBus().syncPublisher(XBreakpointListener.TOPIC);
   }
 
+  private void fireBreakpointsChanged(Collection<? extends XBreakpointBase<?, ?, ?>> breakpoints) {
+    for (XBreakpointBase<?, ?, ?> breakpoint : breakpoints) {
+      fireBreakpointChanged(breakpoint);
+    }
+  }
+
   public void fireBreakpointChanged(XBreakpointBase<?, ?, ?> breakpoint) {
     if (!myAllBreakpoints.contains(breakpoint)) {
       return;
@@ -207,6 +237,14 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
       myLineBreakpointManager.breakpointChanged((XLineBreakpointImpl)breakpoint);
     }
     sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointChanged(breakpoint));
+  }
+  
+  public void fireBreakpointPresentationUpdated(XBreakpoint<?> breakpoint, @Nullable XDebugSession session) {
+    if (!myAllBreakpoints.contains(breakpoint)) {
+      return;
+    }
+    
+    sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointPresentationUpdated(breakpoint, session));
   }
 
   @Override
@@ -279,6 +317,16 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
                                                                                 final int line,
                                                                                 @Nullable final T properties,
                                                                                 boolean temporary) {
+    return addLineBreakpoint(type, fileUrl, line, properties, temporary, true);
+  }
+
+  @NotNull
+  public <T extends XBreakpointProperties> XLineBreakpoint<T> addLineBreakpoint(final XLineBreakpointType<T> type,
+                                                                                @NotNull final String fileUrl,
+                                                                                final int line,
+                                                                                @Nullable final T properties,
+                                                                                boolean temporary,
+                                                                                boolean initUI) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
     LineBreakpointState<T> state = new LineBreakpointState<>(true, type.getId(), fileUrl, line, temporary,
                                                              ++myTime, type.getDefaultSuspendPolicy());
@@ -286,7 +334,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
     state.setGroup(myDefaultGroup);
     XLineBreakpointImpl<T> breakpoint = new XLineBreakpointImpl<>(type, this, properties,
                                                                   state);
-    addBreakpoint(breakpoint, false, true);
+    addBreakpoint(breakpoint, false, initUI);
     return breakpoint;
   }
 
@@ -373,11 +421,6 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   }
 
   @Override
-  public void addBreakpointListener(@NotNull XBreakpointListener<XBreakpoint<?>> listener, @NotNull Disposable parentDisposable) {
-    myProject.getMessageBus().connect(parentDisposable).subscribe(XBreakpointListener.TOPIC, listener);
-  }
-
-  @Override
   public void addBreakpointListener(@NotNull final XBreakpointListener<XBreakpoint<?>> listener) {
     getDispatcher().addListener(listener);
   }
@@ -414,6 +457,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
     presentation.setIcon(icon);
     lineBreakpoint.setCustomizedPresentation(presentation);
     myLineBreakpointManager.queueBreakpointUpdate(breakpoint);
+    fireBreakpointPresentationUpdated(breakpoint, null);
   }
 
   @NotNull
@@ -422,7 +466,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
 
     List<BreakpointState<?, ?, ?>> defaultBreakpoints = new SmartList<>();
     for (Set<XBreakpointBase<?, ?, ?>> typeDefaultBreakpoints : myDefaultBreakpoints.values()) {
-      if (typeDefaultBreakpoints.stream().noneMatch(breakpoint -> differsFromDefault(breakpoint.getType(), breakpoint.getState()))) {
+      if (!ContainerUtil.exists(typeDefaultBreakpoints, breakpoint -> differsFromDefault(breakpoint.getType(), breakpoint.getState()))) {
         continue;
       }
       for (XBreakpointBase<?, ?, ?> breakpoint : typeDefaultBreakpoints) {

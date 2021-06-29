@@ -3,16 +3,10 @@ package com.intellij.grazie.ide.msg
 
 import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.detection.LangDetector
-import com.intellij.grazie.ide.inspection.detection.LanguageDetectionInspection
-import com.intellij.grazie.ide.inspection.grammar.GrazieCommitInspection
-import com.intellij.grazie.ide.inspection.grammar.GrazieInspection
 import com.intellij.grazie.jlanguage.LangTool
 import com.intellij.grazie.spellcheck.GrazieSpellchecker
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.PreloadingActivity
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
-import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.messages.Topic
 
@@ -36,21 +30,11 @@ internal class GrazieInitializerManager {
     connection.subscribe(topic, LangTool)
     connection.subscribe(topic, LangDetector)
     connection.subscribe(topic, GrazieSpellchecker)
-    connection.subscribe(topic, GrazieCommitInspection)
-    connection.subscribe(topic, GrazieInspection)
-    connection.subscribe(topic, LanguageDetectionInspection)
   }
 
   fun register(subscriber: GrazieStateLifecycle): MessageBusConnection {
     val connection = ApplicationManager.getApplication().messageBus.connect()
     connection.subscribe(topic, subscriber)
     return connection
-  }
-}
-
-// Needed only for warming up
-private class GrazieIDEInit : PreloadingActivity() {
-  override fun preload(indicator: ProgressIndicator) {
-    service<GrazieInitializerManager>().publisher.init(GrazieConfig.get())
   }
 }

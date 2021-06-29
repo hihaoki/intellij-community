@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.actions
 
 import com.google.common.collect.HashMultiset
@@ -9,12 +9,14 @@ import com.intellij.ide.util.gotoByName.ChooseByNameItem
 import com.intellij.ide.util.gotoByName.ChooseByNamePopup
 import com.intellij.ide.util.gotoByName.ChooseByNamePopupComponent
 import com.intellij.ide.util.gotoByName.ListChooseByNameModel
+import com.intellij.internal.statistic.StatisticsDevKitUtil
 import com.intellij.internal.statistic.eventLog.LogEventSerializer
 import com.intellij.internal.statistic.eventLog.newLogEvent
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
 import com.intellij.internal.statistic.service.fus.collectors.FUStateUsagesLogger
 import com.intellij.internal.statistic.service.fus.collectors.FeatureUsagesCollector
 import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector
+import com.intellij.internal.statistic.utils.StatisticsRecorderUtil
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -28,9 +30,15 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.containers.ContainerUtil
 import org.jetbrains.concurrency.resolvedPromise
-import java.util.*
 
-class CollectFUStatisticsAction : GotoActionBase() {
+internal class CollectFUStatisticsAction : GotoActionBase() {
+  override fun update(e: AnActionEvent) {
+    super.update(e)
+    if (e.presentation.isEnabled) {
+      e.presentation.isEnabled = StatisticsRecorderUtil.isTestModeEnabled(StatisticsDevKitUtil.DEFAULT_RECORDER)
+    }
+  }
+
   override fun gotoActionPerformed(e: AnActionEvent) {
     val project = e.project ?: return
 
@@ -78,12 +86,6 @@ class CollectFUStatisticsAction : GotoActionBase() {
       is ProjectUsagesCollector -> collector.getMetrics(project, indicator)
       else -> throw IllegalArgumentException("Unsupported collector: $collector")
     }
-    val groupData = when (collector) {
-      is ApplicationUsagesCollector -> collector.data
-      is ProjectUsagesCollector -> collector.getData(project)
-      else -> throw IllegalArgumentException("Unsupported collector: $collector")
-    }
-
     val gson = GsonBuilder().setPrettyPrinting().create()
     val result = StringBuilder()
 
@@ -91,7 +93,7 @@ class CollectFUStatisticsAction : GotoActionBase() {
       if (useExtendedPresentation) {
         result.append("[\n")
         for (metric in metrics) {
-          val metricData = FUStateUsagesLogger.mergeWithEventData(groupData, metric.data)!!.build()
+          val metricData = FUStateUsagesLogger.mergeWithEventData(null, metric.data)!!.build()
           val event = newLogEvent("test.session", "build", "bucket", System.currentTimeMillis(), collector.groupId,
                                   collector.version.toString(), "recorder.version", "event.id", true)
           for (datum in metricData) {

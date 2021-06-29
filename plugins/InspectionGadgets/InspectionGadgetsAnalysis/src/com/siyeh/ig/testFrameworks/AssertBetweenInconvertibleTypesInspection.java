@@ -8,8 +8,12 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.InconvertibleTypesChecker;
+import com.siyeh.ig.psiutils.InconvertibleTypesChecker.Convertible;
+import com.siyeh.ig.psiutils.InconvertibleTypesChecker.LookForMutualSubclass;
+import com.siyeh.ig.psiutils.InconvertibleTypesChecker.TypeMismatch;
 import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -91,22 +95,26 @@ public class AssertBetweenInconvertibleTypesInspection extends BaseInspection {
       if (type1 == null) return;
       final PsiType type2 = secondArgument.getType();
       if (type2 == null) return;
-      InconvertibleTypesChecker.LookForMutualSubclass lookForMutualSubclass =
-        isOnTheFly() ? InconvertibleTypesChecker.LookForMutualSubclass.IF_CHEAP : InconvertibleTypesChecker.LookForMutualSubclass.ALWAYS;
-      InconvertibleTypesChecker.TypeMismatch mismatch = InconvertibleTypesChecker.checkTypes(type1, type2, lookForMutualSubclass);
+      LookForMutualSubclass lookForMutualSubclass = isOnTheFly() ? LookForMutualSubclass.IF_CHEAP : LookForMutualSubclass.ALWAYS;
+      TypeMismatch mismatch = InconvertibleTypesChecker.checkTypes(type1, type2, lookForMutualSubclass);
       if (mismatch != null) {
         PsiElement name = Objects.requireNonNull(expression.getMethodExpression().getReferenceNameElement());
-        String methodName = name.getText();
-        registerError(name, isAssertNotEqualsMethod(methodName) ? WEAK_WARNING : GENERIC_ERROR_OR_WARNING, methodName, mismatch.getLeft(), mismatch.getRight());
+        Convertible convertible = mismatch.isConvertible();
+        if (convertible == Convertible.CONVERTIBLE_MUTUAL_SUBCLASS_UNKNOWN) {
+          registerPossibleProblem(name);
+        } else {
+          String methodName = name.getText();
+          registerError(name, isAssertNotEqualsMethod(methodName) ? WEAK_WARNING : GENERIC_ERROR_OR_WARNING, methodName, mismatch.getLeft(), mismatch.getRight());
+        }
       }
     }
   }
 
-  private static boolean isAssertNotEqualsMethod(@NotNull String methodName) {
+  private static boolean isAssertNotEqualsMethod(@NotNull @NonNls String methodName) {
     return "assertNotEquals".equals(methodName) || "isNotEqualTo".equals(methodName);
   }
 
-  private static boolean isAssertNotSameMethod(@NotNull String methodName) {
+  private static boolean isAssertNotSameMethod(@NotNull @NonNls String methodName) {
     return "assertNotSame".equals(methodName) || "isNotSameAs".equals(methodName);
   }
 }

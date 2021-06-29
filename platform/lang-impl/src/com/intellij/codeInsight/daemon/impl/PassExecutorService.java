@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.daemon.impl;
 
@@ -13,11 +13,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.application.ex.ApplicationUtil;
 import com.intellij.openapi.application.impl.ApplicationImpl;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorActivityManager;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -37,6 +35,7 @@ import com.intellij.util.Functions;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import com.intellij.util.ui.UIUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jetbrains.annotations.NonNls;
@@ -55,12 +54,14 @@ final class PassExecutorService implements Disposable {
 
   private final Map<ScheduledPass, Job<Void>> mySubmittedPasses = new ConcurrentHashMap<>();
   private final Project myProject;
+  private final FileEditorManagerEx myFileEditorManager;
   private volatile boolean isDisposed;
   private final AtomicInteger nextAvailablePassId; // used to assign random id to a pass if not set
 
   PassExecutorService(@NotNull Project project) {
     myProject = project;
     nextAvailablePassId = ((TextEditorHighlightingPassRegistrarImpl)TextEditorHighlightingPassRegistrar.getInstance(myProject)).getNextAvailableId();
+    myFileEditorManager = (FileEditorManagerEx)FileEditorManager.getInstance(project);
   }
 
   @Override
@@ -168,12 +169,12 @@ final class PassExecutorService implements Disposable {
       }
     }
 
-    if (CHECK_CONSISTENCY && !ApplicationInfoImpl.isInStressTest()) {
+    if (CHECK_CONSISTENCY && !ApplicationManagerEx.isInStressTest()) {
       assertConsistency(freePasses, toBeSubmitted, threadsToStartCountdown);
     }
 
     if (LOG.isDebugEnabled()) {
-      Set<VirtualFile> vFiles = ContainerUtil.map2Set(passesMap.keySet(), fe -> ((FileEditorManagerEx)FileEditorManager.getInstance(myProject)).getFile(fe));
+      Set<VirtualFile> vFiles = ContainerUtil.map2Set(passesMap.keySet(), FileEditor::getFile);
 
       log(updateProgress, null, vFiles + " ----- starting " + threadsToStartCountdown.get(), freePasses);
     }
@@ -199,7 +200,7 @@ final class PassExecutorService implements Disposable {
                                  @NotNull Map<FileEditor, Int2ObjectMap<ScheduledPass>> toBeSubmitted,
                                  @NotNull AtomicInteger threadsToStartCountdown) {
     assert threadsToStartCountdown.get() == toBeSubmitted.values().stream().mapToInt(m->m.size()).sum();
-    Int2ObjectOpenHashMap<Pair<ScheduledPass, Integer>> id2Visits = new Int2ObjectOpenHashMap<>();
+    Int2ObjectMap<Pair<ScheduledPass, Integer>> id2Visits = new Int2ObjectOpenHashMap<>();
     for (ScheduledPass freePass : freePasses) {
       HighlightingPass pass = freePass.myPass;
       if (pass instanceof TextEditorHighlightingPass) {
@@ -207,8 +208,7 @@ final class PassExecutorService implements Disposable {
         checkConsistency(freePass, id2Visits);
       }
     }
-    for (Iterator<Int2ObjectMap.Entry<Pair<ScheduledPass, Integer>>> iterator = id2Visits.int2ObjectEntrySet().fastIterator(); iterator.hasNext(); ) {
-      Int2ObjectMap.Entry<Pair<ScheduledPass, Integer>> entry = iterator.next();
+    for (Int2ObjectMap.Entry<Pair<ScheduledPass, Integer>> entry : id2Visits.int2ObjectEntrySet()) {
       int count = entry.getValue().second;
       assert count == 0 : entry.getIntKey();
     }
@@ -239,9 +239,9 @@ final class PassExecutorService implements Disposable {
                                                                      ((TextEditor)it).getEditor().getContentComponent().isFocusOwner());
     if (focusedEditor != null) return focusedEditor;
 
-    final VirtualFile file = FileDocumentManager.getInstance().getFile(document);
+    VirtualFile file = FileDocumentManager.getInstance().getFile(document);
     if (file != null) {
-      final FileEditor selected = FileEditorManager.getInstance(myProject).getSelectedEditor(file);
+      FileEditor selected = myFileEditorManager.getSelectedEditor(file);
       if (selected != null && fileEditors.contains(selected)) {
         return selected;
       }
@@ -310,7 +310,7 @@ final class PassExecutorService implements Disposable {
                                                     @NotNull List<ScheduledPass> dependentPasses,
                                                     @NotNull DaemonProgressIndicator updateProgress,
                                                     @NotNull AtomicInteger myThreadsToStartCountdown,
-                                                    final int predecessorId,
+                                                    int predecessorId,
                                                     @NotNull Int2ObjectMap<ScheduledPass> thisEditorId2ScheduledPass,
                                                     @NotNull Int2ObjectMap<TextEditorHighlightingPass> thisEditorId2Pass) {
     ScheduledPass predecessor = thisEditorId2ScheduledPass.get(predecessorId);
@@ -449,10 +449,10 @@ final class PassExecutorService implements Disposable {
     }
   }
 
-  private void applyInformationToEditorsLater(@NotNull final FileEditor fileEditor,
-                                              @NotNull final HighlightingPass pass,
-                                              @NotNull final DaemonProgressIndicator updateProgress,
-                                              @NotNull final AtomicInteger threadsToStartCountdown,
+  private void applyInformationToEditorsLater(@NotNull FileEditor fileEditor,
+                                              @NotNull HighlightingPass pass,
+                                              @NotNull DaemonProgressIndicator updateProgress,
+                                              @NotNull AtomicInteger threadsToStartCountdown,
                                               @NotNull Runnable callbackOnApplied) {
     ApplicationManager.getApplication().invokeLater(() -> {
       if (isDisposed() || !fileEditor.isValid()) {
@@ -463,8 +463,7 @@ final class PassExecutorService implements Disposable {
         return;
       }
       try {
-        if (fileEditor instanceof TextEditor && EditorActivityManager.getInstance().isVisible(((TextEditor)fileEditor).getEditor())
-          || fileEditor.getComponent().isDisplayable()) {
+        if (UIUtil.isShowing(fileEditor.getComponent())) {
           pass.applyInformationToEditor();
           repaintErrorStripeAndIcon(fileEditor);
           if (pass instanceof TextEditorHighlightingPass) {
@@ -481,8 +480,7 @@ final class PassExecutorService implements Disposable {
         throw e;
       }
       catch (RuntimeException e) {
-        FileEditorManagerEx fileEditorManagerEx = FileEditorManagerEx.getInstanceEx(myProject);
-        VirtualFile file = fileEditorManagerEx == null ? null : fileEditorManagerEx.getFile(fileEditor);
+        VirtualFile file = fileEditor.getFile();
         FileType fileType = file == null ? null : file.getFileType();
         String message = "Exception while applying information to " + fileEditor + "("+fileType+")";
         log(updateProgress, pass, message + e);
@@ -498,7 +496,7 @@ final class PassExecutorService implements Disposable {
         log(updateProgress, pass, "Finished but there are passes in the queue: " + threadsToStartCountdown.get());
       }
       callbackOnApplied.run();
-    }, updateProgress.getModalityState());
+    }, updateProgress.getModalityState(), pass.getExpiredCondition());
   }
 
   private void clearStaleEntries() {

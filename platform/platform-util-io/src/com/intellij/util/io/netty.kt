@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io
 
 import com.google.common.net.InetAddresses
@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Conditions
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.Url
 import com.intellij.util.Urls
 import com.intellij.util.net.NetUtils
@@ -144,11 +145,13 @@ private fun connectNio(bootstrap: Bootstrap,
                        stopCondition: Condition<Void>,
                        _attemptCount: Int): ConnectToChannelResult {
   var attemptCount = _attemptCount
+  Logger.getInstance("com.intellij.util.io.netty").debug("connectNio: ${Thread.currentThread()} #$attemptCount, max:#$maxAttemptCount to $remoteAddress")
   while (true) {
+    Logger.getInstance("com.intellij.util.io.netty").debug("Connection attempt #$attemptCount to $remoteAddress")
     val future = bootstrap.connect(remoteAddress).awaitUninterruptibly()
     if (future.isSuccess) {
       if (!future.channel().isOpen) {
-        continue
+        Logger.getInstance("com.intellij.util.io.netty").debug("connectNio: !future.channel().isOpen")
       }
       return ConnectToChannelResult(future.channel())
     }
@@ -170,7 +173,7 @@ private fun connectNio(bootstrap: Bootstrap,
       @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
       val cause = future.cause()
       if (cause == null) {
-        return ConnectToChannelResult("Cannot connect: unknown error")
+        return ConnectToChannelResult(IdeUtilIoBundle.message("error.message.cannot.connect.unknown.error"))
       }
       else {
         return ConnectToChannelResult(cause)
@@ -185,13 +188,14 @@ private fun sleep(time: Int): String? {
     Thread.sleep(time.toLong())
   }
   catch (ignored: InterruptedException) {
-    return "Interrupted"
+    return IdeUtilIoBundle.message("error.message.interrupted")
   }
 
   return null
 }
 
 val Channel.uriScheme: String
+  @NlsSafe
   get() = if (pipeline().get(SslHandler::class.java) == null) "http" else "https"
 
 val HttpRequest.host: String?
@@ -210,6 +214,7 @@ val HttpRequest.referrer: String?
   get() = headers().getAsString(HttpHeaderNames.REFERER)
 
 val HttpRequest.userAgent: String?
+  @NlsSafe
   get() = headers().getAsString(HttpHeaderNames.USER_AGENT)
 
 inline fun <T> ByteBuf.releaseIfError(task: () -> T): T {
@@ -263,7 +268,7 @@ fun HttpRequest.isLocalOrigin(onlyAnyOrLoopback: Boolean = true, hostsOnly: Bool
 }
 
 @Suppress("SpellCheckingInspection")
-private fun isTrustedChromeExtension(url: Url): Boolean {
+private fun isTrustedChromeExtension(@NlsSafe url: Url): Boolean {
   return url.scheme == "chrome-extension" &&
          (url.authority == "hmhgeddbohgjknpmjagkdomcpobmllji" ||
           url.authority == "offnedcbhjldheanlbojaefbfbllddna" ||
@@ -278,7 +283,7 @@ private val Url.host: String?
   }
 
 @JvmOverloads
-fun parseAndCheckIsLocalHost(uri: String?, onlyAnyOrLoopback: Boolean = true, hostsOnly: Boolean = false): Boolean {
+fun parseAndCheckIsLocalHost(@NlsSafe uri: String?, onlyAnyOrLoopback: Boolean = true, hostsOnly: Boolean = false): Boolean {
   if (uri == null || uri == "about:blank") {
     return true
   }
@@ -302,8 +307,6 @@ fun HttpRequest.isWriteFromBrowserWithoutOrigin(): Boolean {
 }
 
 fun ByteBuf.readUtf8(): String = toString(Charsets.UTF_8)
-
-fun ByteBuf.writeUtf8(data: CharSequence): Int = writeCharSequence(data, Charsets.UTF_8)
 
 class ConnectToChannelResult {
   val channel: Channel?

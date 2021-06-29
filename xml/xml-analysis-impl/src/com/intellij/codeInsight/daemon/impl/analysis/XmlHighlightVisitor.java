@@ -14,12 +14,14 @@ import com.intellij.codeInsight.daemon.impl.quickfix.QuickFixActionRegistrarImpl
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixProvider;
 import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.dtd.DTDLanguage;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.editor.markup.UnmodifiableTextAttributes;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
@@ -48,7 +50,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   private static boolean ourDoJaxpTesting;
 
   private static class Holder {
-    private static final TextAttributes NONEMPTY_TEXT_ATTRIBUTES = new TextAttributes() {
+    private static final TextAttributes NONEMPTY_TEXT_ATTRIBUTES = new UnmodifiableTextAttributes() {
       @Override
       public boolean isEmpty() {
         return false;
@@ -61,13 +63,13 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   }
 
   private void addElementsForTag(XmlTag tag,
-                                 @NotNull String localizedMessage,
+                                 @NotNull @InspectionMessage String localizedMessage,
                                  HighlightInfoType type) {
     addElementsForTagWithManyQuickFixes(tag, localizedMessage, type, (IntentionAction)null);
   }
 
   private void addElementsForTagWithManyQuickFixes(XmlTag tag,
-                                                   @NotNull String localizedMessage,
+                                                   @NotNull @InspectionMessage String localizedMessage,
                                                    HighlightInfoType type, IntentionAction... quickFixActions) {
     bindMessageToTag(tag, type, -1, localizedMessage, quickFixActions);
   }
@@ -106,7 +108,8 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
             TextRange textRange = token.getTextRange();
             int start = textRange.getStartOffset() + i;
             HighlightInfoType type = tag instanceof HtmlTag ? HighlightInfoType.WARNING : HighlightInfoType.ERROR;
-            String description = XmlAnalysisBundle.message("cdata.end.should.not.appear.in.content.unless.to.mark.end.of.cdata.section");
+            String description = XmlAnalysisBundle.message(
+              "xml.inspections.cdata.end.should.not.appear.in.content");
             HighlightInfo info = HighlightInfo.newHighlightInfo(type).range(start, start + marker.length()).descriptionAndTooltip(description).create();
             addToResults(info);
           }
@@ -142,7 +145,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   private void bindMessageToTag(final XmlTag tag,
                                 final HighlightInfoType warning,
                                 final int messageLength,
-                                @NotNull String localizedMessage,
+                                @NotNull @InspectionMessage String localizedMessage,
                                 IntentionAction... quickFixActions) {
     XmlToken childByRole = XmlTagUtil.getStartTagNameElement(tag);
 
@@ -167,7 +170,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
         if (eParent instanceof PsiComment) e = eParent;
         if (eParent instanceof XmlProcessingInstruction) break;
 
-        String description = XmlAnalysisBundle.message("xml.declaration.should.precede.all.document.content");
+        String description = XmlAnalysisBundle.message("xml.inspections.xml.declaration.should.precede.all.document.content");
         addToResults(HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(e).descriptionAndTooltip(description).create());
       }
     }
@@ -177,7 +180,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   private void bindMessageToAstNode(final PsiElement childByRole,
                                     final HighlightInfoType warning,
                                     int length,
-                                    @NotNull String localizedMessage,
+                                    @NotNull @InspectionMessage String localizedMessage,
                                     IntentionAction... quickFixActions) {
     if(childByRole != null) {
       final TextRange textRange = childByRole.getTextRange();
@@ -221,7 +224,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
 
         addElementsForTag(
           tag,
-          XmlAnalysisBundle.message("element.is.not.allowed.here", name),
+          XmlAnalysisBundle.message("xml.inspections.element.is.not.allowed.here", name),
           getTagProblemInfoType(tag)
         );
         return;
@@ -240,7 +243,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
       elementDescriptor = tag.getDescriptor();
 
      if (elementDescriptor == null) {
-       addElementsForTag(tag, XmlAnalysisBundle.message("element.must.be.declared", name), HighlightInfoType.WRONG_REF);
+       addElementsForTag(tag, XmlAnalysisBundle.message("xml.inspections.element.must.be.declared", name), HighlightInfoType.WRONG_REF);
        return;
       }
     }
@@ -283,7 +286,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
     if (!(prevLeaf instanceof PsiWhiteSpace)) {
       TextRange textRange = attribute.getTextRange();
       HighlightInfoType type = tag instanceof HtmlTag ? HighlightInfoType.WARNING : HighlightInfoType.ERROR;
-      String description = XmlAnalysisBundle.message("attribute.should.be.preceded.with.space");
+      String description = XmlAnalysisBundle.message("xml.inspections.attribute.should.be.preceded.with.space");
       HighlightInfo info = HighlightInfo.newHighlightInfo(type).range(textRange.getStartOffset(), textRange.getStartOffset()).descriptionAndTooltip(description).create();
       addToResults(info);
     }
@@ -304,7 +307,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
 
     if (attributeDescriptor == null) {
       if (!XmlUtil.attributeFromTemplateFramework(name, tag)) {
-        final String localizedMessage = XmlAnalysisBundle.message("attribute.is.not.allowed.here", name);
+        final String localizedMessage = XmlAnalysisBundle.message("xml.inspections.attribute.is.not.allowed.here", name);
         final HighlightInfo highlightInfo = reportAttributeProblem(tag, name, attribute, localizedMessage);
         if (highlightInfo != null) {
           PsiFile file = tag.getContainingFile();
@@ -335,7 +338,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   private HighlightInfo reportAttributeProblem(final XmlTag tag,
                                                final String localName,
                                                final XmlAttribute attribute,
-                                               @NotNull String localizedMessage) {
+                                               @NotNull @InspectionMessage String localizedMessage) {
 
     final RemoveAttributeIntentionFix removeAttributeIntention = new RemoveAttributeIntentionFix(localName);
 
@@ -381,7 +384,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
         assert attributeNameNode != null;
         HighlightInfo highlightInfo = HighlightInfo.newHighlightInfo(getTagProblemInfoType(tag))
           .range(attributeNameNode)
-          .descriptionAndTooltip(XmlAnalysisBundle.message("duplicate.attribute", localName)).create();
+          .descriptionAndTooltip(XmlAnalysisBundle.message("xml.inspections.duplicate.attribute", localName)).create();
         addToResults(highlightInfo);
 
         IntentionAction intentionAction = new RemoveAttributeIntentionFix(localName);
@@ -484,7 +487,9 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
           }
         }
       }
-      UnresolvedReferenceQuickFixProvider.registerReferenceFixes(reference, new QuickFixActionRegistrarImpl(info));
+      if (info != null) {
+        UnresolvedReferenceQuickFixProvider.registerReferenceFixes(reference, new QuickFixActionRegistrarImpl(info));
+      }
     }
   }
 
@@ -493,8 +498,8 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
   }
 
   @NotNull
-  public static String getErrorDescription(@NotNull PsiReference reference) {
-    String message;
+  public static @InspectionMessage String getErrorDescription(@NotNull PsiReference reference) {
+    @InspectionMessage String message;
     if (reference instanceof EmptyResolveMessageProvider) {
       message = ((EmptyResolveMessageProvider)reference).getUnresolvedMessagePattern();
     }
@@ -505,6 +510,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
 
     String description;
     try {
+      //noinspection HardCodedStringLiteral
       description = BundleBase.format(message, reference.getCanonicalText()); // avoid double formatting
     }
     catch (IllegalArgumentException ex) {

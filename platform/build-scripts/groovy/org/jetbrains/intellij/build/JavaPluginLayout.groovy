@@ -1,31 +1,37 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
+
+import org.jetbrains.intellij.build.impl.BaseLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
 
-class JavaPluginLayout {
+final class JavaPluginLayout {
   static PluginLayout javaPlugin(@DelegatesTo(PluginLayout.PluginLayoutSpec) Closure addition = {}) {
     return PluginLayout.plugin("intellij.java.plugin") {
       directoryName = "java"
       mainJarName = "java-impl.jar"
+
       excludeFromModule("intellij.java.resources.en", "search/searchableOptions.xml")
+
       withModule("intellij.platform.jps.build.launcher", "jps-launcher.jar")
       withModule("intellij.platform.jps.build", "jps-builders.jar")
       withModule("intellij.platform.jps.build.javac.rt", "jps-builders-6.jar")
       withModule("intellij.java.aetherDependencyResolver", "aether-dependency-resolver.jar")
       withModule("intellij.java.jshell.protocol", "jshell-protocol.jar")
-      withModule("intellij.java.resources", "resources.jar")
-      withModule("intellij.java.resources.en", "resources.jar")
+      withModule("intellij.java.resources", BaseLayout.PLATFORM_JAR)
+      withModule("intellij.java.resources.en", BaseLayout.PLATFORM_JAR)
+
+      // JavacRemoteProto generated against protobuf-java6; don't let it sneak into the IDE classpath and shadow its JavacRemoteProto.
+      withModule("intellij.platform.jps.build.javac.rt.rpc", "rt/jps-javac-rt-rpc.jar")
+      withModuleLibrary("protobuf-java6", "intellij.platform.jps.build.javac.rt.rpc", "rt")
 
       ["intellij.java.compiler.antTasks",
        "intellij.java.guiForms.compiler",
-       "intellij.java.guiForms.rt",
        "intellij.java.compiler.instrumentationUtil",
-       "intellij.java.compiler.instrumentationUtil.java8",
-       "intellij.java.jps.javacRefScanner8"].
-        each {
-          withModule(it, "javac2.jar")
-        }
+       "intellij.java.compiler.instrumentationUtil.java8"
+      ].each {
+        withModule(it, "javac2.jar")
+      }
 
       [
         "intellij.java.compiler",
@@ -40,7 +46,7 @@ class JavaPluginLayout {
         "intellij.jsp",
         "intellij.platform.uast"
       ].each {
-        withModule(it, "java-api.jar", "java_resources_en.jar")
+        withModule(it, "java-api.jar")
       }
 
       [
@@ -61,18 +67,22 @@ class JavaPluginLayout {
         "intellij.jsp.spi",
         "intellij.java.uast",
         "intellij.java.structuralSearch",
-        "intellij.java.typeMigration"
+        "intellij.java.typeMigration",
+        "intellij.java.featuresTrainer"
       ].each {
-        withModule(it, "java-impl.jar", "java_resources_en.jar")
+        withModule(it, "java-impl.jar")
       }
 
       withArtifact("debugger-agent", "rt")
       withArtifact("debugger-agent-storage", "rt")
       withProjectLibrary("Eclipse")
       withProjectLibrary("jgoodies-common")
-      withProjectLibrary("debugger-memory-agent")//todo nik: convert to module-level library instead
+      withProjectLibrary("jps-javac-extension")
+
+      withModuleLibrary("debugger-memory-agent", "intellij.java.debugger.memory.agent", "")
 
       withResourceArchive("../jdkAnnotations", "lib/jdkAnnotations.jar")
+
       addition.delegate = delegate
       addition()
     }

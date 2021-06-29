@@ -31,7 +31,7 @@ public interface MarkupModelEx extends MarkupModel {
   @Nullable
   RangeHighlighterEx addPersistentLineHighlighter(int lineNumber, int layer, @Nullable TextAttributes textAttributes);
 
-  void fireAttributesChanged(@NotNull RangeHighlighterEx segmentHighlighter, boolean renderersChanged, boolean fontStyleChanged);
+  void fireAttributesChanged(@NotNull RangeHighlighterEx segmentHighlighter, boolean renderersChanged, boolean fontStyleOrColorChanged);
 
   void fireAfterAdded(@NotNull RangeHighlighterEx segmentHighlighter);
 
@@ -55,18 +55,6 @@ public interface MarkupModelEx extends MarkupModel {
 
   @NotNull
   MarkupIterator<RangeHighlighterEx> overlappingIterator(int startOffset, int endOffset);
-
-  /**
-   * @deprecated onlyRenderedInScrollBar doesn't affect anything
-   */
-  @Deprecated
-  @NotNull
-  default MarkupIterator<RangeHighlighterEx> overlappingIterator(int startOffset,
-                                                         int endOffset,
-                                                         boolean onlyRenderedInGutter,
-                                                         boolean onlyRenderedInScrollBar) {
-    return overlappingIterator(startOffset, endOffset, onlyRenderedInGutter);
-  }
 
   @NotNull
   MarkupIterator<RangeHighlighterEx> overlappingIterator(int startOffset,

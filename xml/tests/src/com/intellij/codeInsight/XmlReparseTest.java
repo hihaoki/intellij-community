@@ -19,15 +19,13 @@ package com.intellij.codeInsight;
 import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
-import com.intellij.psi.AbstractReparseTestCase;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.source.xml.XmlFileImpl;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.ParsingTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.util.IncorrectOperationException;
 
 import java.io.File;
@@ -44,9 +42,10 @@ public class XmlReparseTest extends AbstractReparseTestCase {
     String s2 = "</a>";
 
     prepareFile(s1, s2);
-    final String beforeReparse = DebugUtil.treeToString(((XmlFileImpl)myDummyFile).getTreeElement(), true);
+    final String beforeReparse = DebugUtil.treeToString(((XmlFileImpl)myDummyFile).getTreeElement(), false);
     insert("");
-    assertEquals("Tree changed after empty reparse", beforeReparse, DebugUtil.treeToString(((XmlFileImpl)myDummyFile).getTreeElement(), true));
+    assertEquals("Tree changed after empty reparse", beforeReparse, DebugUtil.treeToString(((XmlFileImpl)myDummyFile).getTreeElement(),
+                                                                                           false));
   }
 
   public void testTagData1() {
@@ -180,6 +179,20 @@ public class XmlReparseTest extends AbstractReparseTestCase {
     PsiElement element = myDummyFile.findElementAt(10);
     assert element != null;
     assertNotNull(element.getTextRange());
+  }
+
+  public void testNoExceptionsDummyIdentifierMovementWithSpace() {
+    setFileType(XmlFileType.INSTANCE);
+    String text1 = "<rf oot><xc></root>";
+    String text2 = "<root><f xc></root>"; // moved "f " to another place
+    prepareFile(text1, "");
+    Document document = myDummyFile.getViewProvider().getDocument();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      ((XmlFile)myDummyFile).getRootTag().replace(XmlElementFactory.getInstance(getProject()).createTagFromText(text2));
+    });
+    PsiTestUtil.checkFileStructure(myDummyFile);
+    assertEquals(text2, myDummyFile.getText());
+    assertEquals(text2, document.getText());
   }
 
 }

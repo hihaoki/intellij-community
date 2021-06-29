@@ -13,6 +13,7 @@ import com.intellij.openapi.externalSystem.settings.ExternalSystemSettingsListen
 import com.intellij.openapi.project.ExternalStorageConfigurationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.annotations.XCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -102,14 +103,15 @@ public class GradleSettings extends AbstractExternalSystemSettings<GradleSetting
    * in order to increase performance
    */
   @Nullable
+  @NlsSafe
   public String getServiceDirectoryPath() {
-    return GradleSystemSettings.getInstance().getServiceDirectoryPath();
+    return GradleLocalSettings.getInstance(getProject()).getGradleUserHome();
   }
 
   public void setServiceDirectoryPath(@Nullable String newPath) {
-    String myServiceDirectoryPath = GradleSystemSettings.getInstance().getServiceDirectoryPath();
+    String myServiceDirectoryPath = GradleLocalSettings.getInstance(getProject()).getGradleUserHome();
     if (!Objects.equals(myServiceDirectoryPath, newPath)) {
-      GradleSystemSettings.getInstance().setServiceDirectoryPath(newPath);
+      GradleLocalSettings.getInstance(getProject()).setGradleUserHome(newPath);
       getPublisher().onServiceDirectoryPathChange(myServiceDirectoryPath, newPath);
     }
   }

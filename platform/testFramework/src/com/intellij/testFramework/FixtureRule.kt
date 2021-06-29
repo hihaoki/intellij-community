@@ -22,12 +22,16 @@ import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.roots.impl.libraries.LibraryTableTracker
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker
 import com.intellij.project.TestProjectManager
 import com.intellij.project.stateStore
 import com.intellij.util.containers.forEachGuaranteed
+import com.intellij.util.io.isDirectory
 import com.intellij.util.io.sanitizeFileName
 import com.intellij.util.throwIfNotEmpty
 import kotlinx.coroutines.runBlocking
@@ -109,7 +113,8 @@ class ProjectRule(private val runPostStartUpActivities: Boolean = false,
 
   private var sharedProject: ProjectEx? = null
   private var testClassName: String? = null
-  var virtualFilePointerTracker: VirtualFilePointerTracker? = null
+  var virtualFilePointerTracker: VirtualFilePointerTracker? =null
+  var libraryTracker: LibraryTableTracker? = null
   var projectTracker: AccessToken? = null
 
   override fun before(description: Description) {
@@ -124,6 +129,7 @@ class ProjectRule(private val runPostStartUpActivities: Boolean = false,
     val options = createTestOpenProjectOptions(runPostStartUpActivities = runPostStartUpActivities).copy(preloadServices = preloadServices)
     val project = (ProjectManager.getInstance() as TestProjectManager).openProject(projectFile, options) as ProjectEx
     virtualFilePointerTracker = VirtualFilePointerTracker()
+    libraryTracker = LibraryTableTracker()
     return project
   }
 
@@ -133,6 +139,7 @@ class ProjectRule(private val runPostStartUpActivities: Boolean = false,
     l.catchAndStoreExceptions { sharedProject?.let { PlatformTestUtil.forceCloseProjectWithoutSaving(it) } }
     l.catchAndStoreExceptions { projectTracker?.finish() }
     l.catchAndStoreExceptions { virtualFilePointerTracker?.assertPointersAreDisposed() }
+    l.catchAndStoreExceptions { libraryTracker?.assertDisposed() }
     l.catchAndStoreExceptions {
       sharedProject = null
       sharedModule = null
@@ -376,15 +383,23 @@ suspend fun createOrLoadProject(tempDirManager: TemporaryDirectory,
     }
   }
 
+  createOrLoadProject(file, useDefaultProjectSettings, projectCreator == null, loadComponentState, task)
+}
+
+private suspend fun createOrLoadProject(projectPath: Path,
+                                        useDefaultProjectSettings: Boolean,
+                                        isNewProject: Boolean,
+                                        loadComponentState: Boolean,
+                                        task: suspend (Project) -> Unit) {
   var options = createTestOpenProjectOptions().copy(
     useDefaultProjectAsTemplate = useDefaultProjectSettings,
-    isNewProject = projectCreator == null
+    isNewProject = isNewProject
   )
   if (loadComponentState) {
     options = options.copy(beforeInit = { it.putUserData(LISTEN_SCHEME_VFS_CHANGES_IN_TEST_MODE, true) })
   }
 
-  val project = ProjectManagerEx.getInstanceEx().openProject(file, options)!!
+  val project = ProjectManagerEx.getInstanceEx().openProject(projectPath, options)!!
   project.use {
     if (loadComponentState) {
       project.runInLoadComponentStateMode {
@@ -396,6 +411,38 @@ suspend fun createOrLoadProject(tempDirManager: TemporaryDirectory,
     }
   }
 }
+
+suspend fun loadProject(projectPath: Path, task: suspend (Project) -> Unit) {
+  createOrLoadProject(projectPath, false, false, true, task)
+}
+
+/**
+ * Copy files from [projectPaths] directories to a temp directory, load project from it and pass it to [checkProject].
+ */
+fun loadProjectAndCheckResults(projectPaths: List<Path>, tempDirectory: TemporaryDirectory, checkProject: suspend (Project) -> Unit) {
+  @Suppress("RedundantSuspendModifier")
+  suspend fun copyProjectFiles(targetDir: VirtualFile): Path {
+    val projectDir = VfsUtil.virtualToIoFile(targetDir)
+    var projectFileName: String? = null
+    for (projectPath in projectPaths) {
+      val dir = if (projectPath.isDirectory()) projectPath
+      else {
+        projectFileName = projectPath.fileName.toString()
+        projectPath.parent
+      }
+      FileUtil.copyDir(dir.toFile(), projectDir)
+    }
+    VfsUtil.markDirtyAndRefresh(false, true, true, targetDir)
+    return if (projectFileName != null) projectDir.toPath().resolve(projectFileName) else projectDir.toPath()
+  }
+  runBlocking {
+    createOrLoadProject(tempDirectory, ::copyProjectFiles, directoryBased = projectPaths.all { it.isDirectory() },
+                        loadComponentState = true, useDefaultProjectSettings = false) {
+      checkProject(it)
+    }
+  }
+}
+
 
 class DisposableRule : ExternalResource() {
   private var _disposable = lazy { Disposer.newDisposable() }

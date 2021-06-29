@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.execution.ExecutionException;
@@ -36,9 +36,7 @@ import java.util.Map;
 import static com.intellij.openapi.util.Pair.pair;
 import static com.intellij.util.containers.ContainerUtil.newHashMap;
 
-/**
- * @author yole
- */
+
 public class CreateLauncherScriptAction extends DumbAwareAction {
   private static final Logger LOG = Logger.getInstance(CreateLauncherScriptAction.class);
 
@@ -152,7 +150,7 @@ public class CreateLauncherScriptAction extends DumbAwareAction {
 
   public static void reportFailure(@NotNull Exception e, @Nullable Project project) {
     LOG.warn(e);
-    String message = ExceptionUtil.getNonEmptyMessage(e, "Internal error");
+    String message = ExceptionUtil.getNonEmptyMessage(e, IdeBundle.message("notification.content.internal error"));
     Notifications.Bus.notify(
       new Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, IdeBundle.message("notification.title.launcher.script.creation.failed"), message, NotificationType.ERROR),
       project);

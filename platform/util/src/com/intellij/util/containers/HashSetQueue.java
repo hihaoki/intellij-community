@@ -12,9 +12,10 @@ import java.util.Queue;
 /**
  * Unbounded non-thread-safe {@link Queue} with fast add/remove/contains.<br>
  * Differs from the conventional Queue by:<ul>
- * <li>The new method {@link #find(T)} which finds the queue element equivalent to its parameter in O(1) avg. time</li>
+ * <li>The new method {@link #find(T)} which finds the queue element equivalent to its argument in hashmap-like O(1) avg. time</li>
  * <li>The {@link #contains(Object)} method is O(1)</li>
  * <li>The {@link #remove(Object)} method is O(1)</li>
+ * <li>Null elements are NOT permitted</li>
  * </ul>
  * Implementation is backed by {@link ObjectOpenHashSet} containing double-linked QueueEntry nodes holding elements themselves.
  */
@@ -47,6 +48,11 @@ public final class HashSetQueue<T> extends AbstractCollection<T> implements Queu
     public boolean equals(Object obj) {
       //noinspection unchecked
       return obj instanceof QueueEntry && t.equals(((QueueEntry<T>)obj).t);
+    }
+
+    @Override
+    public String toString() {
+      return t.toString();
     }
   }
 

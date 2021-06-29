@@ -1,8 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.actions;
 
 import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.configurations.ConfigurationType;
+import com.intellij.execution.configurations.ConfigurationTypeUtil;
 import com.intellij.execution.impl.EditConfigurationsDialog;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -32,7 +34,8 @@ public class EditRunConfigurationsAction extends DumbAwareAction {
   public void update(@NotNull final AnActionEvent e) {
     Presentation presentation = e.getPresentation();
     Project project = e.getProject();
-    presentation.setEnabled(project == null || !DumbService.isDumb(project));
+    presentation.setEnabled(project == null || !DumbService.isDumb(project) ||
+                            ConfigurationType.CONFIGURATION_TYPE_EP.extensions().anyMatch(ConfigurationTypeUtil::isEditableInDumbMode));
     if (ActionPlaces.RUN_CONFIGURATIONS_COMBOBOX.equals(e.getPlace())) {
       presentation.setText(ExecutionBundle.messagePointer("edit.configuration.action"));
       presentation.setDescription(presentation.getText());

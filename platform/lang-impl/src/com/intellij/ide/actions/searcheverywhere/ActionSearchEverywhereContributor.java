@@ -1,9 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.GotoActionAction;
 import com.intellij.ide.actions.SetShortcutAction;
+import com.intellij.ide.actions.searcheverywhere.ml.SearchEverywhereMLSearchSession;
+import com.intellij.ide.actions.searcheverywhere.ml.SearchEverywhereMlSessionService;
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.search.BooleanOptionDescription;
 import com.intellij.ide.util.gotoByName.GotoActionItemProvider;
@@ -18,6 +21,8 @@ import com.intellij.openapi.keymap.impl.ActionShortcutRestrictions;
 import com.intellij.openapi.keymap.impl.ui.KeymapPanel;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.Processor;
@@ -35,7 +40,8 @@ import java.util.Optional;
 import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
 import static com.intellij.openapi.keymap.KeymapUtil.getFirstKeyboardShortcutText;
 
-public class ActionSearchEverywhereContributor implements WeightedSearchEverywhereContributor<GotoActionModel.MatchedValue> {
+public class ActionSearchEverywhereContributor implements WeightedSearchEverywhereContributor<GotoActionModel.MatchedValue>,
+                                                          LightEditCompatible {
 
   private static final Logger LOG = Logger.getInstance(ActionSearchEverywhereContributor.class);
 
@@ -62,10 +68,11 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
   @Override
   public String getAdvertisement() {
     ShortcutSet altEnterShortcutSet = getActiveKeymapShortcuts(IdeActions.ACTION_SHOW_INTENTION_ACTIONS);
-    String altEnter = getFirstKeyboardShortcutText(altEnterShortcutSet);
-    return "Press " + altEnter + " to assign a shortcut";
+    @NlsSafe String altEnter = getFirstKeyboardShortcutText(altEnterShortcutSet);
+    return IdeBundle.message("press.0.to.assign.a.shortcut", altEnter);
   }
 
+  @NlsContexts.Checkbox
   public String includeNonProjectItemsText() {
     return IdeBundle.message("checkbox.disabled.included");
   }
@@ -92,18 +99,25 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
     myProvider.filterElements(pattern, element -> {
       if (progressIndicator.isCanceled()) return false;
 
-      if (!myDisabledActions &&
-          element.value instanceof GotoActionModel.ActionWrapper &&
-          !((GotoActionModel.ActionWrapper)element.value).isAvailable()) {
-        return true;
-      }
-
       if (element == null) {
         LOG.error("Null action has been returned from model");
         return true;
       }
 
-      FoundItemDescriptor<GotoActionModel.MatchedValue> descriptor = new FoundItemDescriptor<>(element, element.getMatchingDegree());
+      final boolean isActionWrapper = element.value instanceof GotoActionModel.ActionWrapper;
+      if (!myDisabledActions && isActionWrapper && !((GotoActionModel.ActionWrapper)element.value).isAvailable()) {
+        return true;
+      }
+
+      final FoundItemDescriptor<GotoActionModel.MatchedValue> descriptor;
+      SearchEverywhereMlSessionService mlService = SearchEverywhereMlSessionService.getInstance();
+      if (mlService.shouldOrderByML()) {
+        descriptor = getMLWeightedItemDescriptor(mlService, element);
+      }
+      else {
+        descriptor = new FoundItemDescriptor<>(element, element.getMatchingDegree());
+      }
+
       return consumer.process(descriptor);
     });
   }
@@ -175,17 +189,14 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
     if (selected instanceof BooleanOptionDescription) {
       final BooleanOptionDescription option = (BooleanOptionDescription)selected;
       if (selected instanceof BooleanOptionDescription.RequiresRebuild) {
-        myModel.clearActions();           // release references to plugin actions so that the plugin can be unloaded successfully
+        myModel.clearCaches(); // release references to plugin actions so that the plugin can be unloaded successfully
         myProvider.clearIntentions();
       }
       option.setOptionState(!option.isOptionEnabled());
-      if (selected instanceof BooleanOptionDescription.RequiresRebuild) {
-        myModel.rebuildActions();
-      }
       return false;
     }
 
-    GotoActionAction.openOptionOrPerformAction(selected, text, myProject, myContextComponent.get());
+    GotoActionAction.openOptionOrPerformAction(selected, text, myProject, myContextComponent.get(), modifiers);
     boolean inplaceChange = selected instanceof GotoActionModel.ActionWrapper
                             && ((GotoActionModel.ActionWrapper)selected).getAction() instanceof ToggleAction;
     return !inplaceChange;
@@ -221,6 +232,19 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
     });
   }
 
+  private FoundItemDescriptor<GotoActionModel.MatchedValue> getMLWeightedItemDescriptor(@NotNull SearchEverywhereMlSessionService service,
+                                                                                        @NotNull GotoActionModel.MatchedValue element) {
+    if (element.isAbbreviation()) {
+      return new FoundItemDescriptor<>(element, element.getMatchingDegree(), 1.0);
+    }
+    SearchEverywhereMLSearchSession session = service.getCurrentSession();
+    double mlWeight = session != null ? session.getMLWeight(this, element) : -1.0;
+    if (mlWeight > 0) {
+      return new FoundItemDescriptor<>(element, element.getMatchingDegree(), mlWeight);
+    }
+    return new FoundItemDescriptor<>(element, element.getMatchingDegree());
+  }
+
   public static class Factory implements SearchEverywhereContributorFactory<GotoActionModel.MatchedValue> {
     @NotNull
     @Override
@@ -229,6 +253,11 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
         initEvent.getProject(),
         initEvent.getData(PlatformDataKeys.CONTEXT_COMPONENT),
         initEvent.getData(CommonDataKeys.EDITOR));
+    }
+
+    @Override
+    public @NotNull SearchEverywhereTabDescriptor getTab() {
+      return SearchEverywhereTabDescriptor.IDE;
     }
   }
 }

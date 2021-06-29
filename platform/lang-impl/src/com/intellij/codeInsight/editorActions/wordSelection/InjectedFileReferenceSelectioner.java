@@ -4,7 +4,6 @@ package com.intellij.codeInsight.editorActions.wordSelection;
 
 import com.intellij.codeInsight.completion.SkipAutopopupInStrings;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.ElementManipulators;
@@ -13,6 +12,7 @@ import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.PsiLiteralValue;
 import com.intellij.psi.impl.source.tree.LeafPsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.CharSequenceSubSequence;
 import one.util.streamex.StreamEx;
@@ -47,6 +47,13 @@ public class InjectedFileReferenceSelectioner extends AbstractWordSelectioner {
     if (!realRange.contains(cursorOffset)) return Collections.emptyList();
 
     PsiElement valueElement = findValueElement(host, realRange);
+
+    // Returning segments too early would cause selectWord to ignore Psi hierarchy
+    TextRange elementRange = e.getTextRange();
+    if (!valueElement.equals(e)
+        && ContainerUtil.find(valueElement.getChildren(), el -> elementRange.contains(el.getTextRange())) == null) {
+      return Collections.emptyList();
+    }
 
     realRange = limitToCurrentLineAndStripWhiteSpace(editorText, cursorOffset, realRange);
 
@@ -185,8 +192,7 @@ public class InjectedFileReferenceSelectioner extends AbstractWordSelectioner {
                                                 @NotNull CharSequence text,
                                                 @NotNull TextRange range,
                                                 int indexesOffset) {
-    HighlighterIterator iterator =
-      ((EditorEx)editor).getHighlighter().createIterator(range.getStartOffset());
+    HighlighterIterator iterator = editor.getHighlighter().createIterator(range.getStartOffset());
     int rangeEnd = range.getEndOffset();
 
     BitSet locations = new BitSet(range.getLength());

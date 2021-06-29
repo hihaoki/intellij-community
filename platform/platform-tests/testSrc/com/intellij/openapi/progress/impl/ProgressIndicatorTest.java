@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.progress.impl;
 
 import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
@@ -14,6 +14,7 @@ import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.DefaultLogger;
 import com.intellij.openapi.progress.*;
 import com.intellij.openapi.progress.util.*;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
 import com.intellij.testFramework.BombedProgressIndicator;
@@ -24,7 +25,7 @@ import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.TLongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.assertj.core.util.VisibleForTesting;
 import org.jetbrains.annotations.NotNull;
 
@@ -54,23 +55,22 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       final ProgressIndicatorBase indicator = new ProgressIndicatorBase();
       ProgressManager.getInstance().runProcess(() -> {
         ProgressManager.checkCanceled();
-        try {
+        // checkCanceled() must have caught just canceled indicator
+        assertThrows(ProcessCanceledException.class, () -> {
           indicator.cancel();
           ProgressManager.checkCanceled();
-          fail("checkCanceled() must have caught just canceled indicator");
-        }
-        catch (ProcessCanceledException ignored) {
-        }
+        });
       }, indicator);
     }
   }
 
   private volatile long prevTime;
   private volatile long now;
+
   public void testCheckCanceledGranularity() {
     prevTime = now = 0;
     final long warmupEnd = System.currentTimeMillis() + 1000;
-    final TLongArrayList times = new TLongArrayList();
+    final LongArrayList times = new LongArrayList();
     final long end = warmupEnd + 1000;
 
     ApplicationManagerEx.getApplicationEx().runProcessWithProgressSynchronously(() -> {
@@ -94,7 +94,7 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       }
       alarm.cancelAllRequests();
     }, "", false, true, getProject(), null, "");
-    long averageDelay = ArrayUtil.averageAmongMedians(times.toNativeArray(), 5);
+    long averageDelay = ArrayUtil.averageAmongMedians(times.toLongArray(), 5);
     LOG.debug("averageDelay = " + averageDelay);
     assertTrue(averageDelay < CoreProgressManager.CHECK_CANCELED_DELAY_MILLIS *3);
   }
@@ -114,12 +114,13 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       }
     });
     UIUtil.dispatchAllInvocationEvents();
+    //noinspection StatementWithEmptyBody
     while (!insideReadAction.get()) {
 
     }
     ApplicationManager.getApplication().runWriteAction(() -> assertTrue(indicator.isCanceled()));
     assertTrue(indicator.isCanceled());
-    waitForComplete(future);
+    waitForCompleteInEDT(future);
   }
 
   public void testReadTaskCanceledShouldNotHappenAfterEdtContinuation() throws Exception {
@@ -144,11 +145,11 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
         }
       });
       UIUtil.dispatchAllInvocationEvents();
-      waitForComplete(future);
+      waitForCompleteInEDT(future);
     }
   }
 
-  private static void waitForComplete(CompletableFuture<?> future) throws InterruptedException, ExecutionException {
+  private static void waitForCompleteInEDT(@NotNull CompletableFuture<?> future) throws InterruptedException, ExecutionException {
     while (true) {
       try {
         future.get(1, TimeUnit.MILLISECONDS);
@@ -169,13 +170,13 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       List<Future<?>> threads = ContainerUtil.map(Collections.nCopies(N, ""),
           __ -> ApplicationManager.getApplication().executeOnPooledThread(() -> ProgressManager.getInstance().executeProcessUnderProgress(() -> {
             try {
-              started.up();
-              others.waitFor();
-              indicator.cancel();
-              ProgressManager.checkCanceled();
-              fail("checkCanceled() must know about canceled indicator even from different thread");
-            }
-            catch (ProcessCanceledException ignored) {
+              //checkCanceled() must know about canceled indicator even from different thread
+              assertThrows(ProcessCanceledException.class, () -> {
+                started.up();
+                others.waitFor();
+                indicator.cancel();
+                ProgressManager.checkCanceled();
+              });
             }
             catch (Throwable e) {
               exception = e;
@@ -268,17 +269,13 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
     myFlag = false;
     JobScheduler.getScheduler().schedule(() -> myFlag = true, 100, TimeUnit.MILLISECONDS);
     TestTimeOut t = TestTimeOut.setTimeout(10, TimeUnit.SECONDS);
-    try {
+    assertThrows(ProcessCanceledException.class, () ->
       ProgressManager.getInstance().executeProcessUnderProgress(() -> {
         while (!t.timedOut()) {
           ProgressManager.checkCanceled();
         }
-      }, indicator);
-      fail("must have thrown PCE");
-    }
-    catch (ProcessCanceledException e) {
-      assertTrue(checkCanceledCalled);
-    }
+      }, indicator));
+    assertTrue(checkCanceledCalled);
   }
 
   public void testExtremelyPerverseIndicatorWhichCancelMethodIsNoop() {
@@ -357,20 +354,16 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
         return true;
       }
     };
-    try {
+    assertThrows(ProcessCanceledException.class, () ->
       ProgressManager.getInstance().executeProcessUnderProgress(() -> {
         assertFalse(CoreProgressManager.threadsUnderCanceledIndicator.contains(Thread.currentThread()));
-        assertTrue(!progress.isCanceled());
+        assertFalse(progress.isCanceled());
         progress.cancel();
         assertTrue(CoreProgressManager.threadsUnderCanceledIndicator.contains(Thread.currentThread()));
         assertTrue(progress.isCanceled());
         waitForPCE();
-      }, ProgressWrapper.wrap(progress));
-      fail("PCE must have been thrown");
-    }
-    catch (ProcessCanceledException ignored) {
-
-    }
+      }, ProgressWrapper.wrap(progress))
+    );
   }
 
   public void testCheckCanceledAfterWrappedIndicatorIsCanceledAndBaseIndicatorIsNotCanceled() {
@@ -381,20 +374,16 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
     assertTrue(wrapper.isCanceled());
     assertFalse(base.isCanceled());
 
-    try {
+    assertThrows(ProcessCanceledException.class, () ->
       ProgressManager.getInstance().executeProcessUnderProgress(() -> {
         assertTrue(wrapper.isCanceled());
 
         ProgressManager.checkCanceled(); // this is the main check
-      }, wrapper);
-
-      fail("should throw ProcessCanceledException");
-    }
-    catch (ProcessCanceledException ignored) {
-    }
+      }, wrapper));
   }
 
   private static void waitForPCE() {
+    //noinspection InfiniteLoopStatement
     while (true) {
       ProgressManager.checkCanceled();
     }
@@ -421,8 +410,7 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
         try {
           ProgressManager.checkCanceled();
           if (i >= count) {
-            ProgressManager.checkCanceled();
-            fail("PCE expected on " + i + "th check");
+            assertThrows(ProcessCanceledException.class, () -> ProgressManager.checkCanceled());
           }
         }
         catch (ProcessCanceledException e) {
@@ -685,21 +673,18 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
 
     String msg = "expected message";
     try {
-      ProgressManager.getInstance().run(new Task.Modal(getProject(), "Title", true) {
-        @Override
-        public void run(@NotNull ProgressIndicator indicator) {
-          ApplicationManager.getApplication().invokeLater(() -> {
-            throw new AssertionError(msg);
-          });
-          
-          // ensure previous runnable is executed during progress, not after it
-          ApplicationManager.getApplication().invokeAndWait(EmptyRunnable.getInstance());
-        }
-      });
-      fail("should fail");
-    }
-    catch (Throwable e) {
-      assertTrue(e.getMessage(), e.getMessage().endsWith(msg));
+      assertThrows(AssertionError.class, () ->
+        ProgressManager.getInstance().run(new Task.Modal(getProject(), "Title", true) {
+          @Override
+          public void run(@NotNull ProgressIndicator indicator) {
+            ApplicationManager.getApplication().invokeLater(() -> {
+              throw new AssertionError(msg);
+            });
+
+            // ensure previous runnable is executed during progress, not after it
+            ApplicationManager.getApplication().invokeAndWait(EmptyRunnable.getInstance());
+          }
+        }));
       assertSame(ModalityState.NON_MODAL, ModalityState.current());
     }
     finally {
@@ -752,7 +737,7 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       }));
       futures.add(ReadAction.nonBlocking(action).submit(AppExecutorUtil.getAppExecutorService()));
     }
-      
+
     for (int i = 0; i < 10_000 && !finished.get(); i++) {
       UIUtil.dispatchAllInvocationEvents();
       WriteAction.run(() -> {});
@@ -786,41 +771,31 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
         fail("must not throw");
       }
 
-      try {
-        progress.checkCanceled();
-        fail("PCE must have been thrown");
-      }
-      catch (ProcessCanceledException ignored) {
-
-      }
+      assertThrows(ProcessCanceledException.class, () -> progress.checkCanceled());
     }, progress);
   }
 
   public void testWithTimeout() {
-    assertEquals("a", ProgressIndicatorUtils.withTimeout(1000, () -> "a"));
+    assertEquals("a", ProgressIndicatorUtils.withTimeout(1_000_000_000, () -> "a"));
 
     assertNull(ProgressIndicatorUtils.withTimeout(1, () -> {
-      TimeoutUtil.sleep(10);
+      TimeoutUtil.sleep(50);
       ProgressManager.checkCanceled();
       return "a";
     }));
 
-    assertThrows(ProcessCanceledException.class, () -> {
-      ProgressIndicatorUtils.withTimeout(1, () -> {
-        throw new ProcessCanceledException();
-      });
-    });
+    assertThrows(ProcessCanceledException.class, () -> ProgressIndicatorUtils.withTimeout(1, () -> {
+      throw new ProcessCanceledException();
+    }));
 
     ProgressIndicatorBase outer = new ProgressIndicatorBase();
-    ProgressManager.getInstance().runProcess(() -> {
-      assertThrows(ProcessCanceledException.class, () -> {
-        ProgressIndicatorUtils.withTimeout(1, () -> {
-          outer.cancel();
-          ProgressManager.checkCanceled();
-          return null;
-        });
-      });
-    }, outer);
+    ProgressManager.getInstance().runProcess(() -> assertThrows(ProcessCanceledException.class, () ->
+      ProgressIndicatorUtils.withTimeout(1, () -> {
+        outer.cancel();
+        ProgressManager.checkCanceled();
+        return null;
+      })
+    ), outer);
   }
 
   private static class MyAbstractProgressIndicator extends AbstractProgressIndicatorBase {
@@ -834,20 +809,16 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
   public void testIndicatorsStillNotThrowInCheckCanceledIfCalledStartNonCancelableSectionBeforeByOldStaleDeprecatedPluginsNotYetPortedToProgressManagerExecuteInNonCancelableSection() {
     checkIndicatorNotThrowInThisOldStaleDisgustingNonCancelableSection(new EmptyProgressIndicator());
     checkIndicatorNotThrowInThisOldStaleDisgustingNonCancelableSection(new AbstractProgressIndicatorBase());
+    checkIndicatorNotThrowInThisOldStaleDisgustingNonCancelableSection(new DaemonProgressIndicator());
   }
 
-  private static void checkIndicatorNotThrowInThisOldStaleDisgustingNonCancelableSection(ProgressIndicator indicator) {
+  private static void checkIndicatorNotThrowInThisOldStaleDisgustingNonCancelableSection(@NotNull ProgressIndicator indicator) {
     assertFalse(ProgressManager.getInstance().isInNonCancelableSection());
     indicator.startNonCancelableSection();
     indicator.cancel();
     indicator.checkCanceled();
     indicator.finishNonCancelableSection();
-    try {
-      indicator.checkCanceled();
-      fail("Must throw");
-    }
-    catch (ProcessCanceledException ignored) {
-    }
+    assertThrows(ProcessCanceledException.class, () -> indicator.checkCanceled());
   }
 
   public void testEmptyIndicatorMustConformToAtLeastSomeSimpleLifecycleConstrains() {
@@ -911,6 +882,16 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
     indicator.popState(); // should not cause NPE
   }
 
+  public void testPushStateMustStoreIndeterminateFlag() {
+    ProgressIndicatorEx indicator = new ProgressIndicatorBase();
+    indicator.setIndeterminate(true);
+    indicator.pushState();
+    indicator.setIndeterminate(false);
+    assertFalse(indicator.isIndeterminate());
+    indicator.popState();
+    assertTrue(indicator.isIndeterminate());
+  }
+
   public void testRelayUiToDelegateIndicatorMustBeReusable() {
     ProgressIndicatorEx ui = new ProgressIndicatorBase();
     RelayUiToDelegateIndicator relay = new RelayUiToDelegateIndicator(ui);
@@ -941,12 +922,7 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
     indicator.setFraction(1);
     assertEquals(1.0, ui.getFraction());
 
-    try {
-      new RelayUiToDelegateIndicator(ui).addStateDelegate(new ProgressIndicatorBase());
-      fail("Must not allow to call addStateDelegate()");
-    }
-    catch (IllegalStateException ignored) {
-    }
+    assertThrows(IllegalStateException.class, () -> new RelayUiToDelegateIndicator(ui).addStateDelegate(new ProgressIndicatorBase()));
   }
 
   public void testRunProcessWithIndicatorAlreadyUsedInTheThisThreadMustBeWarned() {
@@ -969,17 +945,15 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
     ProgressIndicatorEx p = new ProgressIndicatorBase();
     CountDownLatch run = new CountDownLatch(1);
     CountDownLatch exit = new CountDownLatch(1);
-    Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> {
-      ProgressManager.getInstance().runProcess(() -> {
-        try {
-          run.countDown();
-          exit.await();
-        }
-        catch (InterruptedException e) {
-          throw new RuntimeException(e);
-        }
-      }, p);
-    });
+    Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> ProgressManager.getInstance().runProcess(() -> {
+      try {
+        run.countDown();
+        exit.await();
+      }
+      catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }, p));
     run.await();
     boolean allowed = true;
     try {
@@ -993,5 +967,165 @@ public class ProgressIndicatorTest extends LightPlatformTestCase {
       future.get();
     }
     assertFalse("pm.runProcess() with the progress already used in the other thread must be prohibited", allowed);
+  }
+
+  public void testRelayUiToDelegateIndicatorCopiesEverything() {
+    ProgressIndicatorBase ui = new ProgressIndicatorBase();
+    ProgressIndicatorBase indicator = new ProgressIndicatorBase();
+    indicator.setIndeterminate(false);
+    indicator.setFraction(0.3141519);
+    indicator.setText("0.3141519");
+    indicator.setText2("2.3141519");
+    indicator.addStateDelegate(new RelayUiToDelegateIndicator(ui));
+    //make sure state is replicated correctly
+    assertFalse(ui.isIndeterminate());
+    assertEquals(0.3141519, ui.getFraction());
+    assertEquals("0.3141519", ui.getText());
+    assertEquals("2.3141519", ui.getText2());
+  }
+
+  public void testMessagePumpingInProgressWindow_startBlockingMustNotStopWhenSomeOneStoppedIndicator() {
+    ProgressManager.getInstance().run(new Task.Modal(null, "", true) {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        indicator.stop();
+        // this makes ProgressWindows#isRunning() false, thus it stops messages processing
+        // to make it fail more predictably
+        TimeoutUtil.sleep(50);
+
+        // deadlocks, because ProgressWindow is no longer processing the message pump
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+        });
+      }
+    });
+  }
+
+  public void testMessagePumpingInProgressWindow_startBlockingMustNotStopWhenSomeOneDoesWeirdDelegateTricksWithIndicator() {
+    ProgressManager.getInstance().run(new Task.Modal(null, "", true) {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        new ProgressIndicatorBase().addStateDelegate((ProgressIndicatorEx)indicator);
+        // this makes ProgressWindows#isRunning() false, thus it stops messages processing
+        // to make it fail more predictably
+        TimeoutUtil.sleep(50);
+
+        // deadlocks, because ProgressWindow is no longer processing the message pump
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+        });
+      }
+    });
+  }
+
+  public void testTaskWithResultMustBeAbleToComputeException() throws Exception {
+    Exception result = ProgressManager.getInstance().run(new Task.WithResult<Exception, Exception>(null, "", true) {
+      @Override
+      protected Exception compute(@NotNull ProgressIndicator indicator) {
+        return new Exception("result");
+      }
+    });
+    assertEquals("result", result.getMessage());
+  }
+
+  public void testInvalidStateActionsMustLeadToExceptions() {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
+    ProgressIndicator indicator = new ProgressIndicatorBase(false);
+    indicator.start();
+    assertThrows(Exception.class, () -> indicator.start());
+    indicator.cancel();
+    indicator.stop();
+    assertThrows(Exception.class, () -> indicator.start());
+
+    assertThrows(Exception.class, () -> new ProgressIndicatorBase().stop());
+  }
+
+  public void testComplexCheckCanceledHookDoesntInterfereWithReadLockAcquire() throws Exception {
+    AtomicBoolean futureEntered = new AtomicBoolean();
+    AtomicBoolean futureExited = new AtomicBoolean();
+    AtomicBoolean readActionCompleted = new AtomicBoolean();
+    CoreProgressManager.CheckCanceledHook hook = __ -> {
+      doReadAction(); // in case this hook gets called during read action, it will eventually SOE
+      return false;
+    };
+    ((ProgressManagerImpl)ProgressManager.getInstance()).addCheckCanceledHook(hook);
+    Disposer.register(getTestRootDisposable(), ()->((ProgressManagerImpl)ProgressManager.getInstance()).removeCheckCanceledHook(hook));
+
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
+    ProgressIndicator indicator = new ProgressIndicatorBase(false);
+    indicator.start();
+
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
+    AtomicReference<Future<?>> future = new AtomicReference<>();
+    doReadAction();
+
+    WriteAction.run(() -> {
+      future.set(ApplicationManager.getApplication().executeOnPooledThread(() ->
+         ProgressManager.getInstance().runProcess(() -> {
+           futureEntered.set(true);
+           doReadAction();
+           readActionCompleted.set(true);
+           futureExited.set(true);
+         }, indicator)
+      ));
+      while (!futureEntered.get()) {
+        // wait until hook is called and finish write action
+      }
+      TimeoutUtil.sleep(10_000); // ensure to be inside read action by now
+    });
+    while (!futureExited.get()) {
+
+    }
+    future.get().get();
+    assertTrue(readActionCompleted.get());
+  }
+
+  // extracted to separate method to avoid re-compilation on hot path taking unpredictable time, blowing timeouts
+  private static void doReadAction() {
+    ReadAction.run(() -> {
+      //
+    });
+  }
+
+  public void testStopAlreadyStoppedIndicatorMustThrow() {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
+    assertThrows(IllegalStateException.class, () -> new StandardProgressIndicatorBase().stop());
+
+    ProgressIndicator indicator = new StandardProgressIndicatorBase();
+    indicator.start();
+    indicator.stop();
+    assertThrows(IllegalStateException.class, () -> indicator.stop());
+  }
+
+  public void testStartAlreadyRunningIndicatorMustThrow() {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
+    assertThrows(IllegalStateException.class, () -> {
+      ProgressIndicator indicator = new StandardProgressIndicatorBase();
+      assertFalse(indicator.isRunning());
+      indicator.start();
+      assertTrue(indicator.isRunning());
+      indicator.start();
+    });
+
+    assertThrows(IllegalStateException.class, () -> {
+      ProgressIndicator indicator = new StandardProgressIndicatorBase();
+      assertFalse(indicator.isRunning());
+      indicator.start();
+      assertTrue(indicator.isRunning());
+      indicator.cancel();
+      indicator.start();
+    });
+
+    ProgressIndicator indicator = new AbstractProgressIndicatorBase(){
+      @Override
+      protected boolean isReuseable() {
+        return true;
+      }
+    };
+    indicator.start();
+    assertTrue(indicator.isRunning());
+    indicator.stop();
+    assertFalse(indicator.isRunning());
+    indicator.start();
+    assertTrue(indicator.isRunning());
   }
 }

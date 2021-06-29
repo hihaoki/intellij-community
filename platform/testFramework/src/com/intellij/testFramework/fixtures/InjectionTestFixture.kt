@@ -1,16 +1,23 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures
 
+import com.intellij.codeInsight.intention.impl.QuickEditAction
+import com.intellij.codeInsight.intention.impl.QuickEditHandler
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiLanguageInjectionHost
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.testFramework.UsefulTestCase
 import junit.framework.TestCase
 import java.util.*
+import kotlin.collections.HashSet
 import kotlin.test.fail
 
 class InjectionTestFixture(private val javaFixture: CodeInsightTestFixture) {
@@ -45,6 +52,16 @@ class InjectionTestFixture(private val javaFixture: CodeInsightTestFixture) {
     return injected
   }
 
+  fun assertInjectedContent(vararg expectedInjectFileTexts: String) {
+    assertInjectedContent("injected content expected", expectedInjectFileTexts.toList())
+  }
+
+  fun assertInjectedContent(message: String, expectedFilesTexts: List<String>) {
+    UsefulTestCase.assertSameElements(message,
+                                      getAllInjections().mapTo(HashSet()) { it.second }.map { it.text },
+                                      expectedFilesTexts)
+  }
+
   fun assertInjected(vararg expectedInjections: InjectionAssertionData) {
 
     val expected = expectedInjections.toCollection(LinkedList())
@@ -58,6 +75,23 @@ class InjectionTestFixture(private val javaFixture: CodeInsightTestFixture) {
       foundInjections.remove(found)
     }
 
+  }
+
+  fun openInFragmentEditor(): EditorTestFixture {
+    val quickEditHandler = QuickEditAction().invokeImpl(javaFixture.project, topLevelEditor, topLevelFile)
+    return openInFragmentEditor(quickEditHandler)
+  }
+  
+  fun openInFragmentEditor(quickEditHandler: QuickEditHandler): EditorTestFixture {
+    val injectedFile = quickEditHandler.newFile
+    val project = javaFixture.project
+    val documentWindow = InjectedLanguageUtil.getDocumentWindow(injectedElement?.containingFile!!)
+    val offset = topLevelEditor.caretModel.offset
+    val unEscapedOffset = InjectedLanguageUtil.hostToInjectedUnescaped(documentWindow, offset)
+    val fragmentEditor = FileEditorManagerEx.getInstanceEx(project).openTextEditor(
+      OpenFileDescriptor(project, injectedFile.virtualFile, unEscapedOffset), true
+    )
+    return EditorTestFixture(project, fragmentEditor!!, injectedFile.virtualFile)
   }
 
   val topLevelFile: PsiFile

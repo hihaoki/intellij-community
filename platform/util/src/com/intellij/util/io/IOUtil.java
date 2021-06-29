@@ -5,18 +5,21 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ThreadLocalCachedValue;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.IntFunction;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public final class IOUtil {
   @SuppressWarnings("SpellCheckingInspection") public static final boolean BYTE_BUFFERS_USE_NATIVE_BYTE_ORDER =
@@ -36,7 +39,7 @@ public final class IOUtil {
 
       byte[] bytes = new byte[length * 2];
       stream.readFully(bytes);
-      return new String(bytes, 0, length * 2, CharsetToolkit.UTF_16BE_CHARSET);
+      return new String(bytes, 0, length * 2, StandardCharsets.UTF_16BE);
     }
     catch (IOException e) {
       throw e;
@@ -160,6 +163,36 @@ public final class IOUtil {
     return c < 128;
   }
 
+  public static boolean deleteAllFilesStartingWith(@NotNull Path file) {
+    String baseName = file.getFileName().toString();
+    Path parentFile = file.getParent();
+    if (parentFile == null) {
+      return true;
+    }
+
+    List<Path> files;
+    try (Stream<Path> stream = Files.list(parentFile)) {
+      files = stream.filter(it -> it.getFileName().toString().startsWith(baseName)).collect(Collectors.toList());
+    }
+    catch (NoSuchFileException ignore) {
+      return true;
+    }
+    catch (IOException ignore) {
+      return false;
+    }
+
+    boolean ok = true;
+    for (Path f : files) {
+      try {
+        Files.deleteIfExists(f);
+      }
+      catch (IOException ignore) {
+        ok = false;
+      }
+    }
+    return ok;
+  }
+
   public static boolean deleteAllFilesStartingWith(@NotNull File file) {
     final String baseName = file.getName();
     File parentFile = file.getParentFile();
@@ -235,9 +268,9 @@ public final class IOUtil {
    * Consider to use {@link com.intellij.util.io.externalizer.StringCollectionExternalizer}.
    */
   @NotNull
-  public static <C extends Collection<String>> C readStringCollection(@NotNull DataInput in, @NotNull IntFunction<C> generator) throws IOException {
+  public static <C extends Collection<String>> C readStringCollection(@NotNull DataInput in, @NotNull IntFunction<? extends C> collectionGenerator) throws IOException {
     int size = DataInputOutputUtil.readINT(in);
-    C strings = generator.apply(size);
+    C strings = collectionGenerator.apply(size);
     for (int i = 0; i < size; i++) {
       strings.add(readUTF(in));
     }

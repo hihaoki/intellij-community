@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ObjectUtils;
@@ -30,9 +31,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.*;
 
-/**
- * @author yole
- */
+
 public class CompletionVariantsProcessor extends VariantsProcessor {
 
   @NotNull
@@ -105,9 +104,10 @@ public class CompletionVariantsProcessor extends VariantsProcessor {
         source = cls.getName();
       }
       else if (myContext == null || !PyUtil.inSameFile(myContext, element)) {
-        final QualifiedName path = QualifiedNameFinder.findShortestImportableQName(PyPsiUtils.getFileSystemItem(element));
+        final PsiFileSystemItem fileSystemItem = PyPsiUtils.getFileSystemItem(element);
+        final QualifiedName path = QualifiedNameFinder.findShortestImportableQName(fileSystemItem);
         if (path != null) {
-          source = ObjectUtils.chooseNotNull(QualifiedNameFinder.canonizeQualifiedName(path, null), path).toString();
+          source = ObjectUtils.chooseNotNull(QualifiedNameFinder.canonizeQualifiedName(fileSystemItem, path, null), path).toString();
         }
       }
     }

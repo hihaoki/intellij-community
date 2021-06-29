@@ -5,7 +5,6 @@ import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.execution.ExternalTaskExecutionInfo;
-import com.intellij.openapi.externalSystem.model.execution.ExternalTaskPojo;
 import com.intellij.openapi.externalSystem.model.project.ExternalProjectBuildClasspathPojo;
 import com.intellij.openapi.externalSystem.model.project.ExternalProjectPojo;
 import com.intellij.openapi.module.Module;
@@ -28,7 +27,7 @@ import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.*;
  * For example, we don't want to store recent tasks list at common external system settings, hence, that data
  * is kept at user-local settings.
  * <p/>
- * <b>Note:</b> non-abstract sub-classes of this class are expected to be marked by {@link State} annotation configured
+ * <b>Note:</b> non-abstract subclasses of this class are expected to be marked by {@link State} annotation configured
  * to be stored under a distinct name at a {@link StoragePathMacros#CACHE_FILE}.
  *
  * @author Denis Zhdanov
@@ -107,16 +106,6 @@ public abstract class AbstractExternalSystemLocalSettings<S extends AbstractExte
     state.availableProjects = projects;
   }
 
-  /**
-   * @deprecated use {@link com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil#findProjectTasks(Project, ProjectSystemId, String)}
-   */
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  @Deprecated
-  @NotNull
-  public Map<String, Collection<ExternalTaskPojo>> getAvailableTasks() {
-    return Collections.emptyMap();
-  }
-
   @NotNull
   public List<ExternalTaskExecutionInfo> getRecentTasks() {
     return ContainerUtil.notNullize(state.recentTasks);
@@ -178,6 +167,7 @@ public abstract class AbstractExternalSystemLocalSettings<S extends AbstractExte
   }
 
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void fillState(@NotNull State otherState) {
     otherState.recentTasks.clear();
     otherState.availableProjects = state.availableProjects;

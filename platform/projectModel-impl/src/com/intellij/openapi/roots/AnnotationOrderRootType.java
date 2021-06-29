@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots;
 
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -10,9 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class AnnotationOrderRootType extends PersistentOrderRootType {
   /**
    * @return External annotations path
@@ -32,7 +30,7 @@ public class AnnotationOrderRootType extends PersistentOrderRootType {
 
   public static VirtualFile @NotNull [] getFiles(@NotNull OrderEntry entry) {
     List<VirtualFile> result = new ArrayList<>();
-    RootPolicy<List<VirtualFile>> policy = new RootPolicy<List<VirtualFile>>() {
+    RootPolicy<List<VirtualFile>> policy = new RootPolicy<>() {
       @Override
       public List<VirtualFile> visitLibraryOrderEntry(@NotNull final LibraryOrderEntry orderEntry, final List<VirtualFile> value) {
         Collections.addAll(value, orderEntry.getRootFiles(getInstance()));
@@ -48,7 +46,8 @@ public class AnnotationOrderRootType extends PersistentOrderRootType {
       @Override
       public List<VirtualFile> visitModuleSourceOrderEntry(@NotNull final ModuleSourceOrderEntry orderEntry,
                                                            final List<VirtualFile> value) {
-        Collections.addAll(value, orderEntry.getRootModel().getModuleExtension(JavaModuleExternalPaths.class).getExternalAnnotationsRoots());
+        Collections
+          .addAll(value, orderEntry.getRootModel().getModuleExtension(JavaModuleExternalPaths.class).getExternalAnnotationsRoots());
         return value;
       }
     };
@@ -58,7 +57,7 @@ public class AnnotationOrderRootType extends PersistentOrderRootType {
 
   public static String @NotNull [] getUrls(@NotNull OrderEntry entry) {
     List<String> result = new ArrayList<>();
-    RootPolicy<List<String>> policy = new RootPolicy<List<String>>() {
+    RootPolicy<List<String>> policy = new RootPolicy<>() {
       @Override
       public List<String> visitLibraryOrderEntry(@NotNull final LibraryOrderEntry orderEntry, final List<String> value) {
         Collections.addAll(value, orderEntry.getRootUrls(getInstance()));

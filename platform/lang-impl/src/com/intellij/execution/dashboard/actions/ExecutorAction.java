@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.dashboard.actions;
 
 import com.intellij.execution.*;
@@ -13,10 +13,15 @@ import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.RunContentManagerImpl;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.UpdateInBackground;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.ui.content.Content;
 import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
@@ -29,11 +34,14 @@ import static com.intellij.execution.dashboard.actions.RunDashboardActionUtils.g
 /**
  * @author konstantin.aleev
  */
-public abstract class ExecutorAction extends DumbAwareAction {
+public abstract class ExecutorAction extends DumbAwareAction implements UpdateInBackground {
+  private static final Key<List<RunDashboardRunConfigurationNode>> RUNNABLE_LEAVES_KEY =
+    Key.create("RUNNABLE_LEAVES_KEY");
+
   protected ExecutorAction() {
   }
 
-  protected ExecutorAction(String text, String description, Icon icon) {
+  protected ExecutorAction(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
     super(text, description, icon);
   }
 
@@ -50,13 +58,20 @@ public abstract class ExecutorAction extends DumbAwareAction {
       return content != null && !RunContentManagerImpl.isTerminated(content);
     }).isNotEmpty();
     update(e, running);
-    e.getPresentation().setEnabled(targetNodes.filter(this::canRun).isNotEmpty());
+    List<RunDashboardRunConfigurationNode> runnableLeaves = targetNodes.filter(this::canRun).toList();
+    Presentation presentation = e.getPresentation();
+    if (!runnableLeaves.isEmpty()) {
+      presentation.putClientProperty(RUNNABLE_LEAVES_KEY, runnableLeaves);
+    }
+    presentation.setEnabled(!runnableLeaves.isEmpty());
   }
 
   private boolean canRun(@NotNull RunDashboardRunConfigurationNode node) {
+    ProgressManager.checkCanceled();
+
     Project project = node.getProject();
     return canRun(node.getConfigurationSettings(),
-                  ExecutionTargetManager.getActiveTarget(project),
+                  null,
                   DumbService.isDumb(project));
   }
 
@@ -86,8 +101,16 @@ public abstract class ExecutorAction extends DumbAwareAction {
     if (!isValid(settings)) return false;
 
     ProgramRunner<?> runner = ProgramRunner.getRunner(executorId, configuration);
-    return runner != null && ExecutionTargetManager.canRun(configuration, target) &&
-          !ExecutionManager.getInstance(project).isStarting(executorId, runner.getRunnerId());
+    if (runner == null) return false;
+
+    if (target == null) {
+      target = ExecutionTargetManager.getInstance(project).findTarget(configuration);
+      if (target == null) return false;
+    }
+    else if (!ExecutionTargetManager.canRun(configuration, target)) {
+      return false;
+    }
+    return !ExecutionManager.getInstance(project).isStarting(executorId, runner.getRunnerId());
   }
 
   private static boolean isValid(RunnerAndConfigurationSettings settings) {
@@ -111,15 +134,12 @@ public abstract class ExecutorAction extends DumbAwareAction {
     Project project = e.getProject();
     if (project == null) return;
 
-    for (RunDashboardRunConfigurationNode node : getLeafTargets(e)) {
-      doActionPerformed(node);
+    List<RunDashboardRunConfigurationNode> runnableLeaves = e.getPresentation().getClientProperty(RUNNABLE_LEAVES_KEY);
+    if (runnableLeaves == null) return;
+
+    for (RunDashboardRunConfigurationNode node : runnableLeaves) {
+      run(node.getConfigurationSettings(), null, node.getDescriptor());
     }
-  }
-
-  private void doActionPerformed(RunDashboardRunConfigurationNode node) {
-    if (!canRun(node)) return;
-
-    run(node.getConfigurationSettings(), ExecutionTargetManager.getActiveTarget(node.getProject()), node.getDescriptor());
   }
 
   private void run(RunnerAndConfigurationSettings settings, ExecutionTarget target, RunContentDescriptor descriptor) {
@@ -137,6 +157,10 @@ public abstract class ExecutorAction extends DumbAwareAction {
       }
     }
     else {
+      if (target == null) {
+        target = ExecutionTargetManager.getInstance(project).findTarget(configuration);
+        assert target != null : "No target for configuration of type " + configuration.getType().getDisplayName();
+      }
       ProcessHandler processHandler = descriptor == null ? null : descriptor.getProcessHandler();
       ExecutionManager.getInstance(project).restartRunProfile(project, getExecutor(), target, settings, processHandler);
     }

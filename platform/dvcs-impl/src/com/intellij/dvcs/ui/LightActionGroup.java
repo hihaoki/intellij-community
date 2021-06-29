@@ -2,6 +2,7 @@
 package com.intellij.dvcs.ui;
 
 import com.intellij.openapi.actionSystem.*;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -13,7 +14,7 @@ import java.util.List;
  * Lightweight alternative to {@link DefaultActionGroup}.
  * Does not use `createLockFreeCopyOnWriteList` and action order constraints, making it suitable for use cases with many (10k+) children actions.
  */
-public class LightActionGroup extends ActionGroup {
+public class LightActionGroup extends ActionGroup implements AlwaysVisibleActionGroup, UpdateInBackground.Recursive {
   private final List<AnAction> myChildren = new ArrayList<>();
 
   public LightActionGroup() {
@@ -53,7 +54,7 @@ public class LightActionGroup extends ActionGroup {
     add(Separator.create());
   }
 
-  public void addSeparator(@Nullable String separatorText) {
+  public void addSeparator(@Nullable @Nls String separatorText) {
     add(Separator.create(separatorText));
   }
 }

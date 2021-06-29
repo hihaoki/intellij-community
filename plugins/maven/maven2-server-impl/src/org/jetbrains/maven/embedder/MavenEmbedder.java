@@ -96,9 +96,7 @@ public final class MavenEmbedder {
       wagonManager.addProxy(proxy.getProtocol(), proxy.getHost(), proxy.getPort(), proxy.getUsername(), pass, proxy.getNonProxyHosts());
     }
 
-    for (Object each : mySettings.getServers()) {
-      Server server = (Server)each;
-
+    for (Server server : mySettings.getServers()) {
       String passWord = decrypt(server.getPassword());
       String passPhrase = decrypt(server.getPassphrase());
 
@@ -111,8 +109,7 @@ public final class MavenEmbedder {
       }
     }
 
-    for (Object each : mySettings.getMirrors()) {
-      Mirror mirror = (Mirror)each;
+    for (Mirror mirror : mySettings.getMirrors()) {
       if (mirror.getUrl() == null) continue;
       wagonManager.addMirror(mirror.getId(), mirror.getMirrorOf(), mirror.getUrl());
     }
@@ -182,7 +179,7 @@ public final class MavenEmbedder {
     globalProfileManager.loadSettingsProfiles(request.getSettings());
 
     List<Exception> exceptions = new ArrayList<Exception>();
-    MavenProject project = null;
+    MavenProject project;
     try {
       // copied from DefaultMavenProjectBuilder.buildWithDependencies
       MavenProjectBuilder builder = getComponent(MavenProjectBuilder.class);
@@ -235,7 +232,7 @@ public final class MavenEmbedder {
     getComponent(ArtifactHandlerManager.class).addHandlers(handlers);
   }
 
-  @SuppressWarnings({"unchecked"})
+  @SuppressWarnings("unchecked")
   private Map findArtifactTypeHandlers(MavenProject project) {
     // end copied from DefaultLifecycleExecutor.findExtensions
     Map result = new HashMap();
@@ -336,7 +333,7 @@ public final class MavenEmbedder {
 
     MavenProject rootProject = null;
     final List<Exception> exceptions = new ArrayList<Exception>();
-    Object result = null;
+    Object result;
     try {
       final File pomFile = new File(request.getPomFile());
       if (!pomFile.exists()) {

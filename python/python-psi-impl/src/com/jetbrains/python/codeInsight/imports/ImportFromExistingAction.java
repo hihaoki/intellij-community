@@ -10,14 +10,15 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
-import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.PyPsiBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 
 import static com.jetbrains.python.psi.PyUtil.as;
 
@@ -27,10 +28,11 @@ import static com.jetbrains.python.psi.PyUtil.as;
  * @author dcheryasov
  */
 public class ImportFromExistingAction implements QuestionAction {
-  PsiElement myTarget;
-  List<? extends ImportCandidateHolder> mySources; // list of <import, imported_item>
-  String myName;
-  boolean myUseQualifiedImport;
+  private final PsiElement myTarget;
+  private final List<ImportCandidateHolder> mySources;
+  private final String myName;
+  private final @Nullable PsiElement myInsertBefore;
+  private final boolean myUseQualifiedImport;
   private Runnable myOnDoneCallback;
   private final boolean myImportLocally;
 
@@ -38,13 +40,18 @@ public class ImportFromExistingAction implements QuestionAction {
    * @param target element to become qualified as imported.
    * @param sources clauses of import to be used.
    * @param name relevant name ot the target element (e.g. of identifier in an expression).
+   * @param insertBefore import statement should be inserted right before this element. However, if it aims at an insertion statement in
+   *                     a group of inserts, a better insertion point belonging the group may be chosen, and it can be after the specified
+   *                     node. If null, the position will be chosen automatically.
    * @param useQualified if True, use qualified "import modulename" instead of "from modulename import ...".
    */
-  public ImportFromExistingAction(@NotNull PsiElement target, @NotNull List<? extends ImportCandidateHolder> sources, @NotNull String name,
+  public ImportFromExistingAction(@NotNull PsiElement target, @NotNull List<ImportCandidateHolder> sources, @NotNull String name,
+                                  @Nullable PsiElement insertBefore,
                                   boolean useQualified, boolean importLocally) {
     myTarget = target;
     mySources = sources;
     myName = name;
+    myInsertBefore = insertBefore;
     myUseQualifiedImport = useQualified;
     myImportLocally = importLocally;
   }
@@ -80,7 +87,7 @@ public class ImportFromExistingAction implements QuestionAction {
       return false;
     }
     // act
-    if (mySources.size() == 1 || ApplicationManager.getApplication().isUnitTestMode()) {
+    if (mySources.size() == 1) {
       doWriteAction(mySources.get(0));
     }
     else {
@@ -91,7 +98,7 @@ public class ImportFromExistingAction implements QuestionAction {
 
   private void selectSourceAndDo() {
     ImportChooser.getInstance()
-      .selectImport(mySources, myName, myUseQualifiedImport)
+      .selectImport(mySources, myUseQualifiedImport)
       .onSuccess(candidate -> {
         PsiDocumentManager.getInstance(myTarget.getProject()).commitAllDocuments();
         doWriteAction(candidate);
@@ -99,16 +106,15 @@ public class ImportFromExistingAction implements QuestionAction {
   }
 
   private void doIt(final ImportCandidateHolder item) {
-    PyImportElement src = item.getImportElement();
-    if (src != null) {
-      addToExistingImport(src);
+    if (item.getImportElement() != null) {
+      addToExistingImport(item);
     }
     else { // no existing import, add it then use it
       addImportStatement(item);
     }
   }
 
-  private void addImportStatement(ImportCandidateHolder item) {
+  private void addImportStatement(@NotNull ImportCandidateHolder item) {
     final Project project = myTarget.getProject();
     final PyElementGenerator gen = PyElementGenerator.getInstance(project);
 
@@ -122,54 +128,58 @@ public class ImportFromExistingAction implements QuestionAction {
     if (manager.isInjectedFragment(file)) {
       file = manager.getTopLevelFile(myTarget);
     }
-    // We are trying to import top-level module or package which thus cannot be qualified
+    // A root-level module or package cannot be imported with a "from" import.
     if (PyUtil.isRoot(item.getFile())) {
       if (myImportLocally) {
-        AddImportHelper.addLocalImportStatement(myTarget, myName);
+        AddImportHelper.addLocalImportStatement(myTarget, item.getImportableName(), item.getAsName());
       }
       else {
-        AddImportHelper.addImportStatement(file, myName, item.getAsName(), priority, myTarget);
+        AddImportHelper.addImportStatement(file, item.getImportableName(), item.getAsName(), priority, myTarget, myInsertBefore);
       }
     }
     else {
-      final QualifiedName path = item.getPath();
-      final String qualifiedName = path != null ? path.toString() : "";
+      final String qualifiedName = Objects.toString(item.getPath(), "");
       if (myUseQualifiedImport) {
         String nameToImport = qualifiedName;
         if (item.getImportable() instanceof PsiFileSystemItem) {
-          nameToImport += "." + myName;
+          nameToImport += "." + item.getImportableName();
         }
         if (myImportLocally) {
-          AddImportHelper.addLocalImportStatement(myTarget, nameToImport);
+          AddImportHelper.addLocalImportStatement(myTarget, nameToImport, item.getAsName());
         }
         else {
-          AddImportHelper.addImportStatement(file, nameToImport, item.getAsName(), priority, myTarget);
+          AddImportHelper.addImportStatement(file, nameToImport, item.getAsName(), priority, myTarget, myInsertBefore);
         }
-        myTarget.replace(gen.createExpressionFromText(LanguageLevel.forElement(myTarget), qualifiedName + "." + myName));
+        if (item.getAsName() == null) {
+          myTarget.replace(gen.createExpressionFromText(LanguageLevel.forElement(myTarget), qualifiedName + "." + myName));
+        }
       }
       else {
         if (myImportLocally) {
-          AddImportHelper.addLocalFromImportStatement(myTarget, qualifiedName, myName);
+          AddImportHelper.addLocalFromImportStatement(myTarget, qualifiedName, item.getImportableName(), item.getAsName());
         }
         else {
           // "Update" scenario takes place inside injected fragments, for normal AST addToExistingImport() will be used instead
-          AddImportHelper.addOrUpdateFromImportStatement(file, qualifiedName, myName, item.getAsName(), priority, myTarget);
+          AddImportHelper.addOrUpdateFromImportStatement(
+            file, qualifiedName, item.getImportableName(), item.getAsName(), priority, myTarget, myInsertBefore);
         }
       }
     }
   }
 
 
-  private void addToExistingImport(PyImportElement src) {
-    final PyElementGenerator gen = PyElementGenerator.getInstance(myTarget.getProject());
+  private void addToExistingImport(@NotNull ImportCandidateHolder item) {
+    PyImportElement importElement = item.getImportElement();
+    assert importElement != null;
     // did user choose 'import' or 'from import'?
-    PsiElement parent = src.getParent();
+    PsiElement parent = importElement.getParent();
     if (parent instanceof PyFromImportStatement) {
-      AddImportHelper.addNameToFromImportStatement((PyFromImportStatement)parent, myName, null);
+      AddImportHelper.addNameToFromImportStatement((PyFromImportStatement)parent, item.getImportableName(), item.getAsName());
     }
     else { // just 'import'
       // all we need is to qualify our target
-      myTarget.replace(gen.createExpressionFromText(LanguageLevel.forElement(myTarget), src.getVisibleName() + "." + myName));
+      PyElementGenerator gen = PyElementGenerator.getInstance(myTarget.getProject());
+      myTarget.replace(gen.createExpressionFromText(LanguageLevel.forElement(myTarget), importElement.getVisibleName() + "." + myName));
     }
   }
 

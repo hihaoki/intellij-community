@@ -1,38 +1,35 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import org.codehaus.gant.GantBinding
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.intellij.build.impl.BuildTasksImpl
 import org.jetbrains.intellij.build.impl.BuildUtils
 import org.jetbrains.jps.idea.IdeaProjectLoader
 
+import java.nio.file.Path
+
 @CompileStatic
 abstract class BuildTasks {
   /**
-   * Builds sources.zip archive containing the project source files keeping the original layout
+   * Builds sources.zip archive containing the project source files keeping the original layout.
+   * @deprecated it makes little sense to produce an archive which content is just a subset of files in Git repository. Archives produced
+   * by {@link #zipSourcesOfModules} are more suitable to be attached as sources to other projects, because they put source files according to
+   * their packages, not locations in Git repository.
    */
   abstract void zipProjectSources()
 
   /**
-   * Builds archive containing production source roots of the project modules
+   * Builds archive containing production source roots of the project modules. If {@code includeLibraries} is {@code true}, the produced
+   * archive also includes sources of project-level libraries on which platform API modules from {@code modules} list depend on.
    */
-  abstract void zipSourcesOfModules(Collection<String> modules, String targetFilePath)
+  abstract void zipSourcesOfModules(Collection<String> modules, Path targetFile, boolean includeLibraries = false)
+
+  void zipSourcesOfModules(Collection<String> modules, String targetFilePath) {
+    zipSourcesOfModules(modules, Path.of(targetFilePath))
+  }
 
   /**
    * Produces distributions for all operating systems from sources. This includes compiling required modules, packing their output into JAR
@@ -56,7 +53,7 @@ abstract class BuildTasks {
 
   abstract void compileProjectAndTests(List<String> includingTestsInModules)
 
-  abstract void compileModules(List<String> moduleNames, List<String> includingTestsInModules = [])
+  abstract void compileModules(Collection<String> moduleNames, List<String> includingTestsInModules = [])
 
   abstract void buildUpdaterJar()
 
@@ -72,7 +69,7 @@ abstract class BuildTasks {
    */
   abstract void runTestBuild()
 
-  abstract void buildUnpackedDistribution(String targetDirectory, boolean includeBinAndRuntime)
+  abstract void buildUnpackedDistribution(@NotNull Path targetDirectory, boolean includeBinAndRuntime)
 
   static BuildTasks create(BuildContext context) {
     return new BuildTasksImpl(context)
@@ -111,7 +108,8 @@ abstract class BuildTasks {
   @CompileDynamic
   static BuildContext createBuildContextFromProduct(String productPropertiesClassName, List<String> groovyRootRelativePaths,
                                                     String communityHomeRelativePath, Script gantScript,
-                                                    ProprietaryBuildTools proprietaryBuildTools = ProprietaryBuildTools.DUMMY) {
+                                                    ProprietaryBuildTools proprietaryBuildTools,
+                                                    BuildOptions buildOptions) {
     String projectHome = IdeaProjectLoader.guessHome(gantScript)
     GantBinding binding = (GantBinding) gantScript.binding
     groovyRootRelativePaths.each {
@@ -120,7 +118,15 @@ abstract class BuildTasks {
     ProductProperties productProperties = (ProductProperties) Class.forName(productPropertiesClassName).constructors[0].newInstance(projectHome)
 
     BuildContext context = BuildContext.createContext("$projectHome/$communityHomeRelativePath", projectHome,
-                                                      productProperties, proprietaryBuildTools)
+                                                      productProperties, proprietaryBuildTools, buildOptions)
     return context
+  }
+
+  @CompileDynamic
+  static BuildContext createBuildContextFromProduct(String productPropertiesClassName, List<String> groovyRootRelativePaths,
+                                                    String communityHomeRelativePath, Script gantScript,
+                                                    ProprietaryBuildTools proprietaryBuildTools = ProprietaryBuildTools.DUMMY) {
+    return createBuildContextFromProduct(productPropertiesClassName, groovyRootRelativePaths,
+                                         communityHomeRelativePath, gantScript, proprietaryBuildTools, new BuildOptions())
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.highlighting
 
 import com.intellij.testFramework.LightProjectDescriptor
@@ -123,19 +123,47 @@ foo(a::m).toUpperCase()
   }
 
   void 'test illegal single argument lambda'() {
-    fileHighlightingTest ()
+    fileHighlightingTest()
   }
 
   void 'test type use in annotation description'() {
     fileHighlightingTest()
   }
+
+  void 'test final in trait'() {
+      highlightingTest '''
+trait ATrain {
+    final String getName() { 'foo' }
 }
-//
-//class A {
-//  def String m(){
-//
-//  }
-//}
-//List<A> list = []
-//
-//list.sort(Comparator.comparing(A::m))
+class Foo implements ATrain {
+    String getName() { "qq" }
+}
+'''
+  }
+
+  void 'test final in trait 2'() {
+    highlightingTest '''
+trait ATrain {
+    final String getName() { 'foo' }
+}
+class Foo implements ATrain {
+}
+class Bar extends Foo {
+    <error>String getName()</error> { 'bar' }
+}
+'''
+  }
+
+  void 'test final in trait 3'() {
+    highlightingTest '''
+trait ATrain {
+    final String getName() { 'foo' }
+}
+class Foo implements ATrain {
+    String getName() { "qq" }
+}
+class Bar extends Foo {
+    String getName() { 'bar' }
+}'''
+  }
+}

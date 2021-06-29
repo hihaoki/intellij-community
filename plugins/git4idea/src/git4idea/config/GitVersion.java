@@ -15,6 +15,8 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
+import git4idea.i18n.GitBundle;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -57,8 +59,8 @@ public final class GitVersion implements Comparable<GitVersion> {
   /**
    * The minimal supported version
    */
-  public static final GitVersion MIN = SystemInfo.isWindows ? new GitVersion(2, 4, 0, 0)
-                                                            : new GitVersion(1, 8, 0, 0);
+  public static final GitVersion MIN = SystemInfo.isWindows ? new GitVersion(2, 19, 2, 0)
+                                                            : new GitVersion(2, 17, 0, 0);
 
   /**
    * Special version with a special Type which indicates, that Git version information is unavailable.
@@ -120,8 +122,8 @@ public final class GitVersion implements Comparable<GitVersion> {
     if (type == null) {
       if (SystemInfo.isWindows) {
         String suffix = getStringGroup(m, 5);
-        if (StringUtil.toLowerCase(suffix).contains("msysgit") ||
-            StringUtil.toLowerCase(suffix).contains("windows")) {
+        if (StringUtil.toLowerCase(suffix).contains("msysgit") || //NON-NLS
+            StringUtil.toLowerCase(suffix).contains("windows")) { //NON-NLS
           type = Type.MSYS;
         }
         else {
@@ -167,6 +169,7 @@ public final class GitVersion implements Comparable<GitVersion> {
    * or {@link GitExecutableManager#getVersion(Project)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   public static GitVersion identifyVersion(@NotNull String gitExecutable) throws TimeoutException, ExecutionException, ParseException {
     GeneralCommandLine commandLine = new GeneralCommandLine();
@@ -191,8 +194,7 @@ public final class GitVersion implements Comparable<GitVersion> {
       try {
         parse(result.getStdout());
       } catch (ParseException pe) {
-        throw new ExecutionException("Errors while executing git --version. exitCode=" + result.getExitCode() +
-                                     " errors: " + result.getStderr());
+        throw new ExecutionException(GitBundle.message("error.git.version.check.failed", result.getExitCode(), result.getStderr()), pe);
       }
     }
     return parse(result.getStdout());

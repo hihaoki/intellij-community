@@ -4,7 +4,7 @@ package org.jetbrains.plugins.github.pullrequest.comment.ui
 import com.intellij.ui.CollectionListModel
 import com.intellij.util.EventDispatcher
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewThread
-import org.jetbrains.plugins.github.pullrequest.ui.SimpleEventListener
+import com.intellij.collaboration.ui.SimpleEventListener
 
 class GHPRReviewThreadModelImpl(thread: GHPullRequestReviewThread)
   : CollectionListModel<GHPRReviewCommentModel>(thread.comments.map(GHPRReviewCommentModel.Companion::convert)),
@@ -21,6 +21,8 @@ class GHPRReviewThreadModelImpl(thread: GHPullRequestReviewThread)
   override val commit = thread.originalCommit
   override val filePath = thread.path
   override val diffHunk = thread.diffHunk
+  override val line = thread.line
+  override val startLine = thread.startLine
 
   private val stateEventDispatcher = EventDispatcher.create(SimpleEventListener::class.java)
 

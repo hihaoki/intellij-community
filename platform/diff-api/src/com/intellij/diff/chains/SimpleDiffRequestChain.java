@@ -16,10 +16,10 @@
 package com.intellij.diff.chains;
 
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.UserDataHolder;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -48,7 +48,13 @@ public class SimpleDiffRequestChain extends DiffRequestChainBase {
   }
 
   public static SimpleDiffRequestChain fromProducers(@NotNull List<? extends DiffRequestProducer> producers) {
-    return new SimpleDiffRequestChain(producers, null);
+    return fromProducers(producers, -1);
+  }
+
+  public static SimpleDiffRequestChain fromProducers(@NotNull List<? extends DiffRequestProducer> producers, int selectedIndex) {
+    SimpleDiffRequestChain chain = new SimpleDiffRequestChain(producers, null);
+    if (selectedIndex > 0) chain.setIndex(selectedIndex);
+    return chain;
   }
 
   @Override
@@ -72,7 +78,9 @@ public class SimpleDiffRequestChain extends DiffRequestChainBase {
     @NotNull
     @Override
     public String getName() {
-      return StringUtil.notNullize(myRequest.getTitle(), "Change");
+      String title = myRequest.getTitle();
+      if (title != null) return title;
+      return DiffBundle.message("diff.files.generic.request.title");
     }
 
     @NotNull

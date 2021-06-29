@@ -4,13 +4,12 @@ package com.intellij.ide.lightEdit;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.CloseAction;
+import com.intellij.ide.actions.NextTabAction;
+import com.intellij.ide.actions.PreviousTabAction;
 import com.intellij.ide.lightEdit.project.LightEditFileEditorManagerImpl;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionPlaces;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
@@ -18,6 +17,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.EditorColorsListener;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
@@ -25,6 +25,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.impl.EditorWithProviderComposite;
 import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -40,6 +41,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.InputEvent;
 import java.util.Collection;
 import java.util.Collections;
@@ -48,11 +50,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 final class LightEditTabs extends JBEditorTabs implements LightEditorListener, CloseAction.CloseTarget {
-  private final LightEditorManagerImpl myEditorManager;
-  private final ExecutorService myTabUpdateExecutor;
+  private final @NotNull Project myProject;
+  private final @NotNull LightEditorManagerImpl myEditorManager;
+  private final @NotNull ExecutorService myTabUpdateExecutor;
 
-  LightEditTabs(@NotNull Disposable parentDisposable, @NotNull LightEditorManagerImpl editorManager) {
-    super(LightEditUtil.getProject(), null, parentDisposable);
+  LightEditTabs(@NotNull Project project, @NotNull Disposable parentDisposable, @NotNull LightEditorManagerImpl editorManager) {
+    super(project, null, parentDisposable);
+    myProject = project;
 
     myEditorManager = editorManager;
     myTabUpdateExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Light Edit Tabs Update", 1);
@@ -81,7 +85,7 @@ final class LightEditTabs extends JBEditorTabs implements LightEditorListener, C
 
   private void addEditorTab(@NotNull LightEditorInfo editorInfo, int index) {
     EditorWithProviderComposite editorContainer =
-      ((LightEditFileEditorManagerImpl)FileEditorManager.getInstance(LightEditService.getInstance().getOrCreateProject()))
+      ((LightEditFileEditorManagerImpl)FileEditorManager.getInstance(myProject))
         .createEditorComposite(editorInfo);
     TabInfo tabInfo = new TabInfo(editorContainer.getComponent())
       .setText(editorInfo.getFile().getPresentableName())
@@ -289,7 +293,7 @@ final class LightEditTabs extends JBEditorTabs implements LightEditorListener, C
   @Override
   public Object getData(@NotNull String dataId) {
     if (CommonDataKeys.PROJECT.is(dataId)) {
-      return LightEditUtil.getProject();
+      return myProject;
     }
     else if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       return getSelectedFile();
@@ -308,11 +312,11 @@ final class LightEditTabs extends JBEditorTabs implements LightEditorListener, C
     assert ApplicationManager.getApplication().isDispatchThread();
     LightEditorInfo editorInfo = getEditorInfo(tabInfo);
     if (editorInfo == null) return;
-    EditorNotifications.getInstance(LightEditUtil.getProject()).updateNotifications(editorInfo.getFile());
+    EditorNotifications.getInstance(myProject).updateNotifications(editorInfo.getFile());
     asyncUpdateTabs(Collections.singletonList(Pair.createNonNull(tabInfo, editorInfo)));
   }
 
-  private void asyncUpdateTabs(@NotNull List<Pair.NonNull<TabInfo, LightEditorInfo>> tabEditorPairs) {
+  private void asyncUpdateTabs(@NotNull List<? extends Pair.NonNull<TabInfo, LightEditorInfo>> tabEditorPairs) {
     myTabUpdateExecutor.execute(() -> {
       List<Pair.NonNull<TabInfo, TextAttributes>> tabAttributesPairs = ContainerUtil.map(tabEditorPairs, pair -> {
         return Pair.createNonNull(pair.first, calcAttributes(pair.second));
@@ -382,13 +386,57 @@ final class LightEditTabs extends JBEditorTabs implements LightEditorListener, C
   }
 
   @Nullable
-  public EditorWithProviderComposite findEditorComposite(@NotNull VirtualFile virtualFile) {
-    for (TabInfo tabInfo : getTabs()) {
-      final Object data = tabInfo.getObject();
-      if (data instanceof TabEditorData && virtualFile.equals(((TabEditorData)data).editorInfo.getFile())) {
-        return ((TabEditorData)data).editorComposite;
+  public EditorWithProviderComposite findEditorComposite(@NotNull FileEditor fileEditor) {
+    VirtualFile virtualFile = fileEditor.getFile();
+    if (virtualFile != null) {
+      for (TabInfo tabInfo : getTabs()) {
+        final Object data = tabInfo.getObject();
+        if (data instanceof TabEditorData && virtualFile.equals(((TabEditorData)data).editorInfo.getFile())) {
+          EditorWithProviderComposite composite = ((TabEditorData)data).editorComposite;
+          if (ContainerUtil.exists(composite.getEditors(), editor->editor.equals(fileEditor))) {
+            return composite;
+          }
+        }
       }
     }
     return null;
+  }
+
+  boolean isTabNavigationAvailable(@NotNull AnAction navigationAction) {
+    if (getTabCount() > 1) {
+      Component focusOwner = FocusManager.getCurrentManager().getFocusOwner();
+      if (focusOwner instanceof EditorComponentImpl) {
+        int currIndex = getIndexOf(getSelectedInfo());
+        if (currIndex >= 0) {
+          if (navigationAction instanceof PreviousTabAction) {
+            return currIndex > 0;
+          }
+          else if (navigationAction instanceof NextTabAction) {
+            return currIndex < getTabCount() - 1;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  void navigateToTab(@NotNull AnAction navigationAction) {
+    int currIndex = getIndexOf(getSelectedInfo());
+    if (currIndex >= 0) {
+      if (navigationAction instanceof PreviousTabAction) {
+        if (currIndex > 0) {
+          currIndex --;
+          TabInfo newInfo = getTabAt(currIndex);
+          select(newInfo, true);
+        }
+      }
+      else if (navigationAction instanceof NextTabAction) {
+        if (currIndex < getTabCount() - 1) {
+          currIndex ++;
+          TabInfo newInfo = getTabAt(currIndex);
+          select(newInfo, true);
+        }
+      }
+    }
   }
 }

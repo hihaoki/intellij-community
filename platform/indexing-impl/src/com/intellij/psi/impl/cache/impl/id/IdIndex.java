@@ -3,12 +3,14 @@
 package com.intellij.psi.impl.cache.impl.id;
 
 import com.intellij.lang.cacheBuilder.CacheBuilderRegistry;
+import com.intellij.openapi.diagnostic.ControlFlowException;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.openapi.fileTypes.impl.CustomSyntaxTableFileType;
 import com.intellij.psi.search.UsageSearchContext;
 import com.intellij.util.indexing.*;
+import com.intellij.util.indexing.impl.MapReduceIndexMappingException;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.EnumeratorStringDescriptor;
 import com.intellij.util.io.InlineKeyDescriptor;
@@ -32,7 +34,7 @@ import java.util.Map;
 public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
   @NonNls public static final ID<IdIndexEntry, Integer> NAME = ID.create("IdIndex");
 
-  private final KeyDescriptor<IdIndexEntry> myKeyDescriptor = new InlineKeyDescriptor<IdIndexEntry>() {
+  private final KeyDescriptor<IdIndexEntry> myKeyDescriptor = new InlineKeyDescriptor<>() {
     @Override
     public IdIndexEntry fromInt(int n) {
       return new IdIndexEntry(n);
@@ -88,8 +90,16 @@ public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
 
       @NotNull
       @Override
-      public Map<IdIndexEntry, Integer> map(@NotNull FileContent inputData, @NotNull FileTypeSpecificSubIndexer<IdIndexer> indexer) {
-        return indexer.getSubIndexerType().map(inputData);
+      public Map<IdIndexEntry, Integer> map(@NotNull FileContent inputData,
+                                            @NotNull FileTypeSpecificSubIndexer<IdIndexer> indexer) throws MapReduceIndexMappingException {
+        IdIndexer subIndexerType = indexer.getSubIndexerType();
+        try {
+          return subIndexerType.map(inputData);
+        }
+        catch (Exception e) {
+          if (e instanceof ControlFlowException) throw e;
+          throw new MapReduceIndexMappingException(e, subIndexerType.getClass());
+        }
       }
     };
   }
@@ -97,7 +107,7 @@ public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
   @NotNull
   @Override
   public DataExternalizer<Integer> getValueExternalizer() {
-    return new DataExternalizer<Integer>() {
+    return new DataExternalizer<>() {
       @Override
       public void save(@NotNull final DataOutput out, final Integer value) throws IOException {
         out.write(value.intValue() & UsageSearchContext.ANY);

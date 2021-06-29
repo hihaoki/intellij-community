@@ -1,16 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.navigation.actions
 
 import com.intellij.codeInsight.CodeInsightActionHandler
 import com.intellij.codeInsight.CodeInsightBundle
 import com.intellij.codeInsight.navigation.CtrlMouseInfo
-import com.intellij.codeInsight.navigation.impl.GTDActionData
-import com.intellij.codeInsight.navigation.impl.GTDActionResult
-import com.intellij.codeInsight.navigation.impl.fromGTDProviders
-import com.intellij.codeInsight.navigation.impl.gotoDeclaration
+import com.intellij.codeInsight.navigation.impl.*
 import com.intellij.featureStatistics.FeatureUsageTracker
-import com.intellij.navigation.TargetPopupPresentation
-import com.intellij.navigation.chooseTargetPopup
+import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.openapi.actionSystem.ex.ActionUtil.underModalProgress
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.util.EditorUtil
@@ -19,6 +15,7 @@ import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiFile
+import com.intellij.ui.list.createTargetPopup
 
 internal object GotoDeclarationOnlyHandler2 : CodeInsightActionHandler {
 
@@ -49,7 +46,8 @@ internal object GotoDeclarationOnlyHandler2 : CodeInsightActionHandler {
       }
     }
     catch (e: IndexNotReadyException) {
-      DumbService.getInstance(project).showDumbModeNotification("Navigation is not available here during index update")
+      DumbService.getInstance(project).showDumbModeNotification(
+        CodeInsightBundle.message("popup.content.navigation.not.available.during.index.update"))
       return
     }
 
@@ -63,16 +61,37 @@ internal object GotoDeclarationOnlyHandler2 : CodeInsightActionHandler {
 
   internal fun gotoDeclaration(editor: Editor, file: PsiFile, actionResult: GTDActionResult) {
     when (actionResult) {
-      is GTDActionResult.SingleTarget -> gotoTarget(editor, file, actionResult.navigatable)
+      is GTDActionResult.SingleTarget -> {
+        recordAndNavigate(
+          editor, file, actionResult.navigatable(),
+          GotoDeclarationAction.getCurrentEventData(), actionResult.navigationProvider
+        )
+      }
       is GTDActionResult.MultipleTargets -> {
-        val popup = chooseTargetPopup(
+        // obtain event data before showing the popup,
+        // because showing the popup will finish the GotoDeclarationAction#actionPerformed and clear the data
+        val eventData: List<EventPair<*>> = GotoDeclarationAction.getCurrentEventData()
+        val popup = createTargetPopup(
           CodeInsightBundle.message("declaration.navigation.title"),
-          actionResult.targets, Pair<Navigatable, TargetPopupPresentation>::second
-        ) { (navigatable, _) ->
-          gotoTarget(editor, file, navigatable)
+          actionResult.targets, GTDTarget::presentation
+        ) { (navigatable, _, navigationProvider) ->
+          recordAndNavigate(editor, file, navigatable(), eventData, navigationProvider)
         }
         popup.showInBestPositionFor(editor)
       }
     }
+  }
+
+  private fun recordAndNavigate(
+    editor: Editor,
+    file: PsiFile,
+    navigatable: Navigatable,
+    eventData: List<EventPair<*>>,
+    navigationProvider: Any?
+  ) {
+    if (navigationProvider != null) {
+      GTDUCollector.recordNavigated(eventData, navigationProvider.javaClass)
+    }
+    gotoTarget(editor, file, navigatable)
   }
 }

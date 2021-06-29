@@ -3,6 +3,7 @@ package com.siyeh.ipp.modifiers;
 
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.core.JavaPsiBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -89,7 +90,7 @@ public class ChangeModifierIntention extends BaseElementAtCaretIntentionAction {
     if (identifier == null || identifier.getTextRange().getEndOffset() <= element.getTextRange().getStartOffset()) return false;
     List<AccessModifier> modifiers = new ArrayList<>(AccessModifier.getAvailableModifiers(member));
     if (modifiers.isEmpty()) return false;
-    if (!myErrorFix && modifiers.stream().noneMatch(mod -> mod.hasModifier(member))) return false;
+    if (!myErrorFix && !ContainerUtil.exists(modifiers, mod -> mod.hasModifier(member))) return false;
     modifiers.removeIf(mod -> mod.hasModifier(member));
     AccessModifier target = null;
     if (modifiers.isEmpty()) return false;
@@ -172,7 +173,7 @@ public class ChangeModifierIntention extends BaseElementAtCaretIntentionAction {
     JBPopup popup = JBPopupFactory.getInstance().createPopupChooserBuilder(modifiers)
       .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
       .setSelectedValue(current, true)
-      .setAccessibleName("Change Modifier")
+      .setAccessibleName(JavaBundle.message("accessible.name.change.modifier"))
       .setMovable(false)
       .setResizable(false)
       .setRequestFocus(true)

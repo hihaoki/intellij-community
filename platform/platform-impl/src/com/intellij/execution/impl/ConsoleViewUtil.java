@@ -1,10 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.impl;
 
-import com.intellij.execution.filters.ConsoleDependentFilterProvider;
-import com.intellij.execution.filters.ConsoleFilterProvider;
-import com.intellij.execution.filters.ConsoleFilterProviderEx;
-import com.intellij.execution.filters.Filter;
+import com.intellij.execution.filters.*;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.ui.LafManager;
@@ -48,7 +45,7 @@ public final class ConsoleViewUtil {
 
   private static final Key<Boolean> REPLACE_ACTION_ENABLED = Key.create("REPLACE_ACTION_ENABLED");
 
-  public static @NotNull EditorEx setupConsoleEditor(Project project, boolean foldingOutlineShown, boolean lineMarkerAreaShown) {
+  public static @NotNull EditorEx setupConsoleEditor(@Nullable Project project, boolean foldingOutlineShown, boolean lineMarkerAreaShown) {
     EditorFactory editorFactory = EditorFactory.getInstance();
     Document document = ((EditorFactoryImpl)editorFactory).createDocument(true);
     UndoUtil.disableUndoFor(document);
@@ -82,6 +79,17 @@ public final class ConsoleViewUtil {
     });
   }
 
+  public static void setupLanguageConsoleEditor(final @NotNull EditorEx editor) {
+    setupConsoleEditor(editor, false, false);
+
+    editor.getContentComponent().setFocusCycleRoot(false);
+    editor.setBorder(null);
+
+    EditorSettings editorSettings = editor.getSettings();
+    editorSettings.setAdditionalLinesCount(1);
+    editorSettings.setAdditionalColumnsCount(1);
+  }
+
   private static class NullEditorHighlighter extends EmptyEditorHighlighter {
     private static final TextAttributes NULL_ATTRIBUTES = new TextAttributes();
 
@@ -90,7 +98,7 @@ public final class ConsoleViewUtil {
     }
 
     @Override
-    public void setAttributes(TextAttributes attributes) {}
+    public void setAttributes(TextAttributes attributes) { }
 
     @Override
     public void setColorScheme(@NotNull EditorColorsScheme scheme) {}
@@ -254,5 +262,25 @@ public final class ConsoleViewUtil {
       ContainerUtil.addAll(result, filters);
     }
     return result;
+  }
+
+  public static @NotNull InputFilter computeInputFilter(@NotNull ConsoleView consoleView,
+                                                        @NotNull Project project,
+                                                        @NotNull GlobalSearchScope searchScope) {
+    List<ConsoleInputFilterProvider> inputFilters = ConsoleInputFilterProvider.INPUT_FILTER_PROVIDERS.getExtensionList();
+    if (inputFilters.isEmpty()) {
+      return (text, contentType) -> null;
+    }
+    List<InputFilter> allFilters = new ArrayList<>();
+    for (ConsoleInputFilterProvider eachProvider : inputFilters) {
+      List<InputFilter> filters;
+      if (eachProvider instanceof ConsoleDependentInputFilterProvider) {
+        allFilters.addAll(((ConsoleDependentInputFilterProvider)eachProvider).getDefaultFilters(consoleView, project, searchScope));
+      }
+      else {
+        allFilters.addAll(Arrays.asList(eachProvider.getDefaultFilters(project)));
+      }
+    }
+    return new CompositeInputFilter(project, allFilters);
   }
 }

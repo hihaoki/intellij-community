@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.codeInsight.hint.HintUtil;
@@ -17,6 +17,7 @@ import com.intellij.openapi.fileEditor.impl.IdeDocumentHistoryImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
@@ -30,6 +31,7 @@ import com.intellij.util.IconUtil;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -66,8 +68,8 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
     }
 
     EditorColorsScheme colorsScheme = editor.getColorsScheme();
-    String breadcrumbs = myData.getBreadcrumbsMap(myCheckBox.isSelected()).get(value.getInfo());
-    JPanel panel = new JPanel(new VerticalFlowLayout(0, 0));
+    @NlsSafe String breadcrumbs = myData.getBreadcrumbsMap(myCheckBox.isSelected()).get(value.getInfo());
+    JPanel panel = new CellRendererPanel(new VerticalFlowLayout(0, 0));
     if (index != 0) {
       panel.add(createSeparatorLine(colorsScheme));
     }
@@ -86,17 +88,17 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
   private static JComponent createTitleComponent(@NotNull Project project,
                                                  @NotNull JList<? extends RecentLocationItem> list,
                                                  @NotNull SpeedSearch speedSearch,
-                                                 @Nullable String breadcrumb,
+                                                 @Nullable @Nls String breadcrumb,
                                                  @NotNull IdeDocumentHistoryImpl.PlaceInfo placeInfo,
                                                  @NotNull EditorColorsScheme colorsScheme,
                                                  boolean selected) {
-    JComponent title = JBUI.Panels
-      .simplePanel()
-      .withBorder(JBUI.Borders.empty())
-      .addToLeft(createTitleTextComponent(project, list, speedSearch, placeInfo, colorsScheme, breadcrumb, selected));
+    CellRendererPanel title = new CellRendererPanel(new BorderLayout());
+    SimpleColoredComponent textComponent = createTitleTextComponent(
+      project, list, speedSearch, placeInfo, colorsScheme, breadcrumb, selected);
+    title.add(textComponent, BorderLayout.WEST);
 
     title.setBorder(JBUI.Borders.empty(8, 6, 5, 0));
-    title.setBackground(getBackgroundColor(colorsScheme, selected));
+    title.setForcedBackground(getBackgroundColor(colorsScheme, selected));
 
     return title;
   }
@@ -108,7 +110,9 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
       color = JBColor.namedColor("Group.separatorColor", new JBColor(Gray.xCD, Gray.x51));
     }
 
-    return JBUI.Panels.simplePanel().withBorder(JBUI.Borders.customLine(color, 1, 0, 0, 0));
+    CellRendererPanel panel = new CellRendererPanel();
+    panel.setBorder(JBUI.Borders.customLine(color, 1, 0, 0, 0));
+    return panel;
   }
 
   @NotNull
@@ -145,7 +149,7 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
                                                                  @NotNull SpeedSearch speedSearch,
                                                                  @NotNull IdeDocumentHistoryImpl.PlaceInfo placeInfo,
                                                                  @NotNull EditorColorsScheme colorsScheme,
-                                                                 @Nullable String breadcrumbText,
+                                                                 @Nullable @Nls String breadcrumbText,
                                                                  boolean selected) {
     SimpleColoredComponent titleTextComponent = new SimpleColoredComponent();
 
@@ -161,10 +165,8 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
 
     Icon icon = fetchIcon(project, placeInfo);
 
-    if (icon != null) {
-      titleTextComponent.setIcon(icon);
-      titleTextComponent.setIconTextGap(4);
-    }
+    titleTextComponent.setIcon(icon);
+    titleTextComponent.setIconTextGap(4);
 
     titleTextComponent.setBorder(JBUI.Borders.empty());
 
@@ -184,8 +186,7 @@ class RecentLocationsRenderer extends ColoredListCellRenderer<RecentLocationItem
     return titleTextComponent;
   }
 
-  @Nullable
-  private static Icon fetchIcon(@NotNull Project project, @NotNull IdeDocumentHistoryImpl.PlaceInfo placeInfo) {
+  private static @NotNull Icon fetchIcon(@NotNull Project project, @NotNull IdeDocumentHistoryImpl.PlaceInfo placeInfo) {
     return IconUtil.getIcon(placeInfo.getFile(), Iconable.ICON_FLAG_READ_STATUS, project);
   }
 

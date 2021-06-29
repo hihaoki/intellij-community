@@ -1,13 +1,13 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.uiDesigner.compiler;
 
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
+import com.intellij.util.containers.FileCollectionFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
@@ -19,6 +19,8 @@ import org.jetbrains.jps.incremental.*;
 import org.jetbrains.jps.incremental.fs.CompilationRound;
 import org.jetbrains.jps.incremental.java.CopyResourcesUtil;
 import org.jetbrains.jps.incremental.java.FormsParsing;
+import org.jetbrains.jps.incremental.messages.BuildMessage;
+import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.incremental.storage.OneToManyPathsMapping;
 import org.jetbrains.jps.model.JpsProject;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
@@ -34,12 +36,14 @@ import java.util.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class FormsBindingManager extends FormsBuilder {
+public final class FormsBindingManager extends FormsBuilder {
+  private static final @NlsSafe String BUILDER_NAME = "form-bindings";
   private static final String JAVA_EXTENSION = ".java";
   private static final Key<Boolean> FORCE_FORMS_REBUILD_FLAG = Key.create("_forms_rebuild_flag_");
   private static final Key<Boolean> FORMS_REBUILD_FORCED = Key.create("_forms_rebuild_forced_flag_");
+
   public FormsBindingManager() {
-    super(BuilderCategory.SOURCE_PROCESSOR, "form-bindings");
+    super(BuilderCategory.SOURCE_PROCESSOR, BUILDER_NAME);
   }
 
   @Override
@@ -90,9 +94,9 @@ public class FormsBindingManager extends FormsBuilder {
       return exitCode;
     }
 
-    final Map<File, ModuleBuildTarget> filesToCompile = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, ModuleBuildTarget> formsToCompile = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, Collection<File>> srcToForms = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, ModuleBuildTarget> filesToCompile = FileCollectionFactory.createCanonicalFileMap();
+    final Map<File, ModuleBuildTarget> formsToCompile = FileCollectionFactory.createCanonicalFileMap();
+    final Map<File, Collection<File>> srcToForms = FileCollectionFactory.createCanonicalFileMap();
 
     if (!JavaBuilderUtil.isForcedRecompilationAllJavaModules(context) && config.isInstrumentClasses() && FORCE_FORMS_REBUILD_FLAG.get(context, Boolean.FALSE)) {
       // force compilation of all forms, but only once per chunk
@@ -126,14 +130,21 @@ public class FormsBindingManager extends FormsBuilder {
         final File form = entry.getKey();
         final ModuleBuildTarget target = entry.getValue();
         final Collection<File> sources = findBoundSourceCandidates(context, target, form);
+        boolean isFormBound = false;
         for (File boundSource : sources) {
           if (!excludes.isExcluded(boundSource)) {
+            isFormBound = true;
             addBinding(boundSource, form, srcToForms);
             holderBuilder.markDirtyFile(target, boundSource);
             context.getScope().markIndirectlyAffected(target, boundSource);
             filesToCompile.put(boundSource, target);
             exitCode = ExitCode.OK;
           }
+        }
+        if (!isFormBound) {
+          context.processMessage(new CompilerMessage(
+            getPresentableName(), BuildMessage.Kind.ERROR, FormBundle.message("class.to.bind.not.found"), form.getAbsolutePath()
+          ));
         }
       }
 
@@ -215,7 +226,7 @@ public class FormsBindingManager extends FormsBuilder {
       }
     }
 
-    final Set<File> candidates = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> candidates = FileCollectionFactory.createCanonicalFileSet();
     for (JavaSourceRootDescriptor rd : targetRoots) {
       candidates.addAll(findPossibleSourcesForClass(rd, className));
     }

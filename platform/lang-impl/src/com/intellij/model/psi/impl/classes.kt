@@ -1,24 +1,28 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.model.psi.impl
 
+import com.intellij.codeInsight.navigation.BaseCtrlMouseInfo
 import com.intellij.model.Symbol
 import com.intellij.model.psi.PsiSymbolDeclaration
 import com.intellij.model.psi.PsiSymbolReference
-import com.intellij.model.psi.PsiSymbolService
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
+import com.intellij.psi.ReferenceRange
 
 internal data class DeclaredReferencedData(
-  val declaredData: TargetData?,
-  val referencedData: TargetData?
+  val declaredData: TargetData.Declared?,
+  val referencedData: TargetData.Referenced?,
 )
+
+internal data class SymbolWithProvider(val symbol: Symbol, val navigationProvider: Any?)
 
 internal sealed class TargetData {
 
-  abstract val targets: List<Symbol>
+  abstract val targets: List<SymbolWithProvider>
 
   class Declared(val declaration: PsiSymbolDeclaration) : TargetData() {
-    override val targets: List<Symbol> get() = listOf(declaration.symbol)
+    override val targets: List<SymbolWithProvider> get() = listOf(SymbolWithProvider(declaration.symbol, null))
   }
 
   class Referenced(val references: List<PsiSymbolReference>) : TargetData() {
@@ -27,25 +31,43 @@ internal sealed class TargetData {
       require(references.isNotEmpty())
     }
 
-    override val targets: List<Symbol>
+    override val targets: List<SymbolWithProvider>
       get() = references.flatMap { reference ->
-        reference.resolveReference()
-      }.map { resolveResult ->
-        resolveResult.target
+        reference.resolveReference().map { SymbolWithProvider(it, provider(reference)) }
       }
-  }
 
-  class Evaluator(val origin: PsiOrigin, val targetElements: List<PsiElement>) : TargetData() {
-
-    init {
-      require(targetElements.isNotEmpty())
+    private fun provider(reference: PsiSymbolReference): Any? {
+      if (reference is EvaluatorReference) {
+        return (reference.origin as? PsiOrigin.Reference)?.reference
+      }
+      else {
+        return reference
+      }
     }
-
-    override val targets: List<Symbol> get() = targetElements.map(PsiSymbolService.getInstance()::asSymbol)
   }
 }
 
 internal sealed class PsiOrigin {
-  class Leaf(val leaf: PsiElement) : PsiOrigin()
-  class Reference(val reference: PsiReference) : PsiOrigin()
+
+  abstract val absoluteRanges: List<TextRange>
+
+  abstract val elementAtPointer: PsiElement
+
+  class Leaf(val leaf: PsiElement) : PsiOrigin() {
+
+    override val absoluteRanges: List<TextRange> get() = BaseCtrlMouseInfo.getReferenceRanges(leaf)
+
+    override val elementAtPointer: PsiElement get() = leaf
+
+    override fun toString(): String = "Leaf($leaf)"
+  }
+
+  class Reference(val reference: PsiReference) : PsiOrigin() {
+
+    override val absoluteRanges: List<TextRange> get() = ReferenceRange.getAbsoluteRanges(reference)
+
+    override val elementAtPointer: PsiElement get() = reference.element
+
+    override fun toString(): String = "Reference($reference)"
+  }
 }

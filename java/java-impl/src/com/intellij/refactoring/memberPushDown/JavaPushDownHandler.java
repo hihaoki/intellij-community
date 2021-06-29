@@ -27,6 +27,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.jsp.jspJava.JspClass;
+import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
@@ -36,6 +37,7 @@ import com.intellij.refactoring.lang.ElementsHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.refactoring.util.classMembers.MemberInfoStorage;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -48,19 +50,23 @@ public class JavaPushDownHandler implements RefactoringActionHandler, ElementsHa
   /**
    * @deprecated Use {@link #getRefactoringName()} instead
    */
-  @Deprecated
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static final String REFACTORING_NAME = "Push Members Down";
 
   @Override
   public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
-    return !getElements(editor, file, Ref.create(), true).isEmpty();
+    final List<PsiElement> elements = getElements(editor, file, Ref.create(), true);
+    if (elements.isEmpty()) return false;
+    PsiClass psiClass = PsiTreeUtil.getParentOfType(elements.get(0), PsiClass.class, false);
+    if (psiClass == null) return false;
+    return ClassInheritorsSearch.search(psiClass).iterator().hasNext();
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
 
-    Ref<String> errorMessage = Ref.create();
+    Ref<@NlsContexts.DialogMessage String> errorMessage = Ref.create();
     List<PsiElement> elements = getElements(editor, file, errorMessage, false);
     if (elements.isEmpty()) {
       String message =
@@ -73,7 +79,7 @@ public class JavaPushDownHandler implements RefactoringActionHandler, ElementsHa
   }
 
   @NotNull
-  private static List<PsiElement> getElements(Editor editor, PsiFile file, Ref<? super String> errorMessage, boolean stopAtCodeBlock) {
+  private static List<PsiElement> getElements(Editor editor, PsiFile file, Ref<@NlsContexts.DialogMessage String> errorMessage, boolean stopAtCodeBlock) {
     List<PsiElement> elements = new ArrayList<>();
     for (Caret caret : editor.getCaretModel().getAllCarets()) {
       int offset = caret.getOffset();
@@ -86,7 +92,7 @@ public class JavaPushDownHandler implements RefactoringActionHandler, ElementsHa
     return elements;
   }
 
-  private static String collectElementsUnderCaret(PsiElement element, List<? super PsiElement> elements, boolean stopAtCodeBlock) {
+  private static @NlsContexts.DialogMessage String collectElementsUnderCaret(PsiElement element, List<? super PsiElement> elements, boolean stopAtCodeBlock) {
     while (true) {
       if (element == null || element instanceof PsiFile) {
         return RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("the.caret.should.be.positioned.inside.a.class.to.push.members.from"));

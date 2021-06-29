@@ -15,6 +15,7 @@ import java.util.function.IntSupplier;
 
 final class BlockInlayImpl<R extends EditorCustomElementRenderer> extends InlayImpl<R, BlockInlayImpl<?>> implements IntSupplier {
   final boolean myShowAbove;
+  final boolean myShowWhenFolded;
   final int myPriority;
   private int myHeightInPixels;
   private GutterIconRenderer myGutterIconRenderer;
@@ -23,10 +24,12 @@ final class BlockInlayImpl<R extends EditorCustomElementRenderer> extends InlayI
                  int offset,
                  boolean relatesToPrecedingText,
                  boolean showAbove,
+                 boolean showWhenFolded,
                  int priority,
                  @NotNull R renderer) {
     super(editor, offset, relatesToPrecedingText, renderer);
     myShowAbove = showAbove;
+    myShowWhenFolded = showWhenFolded;
     myPriority = priority;
   }
 
@@ -55,9 +58,11 @@ final class BlockInlayImpl<R extends EditorCustomElementRenderer> extends InlayI
   @Override
   Point getPosition() {
     int visualLine = myEditor.offsetToVisualLine(getOffset());
-    int y = myEditor.visualLineToY(visualLine);
+    int[] yRange = myEditor.visualLineToYRange(visualLine);
     List<Inlay<?>> allInlays = myEditor.getInlayModel().getBlockElementsForVisualLine(visualLine, myShowAbove);
+    int y;
     if (myShowAbove) {
+      y = yRange[0];
       boolean found = false;
       for (Inlay<?> inlay : allInlays) {
         if (inlay == this) found = true;
@@ -65,7 +70,7 @@ final class BlockInlayImpl<R extends EditorCustomElementRenderer> extends InlayI
       }
     }
     else {
-      y += myEditor.getLineHeight();
+      y = yRange[1];
       for (Inlay<?> inlay : allInlays) {
         if (inlay == this) break;
         y += inlay.getHeightInPixels();

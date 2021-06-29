@@ -20,6 +20,7 @@ public class ShArithmeticExpansionImpl extends ShCompositeElementImpl implements
     visitor.visitArithmeticExpansion(this);
   }
 
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
     if (visitor instanceof ShVisitor) accept((ShVisitor)visitor);
     else super.accept(visitor);
@@ -29,18 +30,6 @@ public class ShArithmeticExpansionImpl extends ShCompositeElementImpl implements
   @Nullable
   public ShExpression getExpression() {
     return findChildByClass(ShExpression.class);
-  }
-
-  @Override
-  @NotNull
-  public PsiElement getLeftDoubleParen() {
-    return findNotNullChildByType(LEFT_DOUBLE_PAREN);
-  }
-
-  @Override
-  @Nullable
-  public PsiElement getRightDoubleParen() {
-    return findChildByType(RIGHT_DOUBLE_PAREN);
   }
 
 }

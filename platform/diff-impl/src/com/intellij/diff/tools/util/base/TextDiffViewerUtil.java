@@ -6,6 +6,7 @@ import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.contents.EmptyContent;
 import com.intellij.diff.requests.ContentDiffRequest;
+import com.intellij.diff.tools.util.DiffNotifications;
 import com.intellij.diff.tools.util.FoldingModelSupport;
 import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings;
 import com.intellij.diff.util.DiffUserDataKeys;
@@ -13,7 +14,6 @@ import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.DiffBundle;
@@ -24,12 +24,15 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.EditorPopupHandler;
 import com.intellij.openapi.editor.impl.ContextMenuPopupHandler;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.ui.ToggleActionButton;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
@@ -56,8 +59,14 @@ public final class TextDiffViewerUtil {
   @NotNull
   public static FoldingModelSupport.Settings getFoldingModelSettings(@NotNull DiffContext context) {
     TextDiffSettings settings = getTextSettings(context);
+    return getFoldingModelSettings(settings);
+  }
+
+  @NotNull
+  public static FoldingModelSupport.Settings getFoldingModelSettings(@NotNull TextDiffSettings settings) {
     return new FoldingModelSupport.Settings(settings.getContextRange(), settings.isExpandByDefault());
   }
+
 
   @NotNull
   public static TextDiffSettings getTextSettings(@NotNull DiffContext context) {
@@ -128,6 +137,17 @@ public final class TextDiffViewerUtil {
     }
   }
 
+  @Nullable
+  public static JPanel createEqualContentsNotification(@NotNull List<? extends DocumentContent> contents) {
+    boolean isPartialPreview = ContainerUtil.exists(contents, content ->
+      FileDocumentManager.getInstance().isPartialPreviewOfALargeFile(content.getDocument()));
+    if (isPartialPreview) return null;
+
+    boolean equalCharsets = areEqualCharsets(contents);
+    boolean equalSeparators = areEqualLineSeparators(contents);
+    return DiffNotifications.createEqualContents(equalCharsets, equalSeparators);
+  }
+
   public static boolean areEqualLineSeparators(@NotNull List<? extends DiffContent> contents) {
     return areEqualDocumentContentProperties(contents, DocumentContent::getLineSeparator);
   }
@@ -147,6 +167,17 @@ public final class TextDiffViewerUtil {
 
     if (properties.size() < 2) return true;
     return new HashSet<>(properties).size() == 1;
+  }
+
+  public static void recursiveRegisterShortcutSet(@NotNull ActionGroup group,
+                                                  @NotNull JComponent component,
+                                                  @Nullable Disposable parentDisposable) {
+    for (AnAction action : group.getChildren(null)) {
+      if (action instanceof ActionGroup) {
+        recursiveRegisterShortcutSet((ActionGroup)action, component, parentDisposable);
+      }
+      action.registerCustomShortcutSet(component, parentDisposable);
+    }
   }
 
   //
@@ -188,7 +219,7 @@ public final class TextDiffViewerUtil {
     protected abstract void setValue(@NotNull T option);
 
     @NotNull
-    protected abstract String getText(@NotNull T option);
+    protected abstract @Nls String getText(@NotNull T option);
 
     private class MyAction extends AnAction implements DumbAware {
       @NotNull private final T myOption;
@@ -205,10 +236,10 @@ public final class TextDiffViewerUtil {
     }
   }
 
-  private static abstract class EnumPolicySettingAction<T extends Enum> extends TextDiffViewerUtil.ComboBoxSettingAction<T> {
+  public static abstract class EnumPolicySettingAction<T extends Enum> extends TextDiffViewerUtil.ComboBoxSettingAction<T> {
     private final T @NotNull [] myPolicies;
 
-    EnumPolicySettingAction(T @NotNull [] policies) {
+    public EnumPolicySettingAction(T @NotNull [] policies) {
       assert policies.length > 0;
       myPolicies = policies;
     }
@@ -244,7 +275,9 @@ public final class TextDiffViewerUtil {
     protected abstract T getStoredValue();
 
     @NotNull
-    protected abstract List<T> getValueSubstitutes(@NotNull T value);
+    protected List<T> getValueSubstitutes(@NotNull T value) {
+      return Collections.emptyList();
+    }
   }
 
   public static class HighlightPolicySettingAction extends EnumPolicySettingAction<HighlightPolicy> {
@@ -281,6 +314,7 @@ public final class TextDiffViewerUtil {
       return Collections.singletonList(HighlightPolicy.BY_WORD);
     }
 
+    @Nls
     @NotNull
     @Override
     protected String getText(@NotNull HighlightPolicy option) {
@@ -322,6 +356,7 @@ public final class TextDiffViewerUtil {
       return Collections.singletonList(IgnorePolicy.DEFAULT);
     }
 
+    @Nls
     @NotNull
     @Override
     protected String getText(@NotNull IgnorePolicy option) {
@@ -348,12 +383,14 @@ public final class TextDiffViewerUtil {
     }
   }
 
-  public static abstract class ToggleExpandByDefaultAction extends ToggleActionButton implements DumbAware {
+  public static class ToggleExpandByDefaultAction extends ToggleActionButton implements DumbAware {
     @NotNull protected final TextDiffSettings mySettings;
+    private final FoldingModelSupport myFoldingSupport;
 
-    public ToggleExpandByDefaultAction(@NotNull TextDiffSettings settings) {
+    public ToggleExpandByDefaultAction(@NotNull TextDiffSettings settings, @NotNull FoldingModelSupport foldingSupport) {
       super(DiffBundle.message("collapse.unchanged.fragments"), AllIcons.Actions.Collapseall);
       mySettings = settings;
+      myFoldingSupport = foldingSupport;
     }
 
     @Override
@@ -374,7 +411,9 @@ public final class TextDiffViewerUtil {
       expandAll(expand);
     }
 
-    protected abstract void expandAll(boolean expand);
+    protected void expandAll(boolean expand) {
+      myFoldingSupport.expandAll(expand);
+    }
   }
 
   public static abstract class ReadOnlyLockAction extends ToggleAction implements DumbAware {
@@ -521,7 +560,7 @@ public final class TextDiffViewerUtil {
     }
 
     public void install(@NotNull List<? extends EditorEx> editors, @NotNull JComponent component) {
-      ActionUtil.recursiveRegisterShortcutSet(new DefaultActionGroup(myEditorPopupActions), component, null);
+      recursiveRegisterShortcutSet(new DefaultActionGroup(myEditorPopupActions), component, null);
 
       EditorPopupHandler handler = new ContextMenuPopupHandler.Simple(
         myEditorPopupActions.isEmpty() ? null : new DefaultActionGroup(myEditorPopupActions)

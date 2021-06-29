@@ -14,6 +14,7 @@ import com.intellij.openapi.vcs.VcsRoot;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcs.log.VcsLogFilterCollection;
 import com.intellij.vcs.log.VcsLogProvider;
@@ -80,11 +81,11 @@ public class VcsLogManager implements Disposable {
   }
 
   @CalledInAny
-  public void scheduleInitialization() {
+  void scheduleInitialization() {
     myLogData.initialize();
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public boolean isLogVisible() {
     return myPostponableRefresher.isLogVisible();
   }
@@ -105,7 +106,12 @@ public class VcsLogManager implements Disposable {
   }
 
   @NotNull
-  public MainVcsLogUi createLogUi(@NotNull String logId, @NotNull LogWindowKind kind, boolean isClosedOnDispose) {
+  public MainVcsLogUi createLogUi(@NotNull String logId, @NotNull LogWindowKind kind) {
+    return createLogUi(getMainLogUiFactory(logId, null), kind, true);
+  }
+
+  @NotNull
+  MainVcsLogUi createLogUi(@NotNull String logId, @NotNull LogWindowKind kind, boolean isClosedOnDispose) {
     return createLogUi(getMainLogUiFactory(logId, null), kind, isClosedOnDispose);
   }
 
@@ -131,9 +137,9 @@ public class VcsLogManager implements Disposable {
   }
 
   @NotNull
-  public <U extends VcsLogUiEx> U createLogUi(@NotNull VcsLogUiFactory<U> factory,
-                                              @NotNull LogWindowKind kind,
-                                              boolean isClosedOnDispose) {
+  private <U extends VcsLogUiEx> U createLogUi(@NotNull VcsLogUiFactory<U> factory,
+                                               @NotNull LogWindowKind kind,
+                                               boolean isClosedOnDispose) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (isDisposed()) {
       LOG.error("Trying to create new VcsLogUi on a disposed VcsLogManager instance");
@@ -192,7 +198,7 @@ public class VcsLogManager implements Disposable {
     return logProviders;
   }
 
-  @CalledInAwt
+  @RequiresEdt
   void disposeUi() {
     myDisposed = true;
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
@@ -205,7 +211,7 @@ public class VcsLogManager implements Disposable {
    *
    * @param callback activity to run after log is disposed. Is executed in background thread. null means execution of additional activity after dispose is not required.
    */
-  @CalledInAwt
+  @RequiresEdt
   public void dispose(@Nullable Runnable callback) {
     disposeUi();
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -225,7 +231,7 @@ public class VcsLogManager implements Disposable {
     LOG.debug("Disposed Vcs Log for " + VcsLogUtil.getProvidersMapText(myLogData.getLogProviders()));
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public boolean isDisposed() {
     return myDisposed;
   }
@@ -264,6 +270,7 @@ public class VcsLogManager implements Disposable {
 
   @FunctionalInterface
   public interface VcsLogUiFactory<T extends VcsLogUiEx> {
+    @ApiStatus.OverrideOnly
     T createLogUi(@NotNull Project project, @NotNull VcsLogData logData);
   }
 

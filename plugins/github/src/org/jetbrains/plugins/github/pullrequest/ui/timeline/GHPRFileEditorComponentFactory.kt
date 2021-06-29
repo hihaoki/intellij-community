@@ -1,17 +1,18 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.timeline
 
-import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.collaboration.async.CompletableFutureUtil.handleOnEdt
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionPlaces
-import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ui.componentsList.components.ScrollablePanel
 import com.intellij.openapi.util.Disposer
-import com.intellij.ui.*
+import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.PopupHandler
+import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.panels.Wrapper
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.update.UiNotifyConnector
 import net.miginfocom.layout.AC
@@ -24,23 +25,18 @@ import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.GHPRTimelineFileEditor
-import org.jetbrains.plugins.github.pullrequest.action.GHPRReloadStateAction
-import org.jetbrains.plugins.github.pullrequest.avatars.GHAvatarIconsProvider
 import org.jetbrains.plugins.github.pullrequest.comment.ui.GHSubmittableTextFieldFactory
 import org.jetbrains.plugins.github.pullrequest.comment.ui.GHSubmittableTextFieldModel
 import org.jetbrains.plugins.github.pullrequest.data.GHListLoader
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRCommentsDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDetailsDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRReviewDataProvider
-import org.jetbrains.plugins.github.pullrequest.ui.GHLoadingErrorHandlerImpl
-import org.jetbrains.plugins.github.pullrequest.ui.details.GHPRStateModelImpl
-import org.jetbrains.plugins.github.pullrequest.ui.details.GHPRStatePanel
-import org.jetbrains.plugins.github.ui.GHHandledErrorPanelModel
-import org.jetbrains.plugins.github.ui.GHHtmlErrorPanel
-import org.jetbrains.plugins.github.ui.util.SingleValueModel
-import org.jetbrains.plugins.github.util.GithubUIUtil
-import org.jetbrains.plugins.github.util.handleOnEdt
-import javax.swing.BorderFactory
+import org.jetbrains.plugins.github.pullrequest.ui.GHApiLoadingErrorHandler
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
+import org.jetbrains.plugins.github.ui.component.GHHandledErrorPanelModel
+import org.jetbrains.plugins.github.ui.component.GHHtmlErrorPanel
+import org.jetbrains.plugins.github.ui.util.GHUIUtil
+import com.intellij.collaboration.ui.SingleValueModel
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.event.ChangeEvent
@@ -57,13 +53,11 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
   private val detailsModel = SingleValueModel(currentDetails)
 
   private val errorModel = GHHandledErrorPanelModel(GithubBundle.message("pull.request.timeline.cannot.load"),
-                                                    GHLoadingErrorHandlerImpl(project,
-                                                                              editor.securityService.account,
-                                                                              editor.timelineLoader::reset))
+                                                    GHApiLoadingErrorHandler(project,
+                                                                             editor.securityService.account,
+                                                                             editor.timelineLoader::reset))
   private val timelineModel = GHPRTimelineMergingModel()
   private val reviewThreadsModelsProvider = GHPRReviewsThreadsModelsProviderImpl(editor.reviewData, uiDisposable)
-
-  private val stateModel = GHPRStateModelImpl(project, editor.stateData, editor.changesData, detailsModel, uiDisposable)
 
   init {
     editor.detailsData.loadDetails(uiDisposable) {
@@ -102,15 +96,13 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
   fun create(): JComponent {
     val mainPanel = Wrapper()
 
-    val avatarIconsProvider = editor.avatarIconsProviderFactory.create(GithubUIUtil.avatarSize, mainPanel)
-
-    val header = GHPRTitleComponent.create(detailsModel, editor.detailsData)
+    val header = GHPRTitleComponent.create(project, detailsModel, editor.detailsData)
 
     val timeline = GHPRTimelineComponent(detailsModel,
                                          timelineModel,
                                          createItemComponentFactory(project, editor.detailsData, editor.commentsData, editor.reviewData,
                                                                     reviewThreadsModelsProvider,
-                                                                    avatarIconsProvider, editor.securityService.currentUser)).apply {
+                                                                    editor.avatarIconsProvider, editor.securityService.currentUser)).apply {
       border = JBUI.Borders.empty(16, 0)
     }
     val errorPanel = GHHtmlErrorPanel.create(errorModel)
@@ -128,24 +120,27 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
       isOpaque = false
       border = JBUI.Borders.empty(24, 20)
 
-      val maxWidth = (GithubUIUtil.getFontEM(this) * 42).toInt()
+      val maxWidth = GHUIUtil.getPRTimelineWidth()
 
       layout = MigLayout(LC().gridGap("0", "0")
                            .insets("0", "0", "0", "0")
                            .fill()
                            .flowY(),
-                         AC().size(":$maxWidth:$maxWidth").gap("push"))
+                         AC().grow().gap("push"))
 
-      add(header, CC().growX())
+      add(header, CC().growX().maxWidth("$maxWidth"))
       add(timeline, CC().growX().minWidth(""))
-      add(errorPanel, CC().hideMode(2).alignX("center"))
-      add(loadingIcon, CC().hideMode(2).alignX("center"))
+
+      val fullTimelineWidth = JBUIScale.scale(GHUIUtil.AVATAR_SIZE) + maxWidth
+
+      add(errorPanel, CC().hideMode(2).width("$fullTimelineWidth"))
+      add(loadingIcon, CC().hideMode(2).width("$fullTimelineWidth"))
 
       if (editor.securityService.currentUserHasPermissionLevel(GHRepositoryPermissionLevel.READ)) {
         val commentField = createCommentField(editor.commentsData,
-                                              avatarIconsProvider,
+                                              editor.avatarIconsProvider,
                                               editor.securityService.currentUser)
-        add(commentField, CC().growX())
+        add(commentField, CC().growX().pushX().maxWidth("$fullTimelineWidth"))
       }
     }
 
@@ -175,23 +170,12 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
       }
     })
 
-    val statePanel = GHPRStatePanel(editor.securityService, stateModel).apply {
-      border = BorderFactory.createCompoundBorder(IdeBorderFactory.createBorder(SideBorder.TOP),
-                                                  JBUI.Borders.empty(8))
-    }
-    detailsModel.addAndInvokeValueChangedListener {
-      statePanel.select(detailsModel.value.state, true)
-    }
-
-    val contentPanel = JBUI.Panels.simplePanel(scrollPane).addToBottom(JBUI.Panels.simplePanel(statePanel)).andTransparent()
-    mainPanel.setContent(contentPanel)
+    mainPanel.setContent(scrollPane)
 
     val actionManager = ActionManager.getInstance()
     actionManager.getAction("Github.PullRequest.Timeline.Update").registerCustomShortcutSet(scrollPane, uiDisposable)
-    val actionGroup = actionManager.getAction("Github.PullRequest.Timeline.Popup") as ActionGroup
-    PopupHandler.installPopupHandler(scrollPane, actionGroup, ActionPlaces.UNKNOWN, actionManager)
-
-    PopupHandler.installPopupHandler(statePanel, DefaultActionGroup(GHPRReloadStateAction()), ActionPlaces.UNKNOWN, actionManager)
+    val groupId = "Github.PullRequest.Timeline.Popup"
+    PopupHandler.installPopupMenu(scrollPane, groupId, groupId)
 
     return mainPanel
   }
@@ -199,7 +183,7 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
   private fun createCommentField(commentService: GHPRCommentsDataProvider,
                                  avatarIconsProvider: GHAvatarIconsProvider,
                                  currentUser: GHUser): JComponent {
-    val model = GHSubmittableTextFieldModel {
+    val model = GHSubmittableTextFieldModel(project) {
       commentService.addComment(EmptyProgressIndicator(), it)
     }
     return GHSubmittableTextFieldFactory(model).create(avatarIconsProvider, currentUser)
@@ -214,10 +198,10 @@ internal class GHPRFileEditorComponentFactory(private val project: Project,
                                          currentUser: GHUser)
     : GHPRTimelineItemComponentFactory {
 
-    val selectInToolWindowHelper = GHPRSelectInToolWindowHelper(project, editor.repository, detailsModel.value)
+    val selectInToolWindowHelper = GHPRSelectInToolWindowHelper(project, detailsModel.value)
     val diffFactory = GHPRReviewThreadDiffComponentFactory(project, EditorFactory.getInstance())
     val eventsFactory = GHPRTimelineEventComponentFactoryImpl(avatarIconsProvider)
-    return GHPRTimelineItemComponentFactory(detailsDataProvider, commentsDataProvider, reviewDataProvider,
+    return GHPRTimelineItemComponentFactory(project, detailsDataProvider, commentsDataProvider, reviewDataProvider,
                                             avatarIconsProvider, reviewThreadsModelsProvider, diffFactory,
                                             eventsFactory,
                                             selectInToolWindowHelper, currentUser)

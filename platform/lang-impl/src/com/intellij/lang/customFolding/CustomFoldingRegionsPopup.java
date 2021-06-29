@@ -10,13 +10,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.containers.Stack;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Stack;
 
 /**
  * @author Rustam Vishnyakov
@@ -56,7 +55,6 @@ public final class CustomFoldingRegionsPopup {
       return myDescriptor;
     }
 
-    @Nullable
     @Override
     public String toString() {
       return StringUtil.repeat("   ", myIndent) + myDescriptor.getPlaceholderText();

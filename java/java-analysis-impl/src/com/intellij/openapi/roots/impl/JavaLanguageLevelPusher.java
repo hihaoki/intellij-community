@@ -5,15 +5,15 @@ import com.intellij.FileIntPropertyPusher;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
+import com.intellij.openapi.module.LanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
 import com.intellij.pom.java.LanguageLevel;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +57,7 @@ public class JavaLanguageLevelPusher implements FileIntPropertyPusher<LanguageLe
 
   @Override
   public LanguageLevel getImmediateValue(@NotNull Module module) {
-    return EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(module);
+    return LanguageLevelUtil.getEffectiveLanguageLevel(module);
   }
 
   @Override
@@ -108,8 +108,9 @@ public class JavaLanguageLevelPusher implements FileIntPropertyPusher<LanguageLe
   }
 
   @Nullable
-  public String getInconsistencyLanguageLevelMessage(@NotNull String message, @NotNull PsiElement element,
-                                                     @NotNull LanguageLevel level, @NotNull PsiFile file) {
+  public @NlsContexts.DetailedDescription String getInconsistencyLanguageLevelMessage(@NotNull String message,
+                                                                                      @NotNull LanguageLevel level,
+                                                                                      @NotNull PsiFile file) {
     return null;
   }
 

@@ -1,25 +1,20 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * User : catherine
  */
 public class PyCompatibilityInspectionTest extends PyInspectionTestCase {
 
-  public void testDictCompExpression() {
-    doTest(LanguageLevel.PYTHON27);
-  }
-
-  public void testSetLiteralExpression() {
-    doTest(LanguageLevel.PYTHON27);
-  }
-
-  public void testSetCompExpression() {
-    doTest(LanguageLevel.PYTHON27);
+  @Override
+  protected @Nullable LightProjectDescriptor getProjectDescriptor() {
+    return ourPy2Descriptor;
   }
 
   public void testExceptBlock() {
@@ -64,10 +59,6 @@ public class PyCompatibilityInspectionTest extends PyInspectionTestCase {
 
   public void testReprExpression() {
     doTest();
-  }
-
-  public void testWithStatement() {
-    doTest(LanguageLevel.PYTHON27);
   }
 
   public void testPrintStatement() {
@@ -229,7 +220,7 @@ public class PyCompatibilityInspectionTest extends PyInspectionTestCase {
     runWithLanguageLevel(
       LanguageLevel.PYTHON38,
       () -> doTestByText(
-        "def f(pos1, <warning descr=\"Python version 2.6, 2.7, 3.4, 3.5, 3.6, 3.7 do not support positional-only parameters\">/</warning>, pos_or_kwd, *, kwd1):\n" +
+        "def f(pos1, <warning descr=\"Python versions 2.7, 3.5, 3.6, 3.7 do not support positional-only parameters\">/</warning>, pos_or_kwd, *, kwd1):\n" +
         "    pass"
       )
     );
@@ -248,7 +239,7 @@ public class PyCompatibilityInspectionTest extends PyInspectionTestCase {
                          "  try:\n" +
                          "    print(\"a\")\n" +
                          "  finally:\n" +
-                         "    <warning descr=\"Python version 2.6, 2.7, 3.4, 3.5, 3.6, 3.7 do not support 'continue' inside 'finally' clause\">continue</warning>")
+                         "    <warning descr=\"Python versions 2.7, 3.5, 3.6, 3.7 do not support 'continue' inside 'finally' clause\">continue</warning>")
     );
   }
 

@@ -112,7 +112,7 @@ class NormalCompletionOrderingTest extends CompletionSortingTestCase {
     final String path = getTestName(false) + ".java"
     myFixture.configureByFile(path)
     myFixture.complete(CompletionType.BASIC, 2)
-    assertPreferredItems(0, "booleanMethod", "BOOLEAN", "voidMethod", "AN_OBJECT")
+    assertPreferredItems(0, "booleanMethod", "BOOLEAN", "AN_OBJECT", "class", "Inner", "voidMethod")
   }
 
   void testDispreferDeclared() throws Throwable {
@@ -126,6 +126,7 @@ class NormalCompletionOrderingTest extends CompletionSortingTestCase {
     assertPreferredItems(0, "Xxx", "XxxEx", "XxxImpl", "Xxy")
   }
 
+  @NeedsIndex.Full
   void testPreferOwnInnerClasses() throws Throwable {
     checkPreferredItems(0, "YyyXxx", "YyyZzz")
   }
@@ -202,7 +203,7 @@ class NormalCompletionOrderingTest extends CompletionSortingTestCase {
 
   @NeedsIndex.ForStandardLibrary
   void testLocalVarsOverMethods() {
-    checkPreferredItems(0, "value", "validate", "validateTree")
+    checkPreferredItems(0, "value", "isValidateRoot", "isValid", "validate", "validateTree")
   }
 
   void testCurrentClassBest() {
@@ -389,7 +390,7 @@ class NormalCompletionOrderingTest extends CompletionSortingTestCase {
 
   @NeedsIndex.ForStandardLibrary
   void testPreferKeywordsToVoidMethodsInExpectedTypeContext() {
-    checkPreferredItems 0, 'noo', 'new', 'null', 'noo2', 'notify', 'notifyAll'
+    checkPreferredItems 0, 'noo', 'new', 'null', 'noo2', 'clone', 'toString', 'notify', 'notifyAll'
   }
 
   void testPreferBetterMatchingConstantToMethods() {
@@ -632,9 +633,9 @@ interface TxANotAnno {}
     checkPreferredItems 0, 'fact'
   }
 
-  @NeedsIndex.SmartMode(reason = "JavaGenerateMemberCompletionContributor.fillCompletionVariants works in smart mode only (for 'Override/Implement methods...')")
+  @NeedsIndex.ForStandardLibrary
   void testPreferAnnotationsToInterfaceKeyword() {
-    checkPreferredItems 0, 'Override/Implement methods...', 'Override', 'Deprecated'
+    checkPreferredItems 0, 'Deprecated', 'Override', 'SuppressWarnings'
   }
 
   @NeedsIndex.ForStandardLibrary
@@ -968,4 +969,14 @@ class Foo {
     myFixture.checkResult 'class Foo { { System.out.println(<caret>); } }'
   }
 
+  void testPreferLocalArrayVariableToItsChains() {
+    checkPreferredItems 0, 'arrayVariable'
+  }
+
+  @NeedsIndex.ForStandardLibrary
+  void "test void method in nonvoid context"() {
+    myFixture.configureByText("a.java", "class X { String getName() {return \"\";} void test() {System.out.println(this.n<caret>);}}")
+    myFixture.completeBasic()
+    assertStringItems "getName", "clone", "toString", "notify", "notifyAll", "finalize"
+  }
 }

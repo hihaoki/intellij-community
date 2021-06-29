@@ -1,10 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.pullrequest.ui.details
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.ui.HyperlinkLabel
+import com.intellij.ui.components.BrowserLink
 import com.intellij.util.ui.EmptyIcon
+import org.jetbrains.annotations.Nls
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.data.GHPRMergeabilityState
 import java.awt.FlowLayout
@@ -50,6 +51,7 @@ object GHPRStatusChecksComponent {
     return panel
   }
 
+  @Nls
   private fun getChecksResultsText(failedChecks: Int, pendingChecks: Int, successfulChecks: Int): String {
     val results = mutableListOf<String>()
     failedChecks.takeIf { it > 0 }?.let {
@@ -75,7 +77,5 @@ object GHPRStatusChecksComponent {
   }
 
   private fun createLink(url: String) =
-    HyperlinkLabel(GithubBundle.message("open.in.browser.link")).apply {
-      setHyperlinkTarget(url)
-    }
+    BrowserLink(GithubBundle.message("open.in.browser.link"), url)
 }

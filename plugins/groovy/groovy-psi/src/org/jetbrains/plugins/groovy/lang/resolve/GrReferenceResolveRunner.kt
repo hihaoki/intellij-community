@@ -1,11 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.psi.*
 import com.intellij.psi.impl.file.PsiPackageImpl
 import com.intellij.psi.scope.PsiScopeProcessor
 import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.util.InheritanceUtil.isInheritor
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.parents
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes
@@ -18,6 +17,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil
+import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil
 import org.jetbrains.plugins.groovy.lang.psi.util.isThisExpression
 import org.jetbrains.plugins.groovy.lang.psi.util.treeWalkUpAndGet
 import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint.RESOLVE_CONTEXT
@@ -71,7 +71,7 @@ class GrReferenceResolveRunner(val place: GrReferenceExpression, val processor: 
     }
     else {
       if (!qualifierType.processReceiverType(processor, state, place)) return false
-      if (place.parent !is GrMethodCall && isInheritor(qualifierType, CommonClassNames.JAVA_UTIL_COLLECTION)) {
+      if (place.parent !is GrMethodCall && PsiUtil.isEligibleForSpreadWithDot(qualifierType)) {
         return qualifierType.processSpread(processor, state, place, true)
       }
     }
@@ -96,7 +96,7 @@ private fun GrReferenceExpression.doResolvePackageOrClass(): PsiElement? {
   // We are in `com.foo` from `com.foo.bar.Baz`.
   // Go up and find if any parent resolves to a class => this expression is a package reference.
   // This expression may also be a class reference, and this is handled in [resolveUnqualifiedType].
-  for (parent in this.parents) {
+  for (parent in this.parents(false)) {
     if (parent !is GrReferenceExpression) {
       // next parent is not a reference expression
       // => next parent is not a class fully qualified name

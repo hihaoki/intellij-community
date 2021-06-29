@@ -11,7 +11,7 @@ import org.junit.Assume
 object KotlinTester {
   private fun canUseKotlin(): Boolean =
     try {
-      Class.forName("org.jetbrains.kotlin.idea.JvmPluginStartupComponent")
+      Class.forName("org.jetbrains.kotlin.idea.run.KotlinRunConfiguration")
       true
     }
     catch (e: ClassNotFoundException) {
@@ -20,8 +20,7 @@ object KotlinTester {
 
   fun assumeCanUseKotlin() {
     Assume.assumeTrue(
-      "Kotlin plugin JARs aren't found in the classpath; run 'setupKotlinPlugin' task in community/build/dependencies Gradle project " +
-      "to download Kotlin plugin JARs.", canUseKotlin())
+      "Kotlin plugin JARs aren't found in the classpath; build 'KotlinPlugin' artifact.", canUseKotlin())
   }
 
   fun assumeKotlinPluginVersion(version: String) {

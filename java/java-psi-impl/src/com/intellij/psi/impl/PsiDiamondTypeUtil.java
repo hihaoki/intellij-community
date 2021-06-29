@@ -13,7 +13,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.ApiStatus;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -50,6 +50,12 @@ public final class PsiDiamondTypeUtil {
             if (!skipDiamonds && typeElements.length == 1 && typeElements[0].getType() instanceof PsiDiamondType) return false;
             final PsiDiamondTypeImpl.DiamondInferenceResult inferenceResult = PsiDiamondTypeImpl.resolveInferredTypes(expression, context);
             if (inferenceResult.getErrorMessage() == null) {
+              PsiAnonymousClass anonymousClass = expression.getAnonymousClass();
+              if (anonymousClass != null &&
+                  ContainerUtil.exists(anonymousClass.getMethods(), 
+                                       method -> !method.hasModifierProperty(PsiModifier.PRIVATE) && method.findSuperMethods().length == 0)) {
+                return false;
+              }
               final List<PsiType> types = inferenceResult.getInferredTypes();
               PsiType[] typeArguments = null;
               if (expectedType instanceof PsiClassType) {
@@ -72,17 +78,6 @@ public final class PsiDiamondTypeUtil {
       }
     }
     return false;
-  }
-
-  /**
-   * @deprecated please use {@link com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil#replaceExplicitWithDiamond(PsiElement)}
-   * To be deleted in 2019.3
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2019.3")
-  public static PsiElement replaceExplicitWithDiamond(PsiElement psiElement) {
-    PsiElement replacement = createExplicitReplacement(psiElement);
-    return replacement == null ? psiElement : psiElement.replace(replacement);
   }
 
   public static PsiElement createExplicitReplacement(PsiElement psiElement) {

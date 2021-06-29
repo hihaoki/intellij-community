@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTask;
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationEvent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import org.jetbrains.annotations.ApiStatus;
@@ -38,6 +39,9 @@ public interface ExternalSystemExecutionConsoleManager<
                 @NotNull String text,
                 @NotNull Key processOutputType);
 
+  default void onStatusChange(@NotNull ExternalSystemExecutionConsole executionConsole,
+                              @NotNull ExternalSystemTaskNotificationEvent event) { }
+
   boolean isApplicableFor(@NotNull ExternalSystemTask task);
 
   AnAction[] getRestartActions(@NotNull ExternalSystemExecutionConsole consoleView);
@@ -46,4 +50,15 @@ public interface ExternalSystemExecutionConsoleManager<
   default Filter[] getCustomExecutionFilters(@NotNull Project project,
                                              @NotNull ExternalSystemTask task,
                                              @Nullable ExecutionEnvironment env) { return Filter.EMPTY_ARRAY; }
+
+  @ApiStatus.Experimental
+  default AnAction[] getCustomActions(@NotNull Project project,
+                                      @NotNull ExternalSystemTask task,
+                                      @Nullable ExecutionEnvironment env) { return AnAction.EMPTY_ARRAY; }
+
+  @ApiStatus.Experimental
+  default AnAction[] getCustomContextActions(@NotNull Project project,
+                                             @NotNull ExternalSystemTask task,
+                                             @Nullable ExecutionEnvironment env) { return AnAction.EMPTY_ARRAY; }
+
 }

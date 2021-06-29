@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.intention.impl;
 
@@ -24,7 +24,6 @@ import com.intellij.codeInspection.SuppressIntentionActionFromFix;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.featureStatistics.FeatureUsageTrackerImpl;
 import com.intellij.ide.lightEdit.LightEdit;
-import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.internal.statistic.IntentionsCollector;
 import com.intellij.lang.LangBundle;
@@ -32,12 +31,13 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiDocumentManager;
@@ -46,6 +46,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.stubs.StubTextInconsistencyException;
 import com.intellij.util.PairProcessor;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -95,11 +96,24 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     if (!intentions.isEmpty()) {
       editor.getScrollingModel().runActionOnScrollingFinished(() -> {
           CachedIntentions cachedIntentions = CachedIntentions.createAndUpdateActions(project, file, editor, intentions);
-          IntentionHintComponent.showIntentionHint(project, file, editor, true, cachedIntentions);
+          cachedIntentions.wrapAndUpdateGutters();
+          if (cachedIntentions.getAllActions().isEmpty()) {
+            showEmptyMenuFeedback(editor, showFeedbackOnEmptyMenu);
+          }
+          else {
+            IntentionHintComponent.showIntentionHint(project, file, editor, true, cachedIntentions);
+          }
       });
     }
-    else if (showFeedbackOnEmptyMenu) {
-      HintManager.getInstance().showInformationHint(editor, LangBundle.message("hint.text.no.context.actions.available.at.this.location"));
+    else {
+      showEmptyMenuFeedback(editor, showFeedbackOnEmptyMenu);
+    }
+  }
+
+  private static void showEmptyMenuFeedback(@NotNull Editor editor, boolean showFeedbackOnEmptyMenu) {
+    if (showFeedbackOnEmptyMenu) {
+      HintManager.getInstance()
+        .showInformationHint(editor, LangBundle.message("hint.text.no.context.actions.available.at.this.location"));
     }
   }
 
@@ -131,8 +145,6 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     try {
       Project project = psiFile.getProject();
       action = IntentionActionDelegate.unwrap(action);
-
-      if (LightEdit.owns(project) && !(action instanceof LightEditCompatible)) return false;
 
       if (action instanceof SuppressIntentionActionFromFix) {
         final ThreeState shouldBeAppliedToInjectionHost = ((SuppressIntentionActionFromFix)action).isShouldBeAppliedToInjectionHost();
@@ -205,7 +217,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
   public static boolean chooseActionAndInvoke(@NotNull PsiFile hostFile,
                                               @Nullable final Editor hostEditor,
                                               @NotNull final IntentionAction action,
-                                              @NotNull String commandName) {
+                                              @NotNull @NlsContexts.Command String commandName) {
     final Project project = hostFile.getProject();
     return chooseActionAndInvoke(hostFile, hostEditor, action, commandName, project);
   }
@@ -213,7 +225,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
   static boolean chooseActionAndInvoke(@NotNull PsiFile hostFile,
                                        @Nullable final Editor hostEditor,
                                        @NotNull final IntentionAction action,
-                                       @NotNull String commandName,
+                                       @NotNull @NlsContexts.Command String commandName,
                                        @NotNull final Project project) {
     FeatureUsageTracker.getInstance().triggerFeatureUsed("codeassists.quickFix");
     ((FeatureUsageTrackerImpl)FeatureUsageTracker.getInstance()).getFixesStats().registerInvocation();
@@ -233,7 +245,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
 
   private static void checkPsiTextConsistency(@NotNull PsiFile hostFile) {
     if (Registry.is("ide.check.stub.text.consistency") ||
-        ApplicationManager.getApplication().isUnitTestMode() && !ApplicationInfoImpl.isInStressTest()) {
+        ApplicationManager.getApplication().isUnitTestMode() && !ApplicationManagerEx.isInStressTest()) {
       if (hostFile.isValid()) {
         StubTextInconsistencyException.checkStubTextConsistency(hostFile);
       }
@@ -265,7 +277,9 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     }
 
     PsiFile injectedFile = InjectedLanguageUtil.findInjectedPsiNoCommit(hostFile, hostEditor.getCaretModel().getOffset());
-    return chooseBetweenHostAndInjected(hostFile, hostEditor, injectedFile,
-                                        (psiFile, editor) -> availableFor(psiFile, editor, action));
+    return chooseBetweenHostAndInjected(
+      hostFile, hostEditor, injectedFile,
+      (psiFile, editor) -> SlowOperations.allowSlowOperations(() -> availableFor(psiFile, editor, action))
+    );
   }
 }

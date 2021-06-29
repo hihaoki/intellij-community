@@ -13,8 +13,8 @@ SHELL_SCRIPT
         SHELL_PARAMETER_EXPANSION
           PsiElement({)('{')
           PsiElement(word)('XDG_RUNTIME_DIR')
-          PsiElement(param_separator)(':-/')
-          PsiElement(word)('run')
+          PsiElement(param_separator)(':-')
+          PsiElement(word)('/run')
           PsiElement(param_separator)('/')
           PsiElement(word)('user')
           PsiElement(param_separator)('/')
@@ -38,8 +38,7 @@ SHELL_SCRIPT
           PsiElement(param_separator)(':-')
           VARIABLE
             PsiElement(var)('$HOME')
-          PsiElement(param_separator)('/')
-          PsiElement(word)('.config')
+          PsiElement(word)('/.config')
           PsiElement(})('}')
         PsiElement(STRING_CONTENT)('/gaudi.config')
         PsiElement(CLOSE_QUOTE)('"')
@@ -58,8 +57,7 @@ SHELL_SCRIPT
           PsiElement(param_separator)(':-')
           VARIABLE
             PsiElement(var)('$HOME')
-          PsiElement(param_separator)('/')
-          PsiElement(word)('.cache')
+          PsiElement(word)('/.cache')
           PsiElement(})('}')
         PsiElement(STRING_CONTENT)('/gaudi')
         PsiElement(CLOSE_QUOTE)('"')
@@ -1496,7 +1494,9 @@ SHELL_SCRIPT
                                         PsiElement(var)('$SELF')
                                     PsiWhiteSpace(' ')
                                     LITERAL
-                                      PsiElement(word)('artifact-file')
+                                      PsiElement(word)('artifact')
+                                    LITERAL
+                                      PsiElement(word)('-file')
                                     PsiWhiteSpace(' ')
                                     VARIABLE
                                       PsiElement(var)('$ARTIFACT')
@@ -1837,7 +1837,9 @@ SHELL_SCRIPT
                         PsiElement(CLOSE_QUOTE)('"')
                     PsiWhiteSpace(' ')
                     LITERAL
-                      PsiElement(word)('compile-classpath')
+                      PsiElement(word)('compile')
+                    LITERAL
+                      PsiElement(word)('-classpath')
                 PsiElement())(')')
               PsiElement(CLOSE_QUOTE)('"')
           PsiElement(\n)('\n')
@@ -2263,7 +2265,7 @@ SHELL_SCRIPT
                                     ASSIGNMENT_LIST
                                       PsiElement(()('(')
                                       ARRAY_ASSIGNMENT
-                                        LITERAL_EXPRESSION
+                                        LITERAL_OPERATION
                                           PsiElement(word)('rm')
                                           PsiWhiteSpace(' ')
                                           STRING
@@ -3399,7 +3401,9 @@ SHELL_SCRIPT
                                   PsiElement(CLOSE_QUOTE)('"')
                               PsiWhiteSpace(' ')
                               LITERAL
-                                PsiElement(word)('run-classpath')
+                                PsiElement(word)('run')
+                              LITERAL
+                                PsiElement(word)('-classpath')
                           PsiElement())(')')
                         PsiElement(CLOSE_QUOTE)('"')
                     PsiWhiteSpace('               ')

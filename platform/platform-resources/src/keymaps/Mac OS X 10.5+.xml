@@ -48,6 +48,7 @@
   </action>
   <action id="EditorPreviousWord">
     <keyboard-shortcut first-keystroke="alt LEFT"/>
+    <keyboard-shortcut first-keystroke="control alt B"/>
   </action>
   <action id="QuickJavaDoc">
     <keyboard-shortcut first-keystroke="F1"/>
@@ -80,10 +81,10 @@
     <keyboard-shortcut first-keystroke="control shift Q"/>
   </action>
   <action id="MethodDown">
-    <keyboard-shortcut first-keystroke="control DOWN"/>
   </action>
   <action id="EditorPreviousWordWithSelection">
     <keyboard-shortcut first-keystroke="alt shift LEFT"/>
+    <keyboard-shortcut first-keystroke="control alt shift B"/>
   </action>
   <action id="RunClass"/>
 
@@ -152,7 +153,7 @@
     <keyboard-shortcut first-keystroke="control UP"/>
   </action>
   <action id="ShowContent">
-    <keyboard-shortcut first-keystroke="control DOWN"/>
+    <keyboard-shortcut first-keystroke="control shift DOWN"/>
   </action>
   <action id="NextEditorTab">
     <keyboard-shortcut first-keystroke="control shift RIGHT"/>
@@ -160,9 +161,11 @@
   <action id="TogglePopupHints"/>
   <action id="EditorNextWordWithSelection">
     <keyboard-shortcut first-keystroke="alt shift RIGHT"/>
+    <keyboard-shortcut first-keystroke="control alt shift F"/>
   </action>
   <action id="EditorNextWord">
     <keyboard-shortcut first-keystroke="alt RIGHT"/>
+    <keyboard-shortcut first-keystroke="control alt F"/>
   </action>
   <action id="EditorLineStart">
     <keyboard-shortcut first-keystroke="HOME"/>
@@ -324,9 +327,6 @@
     <keyboard-shortcut first-keystroke="ctrl shift TAB"/>
   </action>
   <action id="Diff.FocusOppositePane">
-    <keyboard-shortcut first-keystroke="control TAB"/>
-  </action>
-  <action id="Diff.FocusOppositePaneAndScroll">
     <keyboard-shortcut first-keystroke="control shift TAB"/>
   </action>
   <action id="Vcs.QuickListPopupAction">
@@ -344,10 +344,8 @@
   </action>
 
   <action id="EditorLookupUp">
-    <keyboard-shortcut first-keystroke="control UP"/>
   </action>
   <action id="EditorLookupDown">
-    <keyboard-shortcut first-keystroke="control DOWN"/>
   </action>
 
   <action id="EditorDeleteToWordStart">
@@ -422,9 +420,7 @@
   <action id="GotoClass">
     <keyboard-shortcut first-keystroke="meta O"/>
   </action>
-  <action id="GotoChangedFile">
-    <keyboard-shortcut first-keystroke="meta O"/>
-  </action>
+  <action id="GotoChangedFile"/>
   <action id="GotoSymbol">
     <keyboard-shortcut first-keystroke="meta alt O"/>
   </action>
@@ -523,18 +519,16 @@
     <keyboard-shortcut first-keystroke="control RIGHT"/>
   </action>
   <action id="Diff.PrevChange">
-    <keyboard-shortcut first-keystroke="meta shift OPEN_BRACKET"/>
-    <keyboard-shortcut first-keystroke="control LEFT"/>
+    <keyboard-shortcut first-keystroke="control shift LEFT"/>
   </action>
   <action id="Diff.NextChange">
-    <keyboard-shortcut first-keystroke="meta shift CLOSE_BRACKET"/>
-    <keyboard-shortcut first-keystroke="control RIGHT"/>
-  </action>
-  <action id="Diff.ApplyLeftSide">
     <keyboard-shortcut first-keystroke="control shift RIGHT"/>
   </action>
+  <action id="Diff.ApplyLeftSide">
+    <keyboard-shortcut first-keystroke="control meta RIGHT"/>
+  </action>
   <action id="Diff.ApplyRightSide">
-    <keyboard-shortcut first-keystroke="control shift LEFT"/>
+    <keyboard-shortcut first-keystroke="control meta LEFT"/>
   </action>
   <action id="EditorCodeBlockStart">
     <keyboard-shortcut first-keystroke="meta alt OPEN_BRACKET"/>
@@ -727,7 +721,38 @@
   <action id="UsageGrouping.DirectoryStructure">
     <keyboard-shortcut first-keystroke="control D"/>
   </action>
-  <action id="UsageGrouping.Package">
-    <keyboard-shortcut first-keystroke="control P"/>
+  <action id="UsageFiltering.ReadAccess">
+    <keyboard-shortcut first-keystroke="control R"/>
+  </action>
+  <action id="UsageFiltering.WriteAccess">
+    <keyboard-shortcut first-keystroke="control W"/>
+  </action>
+  <action id="UsageFiltering.Imports">
+    <keyboard-shortcut first-keystroke="control I"/>
+  </action>
+
+  <action id="List-selectFirstRow">
+    <keyboard-shortcut first-keystroke="alt up"/>
+  </action>
+  <action id="List-selectLastRow">
+    <keyboard-shortcut first-keystroke="alt down"/>
+  </action>
+  <action id="List-selectFirstRowExtendSelection">
+    <keyboard-shortcut first-keystroke="alt shift up"/>
+  </action>
+  <action id="List-selectLastRowExtendSelection">
+    <keyboard-shortcut first-keystroke="alt shift down"/>
+  </action>
+  <action id="EditorScrollToCenter">
+    <keyboard-shortcut first-keystroke="control L"/>
+  </action>
+  <action id="ActivateUnitTestsToolWindow">
+    <keyboard-shortcut first-keystroke="meta alt 8"/>
+  </action>
+  <action id="ActivateNuGetToolWindow">
+    <keyboard-shortcut first-keystroke="meta alt 7"/>
+  </action>
+  <action id="UiInspector">
+    <mouse-shortcut keystroke="control alt button1"/>
   </action>
 </keymap>

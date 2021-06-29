@@ -1,11 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.push
 
+import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.Executor.*
 import com.intellij.openapi.vcs.update.FileGroup
@@ -15,10 +16,10 @@ import com.intellij.util.containers.ContainerUtil
 import git4idea.branch.GitBranchUtil
 import git4idea.config.GitVersionSpecialty
 import git4idea.config.UpdateMethod
+import git4idea.i18n.GitBundle
 import git4idea.push.GitPushRepoResult.Type.*
 import git4idea.repo.GitRepository
 import git4idea.test.*
-import git4idea.update.GitRebaseOverMergeProblem
 import git4idea.update.GitUpdateResult
 import org.junit.Assume.assumeTrue
 import java.io.File
@@ -175,7 +176,7 @@ class GitPushOperationSingleRepoTest : GitPushOperationBaseTest() {
   }
 
   fun `test force push without lease`() {
-    Registry.get("git.use.push.force.with.lease").setValue(false, testRootDisposable)
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl).setSetting("git.use.push.force.with.lease", false, testRootDisposable)
 
     val broHash = pushCommitFromBro()
 
@@ -437,7 +438,7 @@ class GitPushOperationSingleRepoTest : GitPushOperationBaseTest() {
 
     var rebaseOverMergeProblemDetected = false
     dialogManager.onMessage {
-      rebaseOverMergeProblemDetected = it.contains(GitRebaseOverMergeProblem.DESCRIPTION)
+      rebaseOverMergeProblemDetected = it.contains(GitBundle.message("dialog.message.rebasing.merge.commits"))
       Messages.CANCEL
     }
     push("master", "origin/master")

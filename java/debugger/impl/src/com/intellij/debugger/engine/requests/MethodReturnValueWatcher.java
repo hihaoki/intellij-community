@@ -1,16 +1,17 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.requests;
 
 import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
+import com.intellij.debugger.impl.DebuggerUtilsAsync;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.ui.overhead.OverheadProducer;
 import com.intellij.debugger.ui.overhead.OverheadTimings;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.SimpleColoredComponent;
 import com.sun.jdi.*;
 import com.sun.jdi.event.Event;
@@ -50,12 +51,13 @@ public class MethodReturnValueWatcher implements OverheadProducer {
       LOG.debug("<- " + event.method());
     }
     try {
-      if (Registry.is("debugger.watch.return.speedup") && myEntryMethod != null) {
-        if (myEntryMethod.equals(event.method())) {
+      if (myEntryMethod != null) {
+        // first check declaring type to avoid method calculation in some cases
+        if (myEntryMethod.declaringType().equals(event.location().declaringType()) && myEntryMethod.equals(event.method())) {
           LOG.debug("Now watching all");
           enableEntryWatching(true);
           myEntryMethod = null;
-          createExitRequest().enable();
+          DebuggerUtilsAsync.setEnabled(createExitRequest(), true);
         }
         else {
           return;
@@ -82,9 +84,9 @@ public class MethodReturnValueWatcher implements OverheadProducer {
     try {
       if (myEntryRequest != null && myEntryRequest.isEnabled()) {
         myExitRequest = createExitRequest();
-        myExitRequest.addClassFilter(event.method().declaringType());
+        myExitRequest.addClassFilter(event.location().declaringType());
         myEntryMethod = event.method();
-        myExitRequest.enable();
+        DebuggerUtilsAsync.setEnabled(myExitRequest, true);
 
         if (LOG.isDebugEnabled()) {
           LOG.debug("Now watching only " + event.method());
@@ -93,17 +95,14 @@ public class MethodReturnValueWatcher implements OverheadProducer {
         enableEntryWatching(false);
       }
     }
-    catch (VMDisconnectedException e) {
-      throw e;
-    }
     catch (Exception e) {
-      LOG.error(e);
+      DebuggerUtilsImpl.logError(e);
     }
   }
 
   private void enableEntryWatching(boolean enable) {
     if (myEntryRequest != null) {
-      myEntryRequest.setEnabled(enable);
+      DebuggerUtilsAsync.setEnabled(myEntryRequest, enable);
     }
   }
 
@@ -155,11 +154,11 @@ public class MethodReturnValueWatcher implements OverheadProducer {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     try {
       if (myEntryRequest != null) {
-        myRequestManager.deleteEventRequest(myEntryRequest);
+        DebuggerUtilsAsync.deleteEventRequest(myRequestManager, myEntryRequest);
         myEntryRequest = null;
       }
       if (myExitRequest != null) {
-        myRequestManager.deleteEventRequest(myExitRequest);
+        DebuggerUtilsAsync.deleteEventRequest(myRequestManager, myExitRequest);
         myExitRequest = null;
       }
       if (enabled) {
@@ -167,10 +166,8 @@ public class MethodReturnValueWatcher implements OverheadProducer {
         clear();
         myThread = thread;
 
-        if (Registry.is("debugger.watch.return.speedup")) {
-          createEntryRequest().enable();
-        }
-        createExitRequest().enable();
+        DebuggerUtilsAsync.setEnabled(createEntryRequest(), true);
+        DebuggerUtilsAsync.setEnabled(createExitRequest(), true);
       }
     }
     catch (ObjectCollectedException ignored) {
@@ -189,7 +186,7 @@ public class MethodReturnValueWatcher implements OverheadProducer {
   private MethodExitRequest createExitRequest() {
     DebuggerManagerThreadImpl.assertIsManagerThread(); // to ensure EventRequestManager synchronization
     if (myExitRequest != null) {
-      myRequestManager.deleteEventRequest(myExitRequest);
+      DebuggerUtilsAsync.deleteEventRequest(myRequestManager, myExitRequest);
     }
     myExitRequest = prepareRequest(myRequestManager.createMethodExitRequest());
     return myExitRequest;
@@ -197,7 +194,7 @@ public class MethodReturnValueWatcher implements OverheadProducer {
 
   @NotNull
   private <T extends EventRequest> T prepareRequest(T request) {
-    request.setSuspendPolicy(Registry.is("debugger.watch.return.speedup") ? EventRequest.SUSPEND_EVENT_THREAD : EventRequest.SUSPEND_NONE);
+    request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
     if (myThread != null) {
       if (request instanceof MethodEntryRequest) {
         ((MethodEntryRequest)request).addThreadFilter(myThread);

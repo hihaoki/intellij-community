@@ -26,7 +26,7 @@ public class PyiFileType extends PythonFileType {
   @NotNull
   public static final PythonFileType INSTANCE = new PyiFileType();
 
-  protected PyiFileType() {
+  private PyiFileType() {
     super(new PyiLanguageDialect());
   }
 
@@ -39,7 +39,7 @@ public class PyiFileType extends PythonFileType {
   @NotNull
   @Override
   public String getDescription() {
-    return PyPsiBundle.message("python.stub");
+    return PyPsiBundle.message("filetype.python.stub.description");
   }
 
   @NotNull

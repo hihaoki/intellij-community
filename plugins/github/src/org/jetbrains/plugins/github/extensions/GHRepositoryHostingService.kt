@@ -5,9 +5,9 @@ import com.intellij.dvcs.hosting.RepositoryListLoader
 import com.intellij.dvcs.hosting.RepositoryListLoadingException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import git4idea.remote.GitRepositoryHostingService
 import git4idea.remote.InteractiveGitHttpAuthDataProvider
-import org.jetbrains.annotations.CalledInBackground
 import org.jetbrains.plugins.github.api.GithubApiRequestExecutor
 import org.jetbrains.plugins.github.api.GithubApiRequestExecutorManager
 import org.jetbrains.plugins.github.api.GithubApiRequests
@@ -19,7 +19,6 @@ import org.jetbrains.plugins.github.exceptions.GithubAuthenticationException
 import org.jetbrains.plugins.github.exceptions.GithubMissingTokenException
 import org.jetbrains.plugins.github.exceptions.GithubStatusCodeException
 import org.jetbrains.plugins.github.extensions.GHHttpAuthDataProvider.Companion.getGitAuthenticationAccounts
-import org.jetbrains.plugins.github.util.GithubAccountsMigrationHelper
 import org.jetbrains.plugins.github.util.GithubGitHelper
 import org.jetbrains.plugins.github.util.GithubUtil
 import java.awt.Component
@@ -29,11 +28,11 @@ internal class GHRepositoryHostingService : GitRepositoryHostingService() {
 
   override fun getRepositoryListLoader(project: Project): RepositoryListLoader = GHRepositoryListLoader(project)
 
-  @CalledInBackground
+  @RequiresBackgroundThread
   override fun getInteractiveAuthDataProvider(project: Project, url: String): InteractiveGitHttpAuthDataProvider? =
     getProvider(project, url, null)
 
-  @CalledInBackground
+  @RequiresBackgroundThread
   override fun getInteractiveAuthDataProvider(project: Project, url: String, login: String): InteractiveGitHttpAuthDataProvider? =
     getProvider(project, url, login)
 
@@ -63,7 +62,6 @@ private class GHRepositoryListLoader(private val project: Project) : RepositoryL
   }
 
   override fun enable(parentComponent: Component?): Boolean {
-    if (!GithubAccountsMigrationHelper.getInstance().migrate(project, parentComponent)) return false
     if (!authenticationManager.ensureHasAccounts(project, parentComponent)) return false
 
     var atLeastOneHasToken = false

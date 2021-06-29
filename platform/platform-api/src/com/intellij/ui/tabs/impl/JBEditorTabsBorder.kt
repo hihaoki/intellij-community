@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs.impl
 
+import com.intellij.openapi.util.registry.ExperimentalUI
 import com.intellij.ui.tabs.JBTabsBorder
 import com.intellij.ui.tabs.JBTabsPosition
 import java.awt.*
@@ -23,15 +24,17 @@ class JBEditorTabsBorder(tabs: JBTabsImpl) : JBTabsBorder(tabs) {
       }
     } else {
       val myInfo2Label = tabs.myInfo2Label
-      val firstLabel = myInfo2Label[tabs.lastLayoutPass.getTabAt(0, 0)] ?: return
+      val firstLabel = myInfo2Label[tabs.visibleInfos[0]] ?: return
 
       val startY = firstLabel.y - if (tabs.position == JBTabsPosition.bottom) 0 else thickness
 
       when(tabs.position) {
         JBTabsPosition.top -> {
-          for (eachRow in 0..tabs.lastLayoutPass.rowCount) {
-            val yl = (eachRow * tabs.myHeaderFitSize.height) + startY
-            tabs.tabPainter.paintBorderLine(g, thickness, Point(x, yl), Point(x + width, yl))
+          if (!ExperimentalUI.isNewEditorTabs()) {
+            for (eachRow in 0..tabs.lastLayoutPass.rowCount) {
+              val yl = (eachRow * tabs.myHeaderFitSize.height) + startY
+              tabs.tabPainter.paintBorderLine(g, thickness, Point(x, yl), Point(x + width, yl))
+            }
           }
         }
         JBTabsPosition.bottom -> {

@@ -27,6 +27,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ObjectUtils;
@@ -34,6 +35,7 @@ import com.intellij.util.text.CharSequenceSubSequence;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.AccessibleContextDelegate;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,8 +57,9 @@ public abstract class EditorTextFieldCellRenderer implements TableCellRenderer, 
 
   /** @deprecated Use {@link EditorTextFieldCellRenderer#EditorTextFieldCellRenderer(Project, Language, Disposable)}*/
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
   protected EditorTextFieldCellRenderer(@Nullable Project project, @Nullable FileType fileType, @NotNull Disposable parent) {
-    this(project, LanguageUtil.getFileTypeLanguage(fileType), true, parent);
+    this(project, fileType == null ? null : LanguageUtil.getFileTypeLanguage(fileType), true, parent);
   }
 
   protected EditorTextFieldCellRenderer(@Nullable Project project, @Nullable Language language, @NotNull Disposable parent) {
@@ -248,6 +251,8 @@ public abstract class EditorTextFieldCellRenderer implements TableCellRenderer, 
     private final char myReturnSymbol;
 
     private Dimension myPreferredSize;
+
+    @NlsSafe
     private String myRawText;
 
     public AbbreviatingRendererComponent(Project project, @Nullable Language language, boolean inheritFontFromLaF) {

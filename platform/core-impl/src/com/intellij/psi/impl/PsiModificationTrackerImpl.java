@@ -147,21 +147,6 @@ public final class PsiModificationTrackerImpl implements PsiModificationTracker,
   }
 
   @Override
-  public long getOutOfCodeBlockModificationCount() {
-    return myModificationCount.getModificationCount();
-  }
-
-  @Override
-  public long getJavaStructureModificationCount() {
-    return myModificationCount.getModificationCount();
-  }
-
-  @Override
-  public @NotNull ModificationTracker getOutOfCodeBlockModificationTracker() {
-    return myModificationCount;
-  }
-
-  @Override
   public @NotNull ModificationTracker getJavaStructureModificationTracker() {
     return myModificationCount;
   }
@@ -174,14 +159,14 @@ public final class PsiModificationTrackerImpl implements PsiModificationTracker,
     myLanguageTrackers.get(language).incModificationCount();
   }
 
-  @ApiStatus.Experimental
+  @Override
   public @NotNull ModificationTracker forLanguage(@NotNull Language language) {
     SimpleModificationTracker languageTracker = myLanguageTrackers.get(language);
     return () -> languageTracker.getModificationCount() +
                  myAllLanguagesTracker.getModificationCount();
   }
 
-  @ApiStatus.Experimental
+  @Override
   public @NotNull ModificationTracker forLanguages(@NotNull Predicate<? super Language> condition) {
     return () -> {
       long result = myAllLanguagesTracker.getModificationCount();

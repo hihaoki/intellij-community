@@ -77,12 +77,10 @@ class ModuleModelTest {
       assertThat(model.modules).containsExactly(module)
       assertThat(model.getModuleToBeRenamed("a")).isNull()
       assertThat(model.getActualName(module)).isEqualTo("b")
-      if (ProjectModelRule.isWorkspaceModelEnabled) {
-        //in the old model newly added module doesn't get the new name until commit; it looks like a bug
-        assertThat(model.findModuleByName("a")).isNull()
-        assertThat(model.findModuleByName("b")).isEqualTo(module)
-        assertThat(module.name).isEqualTo("b")
-      }
+      //in the old model newly added module doesn't get the new name until commit; it looks like a bug
+      assertThat(model.findModuleByName("a")).isNull()
+      assertThat(model.findModuleByName("b")).isEqualTo(module)
+      assertThat(module.name).isEqualTo("b")
       module
     }
 
@@ -351,6 +349,19 @@ class ModuleModelTest {
     }
     assertThat(projectModel.moduleManager.hasModuleGroups()).isTrue()
     assertThat(projectModel.moduleManager.getModuleGroupPath(module)).containsExactly("group")
+  }
+
+  @Test
+  fun `remove module and add module with same name`() {
+    val module = projectModel.createModule("foo")
+    edit { model ->
+      model.disposeModule(module)
+      val updatedModule = projectModel.createModule("foo", model)
+      assertThat(model.modules).containsExactly(updatedModule)
+    }
+    val updatedModule = projectModel.moduleManager.modules.single()
+    assertThat(updatedModule.name).isEqualTo("foo")
+    assertThat(module).isNotSameAs(updatedModule)
   }
 
   class ModifiableModuleModelAccessor(private val moduleModel: ModifiableModuleModel) : RootConfigurationAccessor() {

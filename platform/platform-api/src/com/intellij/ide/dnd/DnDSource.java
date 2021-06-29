@@ -2,6 +2,7 @@
 package com.intellij.ide.dnd;
 
 import com.intellij.openapi.util.Pair;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -11,9 +12,9 @@ import java.awt.*;
  * @author Konstantin Bulenkov
  */
 public interface DnDSource extends DnDDropActionHandler {
-  boolean canStartDragging(DnDAction action, Point dragOrigin);
+  boolean canStartDragging(DnDAction action, @NotNull Point dragOrigin);
 
-  DnDDragStartBean startDragging(DnDAction action, Point dragOrigin);
+  DnDDragStartBean startDragging(DnDAction action, @NotNull Point dragOrigin);
 
   /**
    * Image to be drawn on screen while dragging and the point of the offset to position cursor
@@ -33,6 +34,7 @@ public interface DnDSource extends DnDDropActionHandler {
    * @deprecated override {@link DnDSource#createDraggedImage(DnDAction, Point, DnDDragStartBean)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @Nullable
   default Pair<Image, Point> createDraggedImage(DnDAction action, Point dragOrigin) {
     return null;

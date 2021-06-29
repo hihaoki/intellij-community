@@ -1,9 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.reflectiveAccess;
 
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ui.ListTable;
 import com.intellij.codeInspection.ui.ListWrappingTableModel;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
@@ -14,8 +15,8 @@ import com.intellij.psi.impl.source.resolve.reference.impl.JavaReflectionReferen
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.CheckBox;
 import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.ui.UiUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.Contract;
@@ -24,7 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -37,7 +37,7 @@ import static com.intellij.psi.impl.source.resolve.reference.impl.JavaReflection
  */
 public class JavaReflectionMemberAccessInspection extends AbstractBaseJavaLocalInspectionTool {
 
-  private static final Set<String> MEMBER_METHOD_NAMES = ContainerUtil.immutableSet(GET_FIELD, GET_DECLARED_FIELD,
+  private static final Set<String> MEMBER_METHOD_NAMES = Set.of(GET_FIELD, GET_DECLARED_FIELD,
                       GET_METHOD, GET_DECLARED_METHOD,
                       GET_CONSTRUCTOR, GET_DECLARED_CONSTRUCTOR);
 
@@ -53,27 +53,18 @@ public class JavaReflectionMemberAccessInspection extends AbstractBaseJavaLocalI
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
-    final JComponent panel = new JPanel(new GridBagLayout());
+    final MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
 
     final ListTable table = new ListTable(
-      new ListWrappingTableModel(ignoredClassNames, JavaBundle.message(
-        "inspection.reflection.member.access.check.exists.exclude")));
-    final JPanel tablePanel = UiUtils.createAddRemoveTreeClassChooserPanel(table, JavaBundle.message(
-      "inspection.reflection.member.access.check.exists.exclude.chooser"));
+      new ListWrappingTableModel(ignoredClassNames, JavaBundle.message("inspection.reflection.member.access.check.exists.exclude.chooser")));
+    final JPanel tablePanel = UiUtils.createAddRemoveTreeClassChooserPanel(
+      JavaBundle.message("inspection.reflection.member.access.check.exists.exclude.chooser"),
+      JavaBundle.message("inspection.reflection.member.access.check.exists.exclude.label"),
+      table,
+      true);
 
-    final GridBagConstraints constraints = new GridBagConstraints();
-    constraints.gridx = 0;
-    constraints.gridy = 0;
-    constraints.weightx = 1.0;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    final CheckBox checkBox = new CheckBox(JavaBundle.message("inspection.reflection.member.access.check.exists"),
-                                           this, "checkMemberExistsInNonFinalClasses");
-    panel.add(checkBox, constraints);
-
-    constraints.weighty = 1.0;
-    constraints.gridy = 1;
-    constraints.fill = GridBagConstraints.BOTH;
-    panel.add(tablePanel, constraints);
+    panel.addCheckbox(JavaBundle.message("inspection.reflection.member.access.check.exists"), "checkMemberExistsInNonFinalClasses");
+    panel.addGrowing(tablePanel);
 
     return panel;
   }
@@ -191,7 +182,7 @@ public class JavaReflectionMemberAccessInspection extends AbstractBaseJavaLocalI
             }
             return;
           }
-          final PsiMethod matchingMethod = matchMethod(methods, arguments, 1);
+          final PsiMethod matchingMethod = matchMethod(callExpression, methods, arguments, 1);
           if (matchingMethod == null) {
             if (reportUnresolvedMembersOf(ownerClass)) {
               holder.registerProblem(nameExpression, JavaBundle.message(
@@ -223,7 +214,7 @@ public class JavaReflectionMemberAccessInspection extends AbstractBaseJavaLocalI
       final PsiExpression[] arguments = callExpression.getArgumentList().getExpressions();
       final PsiModifierListOwner constructorOrClass;
       if (methods.length != 0) {
-        constructorOrClass = matchMethod(methods, arguments, 0);
+        constructorOrClass = matchMethod(callExpression, methods, arguments, 0);
       }
       else {
         // implicit constructor
@@ -260,9 +251,12 @@ public class JavaReflectionMemberAccessInspection extends AbstractBaseJavaLocalI
   }
 
   @Nullable
-  private static PsiMethod matchMethod(PsiMethod[] methods, PsiExpression[] arguments, int argumentOffset) {
+  private static PsiMethod matchMethod(@NotNull PsiMethodCallExpression callExpression,
+                                       PsiMethod[] methods,
+                                       PsiExpression[] arguments,
+                                       int argumentOffset) {
     final JavaReflectionInvocationInspection.Arguments methodArguments =
-      JavaReflectionInvocationInspection.getActualMethodArguments(arguments, argumentOffset, true);
+      JavaReflectionInvocationInspection.getActualMethodArguments(arguments, argumentOffset, MethodCallUtils.isVarArgCall(callExpression));
     if (methodArguments == null) {
       return null;
     }
